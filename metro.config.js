@@ -1,28 +1,50 @@
-const { getDefaultConfig } = require('@expo/metro-config');
+const { getDefaultConfig } = require("@expo/metro-config");
 
-/** @type {import('expo/metro-config').MetroConfig} */
-const config = getDefaultConfig(__dirname);
+const defaultConfig = getDefaultConfig(__dirname);
 
-// Disable package exports and add additional resolver settings
-config.resolver.unstable_enablePackageExports = false;
-config.resolver.unstable_conditionNames = ["require"];
-
-// Add custom resolveRequest function
-config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName === "axios") {
-    return context.resolveRequest(
-      { ...context, unstable_conditionNames: ["browser"] },
-      moduleName,
-      platform
-    );
-  }
-  return context.resolveRequest(context, moduleName, platform);
+const config = {
+  ...defaultConfig,
+  resolver: {
+    ...defaultConfig.resolver,
+    sourceExts: ["jsx", "js", "ts", "tsx", "cjs", "mjs", "json"],
+    assetExts: [
+      "png",
+      "jpg",
+      "jpeg",
+      "gif",
+      "webp",
+      "ttf",
+      "otf",
+      "woff",
+      "woff2",
+      "db",
+    ],
+    extraNodeModules: {
+      idb: require.resolve("idb"),
+    },
+    resolveRequest: (context, moduleName, platform) => {
+      if (moduleName.includes("idb") && !moduleName.endsWith(".js")) {
+        try {
+          return {
+            filePath: require.resolve("idb"),
+            type: "sourceFile",
+          };
+        } catch (e) {
+          // Fall back to default resolver
+        }
+      }
+      return context.resolveRequest(context, moduleName, platform);
+    },
+  },
+  transformer: {
+    ...defaultConfig.transformer,
+    getTransformOptions: async () => ({
+      transform: {
+        experimentalImportSupport: false,
+        inlineRequires: true,
+      },
+    }),
+  },
 };
 
-// Add transformer configuration
-config.transformer = {
-  ...config.transformer,
-  babelTransformerPath: require.resolve('metro-react-native-babel-transformer'),
-};
-
-module.exports = config; 
+module.exports = config;

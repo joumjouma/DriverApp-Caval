@@ -339,13 +339,38 @@ const HomeScreenWithMap = () => {
     }
 
     try {
+      console.log("Fetching driver data from Firestore...");
+      // First try to get from AsyncStorage
+      const cachedData = await AsyncStorage.getItem('driverInfo');
+      if (cachedData) {
+        console.log("Found cached data in AsyncStorage");
+        const parsedData = JSON.parse(cachedData);
+        console.log("Cached photo URL:", parsedData.photo);
+        setUserName(parsedData.firstName || "Driver");
+        setDriverType(parsedData.driverType || "");
+        if (parsedData.photo) {
+          console.log("Setting photo from cache:", parsedData.photo);
+          setDriverPhoto(parsedData.photo);
+        }
+      }
+
+      // Then fetch from Firestore to ensure we have the latest data
       const docRef = doc(db, "Drivers", currentUser.uid);
       const docSnap = await getDoc(docRef);
+      
       if (docSnap.exists()) {
+        console.log("Firestore data:", docSnap.data());
         const userData = docSnap.data();
         setUserName(userData.firstName || "Driver");
         setDriverType(userData.driverType || "");
-        setDriverPhoto(userData.photo || currentUser.photoURL || "");
+        if (userData.photo) {
+          console.log("Setting photo from Firestore:", userData.photo);
+          setDriverPhoto(userData.photo);
+        }
+        
+        // Update AsyncStorage with latest data
+        await AsyncStorage.setItem('driverInfo', JSON.stringify(userData));
+        console.log("Updated AsyncStorage with latest data");
       } else {
         console.log("No such document in Firestore!");
       }
@@ -1493,7 +1518,12 @@ const HomeScreenWithMap = () => {
                 {driverPhoto ? (
                   <Image 
                     source={{ uri: driverPhoto }} 
-                    style={styles.driverPhoto} 
+                    style={styles.driverPhoto}
+                    onError={(error) => {
+                      console.error("Error loading driver photo:", error.nativeEvent.error);
+                      setDriverPhoto(""); // Reset photo on error
+                    }}
+                    onLoad={() => console.log("Driver photo loaded successfully")}
                   />
                 ) : (
                   <View style={styles.driverPhotoPlaceholder}>
@@ -2169,8 +2199,10 @@ const styles = StyleSheet.create({
   },
   onlineButtonText: {
     color: "#FFFFFF",
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
+    textAlign: "center",
+    width: "100%",
   },
   driverCardContainer: {
     position: "absolute",

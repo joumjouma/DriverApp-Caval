@@ -20,6 +20,9 @@ import { getAuth } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "../config/firebase";
 import * as ImagePicker from "expo-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { storage } from "../config/firebase";
 
 function SettingsScreen() {
   const { colors, toggleTheme, isDarkMode } = useTheme();
@@ -62,6 +65,17 @@ function SettingsScreen() {
       if (!currentUser) return;
 
       try {
+        console.log("Fetching user details...");
+        // First try to get from AsyncStorage
+        const cachedData = await AsyncStorage.getItem('driverInfo');
+        if (cachedData) {
+          console.log("Found cached data in AsyncStorage");
+          const parsedData = JSON.parse(cachedData);
+          setUserDetails(parsedData);
+          setRating(Math.min(parsedData.rating || 80, 100));
+          setRideCount(parsedData.rideCount || 0);
+        }
+
         // Fetch online time (similar to ProfileScreen)
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -80,14 +94,21 @@ function SettingsScreen() {
           }
         }
 
-        // Fetch driver details
+        // Fetch driver details from Firestore
+        console.log("Fetching from Firestore...");
         const docRefDriver = doc(db, "Drivers", currentUser.uid);
         const docSnapDriver = await getDoc(docRefDriver);
 
         if (docSnapDriver.exists()) {
-          setUserDetails(docSnapDriver.data());
-          setRating(Math.min(docSnapDriver.data().rating || 80, 100));
-          setRideCount(docSnapDriver.data().rideCount || 0);
+          console.log("Firestore data:", docSnapDriver.data());
+          const firestoreData = docSnapDriver.data();
+          setUserDetails(firestoreData);
+          setRating(Math.min(firestoreData.rating || 80, 100));
+          setRideCount(firestoreData.rideCount || 0);
+          
+          // Update AsyncStorage with latest data
+          await AsyncStorage.setItem('driverInfo', JSON.stringify(firestoreData));
+          console.log("Updated AsyncStorage with Firestore data");
         }
       } catch (error) {
         console.error("Error fetching user details:", error);
@@ -130,14 +151,71 @@ function SettingsScreen() {
       if (!result.canceled) {
         setLoading(true);
         const imageUri = result.assets[0].uri;
+        console.log("Selected image URI:", imageUri);
+        
+        // Create a reference to the storage location
+        const filename = `${user.uid}_${Date.now()}.jpg`;
+        const storageRef = ref(storage, `profile_photos/${filename}`);
+        console.log("Storage reference created:", storageRef);
+        
+        // Convert URI to blob
+        console.log("Converting image to blob...");
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        console.log("Blob created, size:", blob.size);
+        
+        // Upload the image with metadata
+        const metadata = {
+          contentType: 'image/jpeg',
+          customMetadata: {
+            'uploadedBy': user.uid,
+            'uploadedAt': new Date().toISOString()
+          }
+        };
+        
+        console.log("Uploading to Firebase Storage...");
+        const uploadResult = await uploadBytes(storageRef, blob, metadata);
+        console.log("Upload result:", uploadResult);
+        
+        console.log("Getting download URL...");
+        const downloadURL = await getDownloadURL(uploadResult.ref);
+        console.log("Download URL:", downloadURL);
+        
+        // Update Firestore with the download URL
+        console.log("Updating Firestore...");
         const docRef = doc(db, "Drivers", user.uid);
-        await updateDoc(docRef, { photo: imageUri });
-        setUserDetails((prev) => ({ ...prev, photo: imageUri }));
+        await updateDoc(docRef, { 
+          photo: downloadURL,
+          photoUpdatedAt: new Date().toISOString()
+        });
+        
+        // Update local state
+        console.log("Updating local state...");
+        setUserDetails((prev) => {
+          const updated = { 
+            ...prev, 
+            photo: downloadURL,
+            photoUpdatedAt: new Date().toISOString()
+          };
+          console.log("Updated user details:", updated);
+          return updated;
+        });
+        
+        // Update AsyncStorage
+        console.log("Updating AsyncStorage...");
+        const updatedDetails = { 
+          ...userDetails, 
+          photo: downloadURL,
+          photoUpdatedAt: new Date().toISOString()
+        };
+        await AsyncStorage.setItem('driverInfo', JSON.stringify(updatedDetails));
+        console.log("AsyncStorage updated");
+        
         Alert.alert("Success", "Profile picture updated successfully.");
       }
     } catch (error) {
       console.error("Error updating profile picture:", error);
-      Alert.alert("Error", "Unable to update profile picture.");
+      Alert.alert("Error", "Unable to update profile picture. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -218,7 +296,15 @@ function SettingsScreen() {
       <View style={[styles.profileSection, { backgroundColor: colors.card }]}>
         <View style={styles.profileImageContainer}>
           {userDetails?.photo ? (
-            <Image source={{ uri: userDetails.photo }} style={styles.profileImage} />
+            <>
+              {console.log("Attempting to display image with URL:", userDetails.photo)}
+              <Image 
+                source={{ uri: userDetails.photo }} 
+                style={styles.profileImage}
+                onError={(error) => console.error("Image loading error:", error.nativeEvent.error)}
+                onLoad={() => console.log("Image loaded successfully")}
+              />
+            </>
           ) : (
             <View style={[styles.placeholderPic, { backgroundColor: colors.primary }]}>
               <Ionicons name="person" size={30} color="#FFFFFF" />

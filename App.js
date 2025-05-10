@@ -1,12 +1,13 @@
-import React, { useState } from "react";
-import { Platform, StyleSheet, View, ActivityIndicator } from "react-native";
+import React, { useState, useEffect } from "react";
+import { Platform, StyleSheet, View, ActivityIndicator, Text } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import Ionicons from "react-native-vector-icons/Ionicons"; // For icons
-import { auth } from "./config/firebase";
 import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { StripeProvider } from '@stripe/stripe-react-native';
+import { auth, db } from './config/firebase';
 
 // Import Screens
 import LoginScreen from "./screens/LoginScreen";
@@ -154,12 +155,52 @@ const AppContent = () => {
 };
 
 export default function App() {
+  const [isFirebaseInitialized, setIsFirebaseInitialized] = useState(false);
+  const [initError, setInitError] = useState(null);
+
+  useEffect(() => {
+    const checkFirebaseInitialization = () => {
+      try {
+        // Check if auth is initialized
+        if (auth) {
+          setIsFirebaseInitialized(true);
+        } else {
+          setInitError("Firebase Auth not initialized");
+        }
+      } catch (error) {
+        console.error("Firebase initialization check error:", error);
+        setInitError(error.message);
+      }
+    };
+
+    checkFirebaseInitialization();
+  }, []);
+
+  if (initError) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorText}>Error initializing Firebase: {initError}</Text>
+      </View>
+    );
+  }
+
+  if (!isFirebaseInitialized) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#ff9f43" />
+        <Text style={styles.loadingText}>Initializing Firebase...</Text>
+      </View>
+    );
+  }
+
   return (
-    <AuthProvider>
-      <ThemeProvider>
-        <AppContent />
-      </ThemeProvider>
-    </AuthProvider>
+    <StripeProvider publishableKey="pk_live_51R9ek8CmEzIPQVTO8V3wcapg87N24eNFOCaJ4dz2krvfKSBaNe5g0vYAW4XBHESTYpQBi6fdz7GA4fPGJh4BlGIW00L1KYPz6m">
+      <AuthProvider>
+        <ThemeProvider>
+          <AppContent />
+        </ThemeProvider>
+      </AuthProvider>
+    </StripeProvider>
   );
 }
 
@@ -169,5 +210,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#1e1e1e",
+  },
+  loadingText: {
+    color: "#ff9f43",
+    marginTop: 10,
+    fontSize: 16,
+  },
+  errorText: {
+    color: "#ff4444",
+    marginTop: 10,
+    fontSize: 16,
+    textAlign: "center",
+    padding: 20,
   },
 });

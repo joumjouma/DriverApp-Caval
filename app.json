@@ -2,6 +2,7 @@
   "expo": {
     "name": "Eco-share",
     "slug": "Eco-share",
+    "owner": "zouhair123",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,39 +15,40 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.googleusercontent.apps.1007561335979-ppmh7dnmssp44fnndtvm92ikaj5nm6vt",
+      "bundleIdentifier": "com.misscoding.Eco-Share",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "newArchEnabled": true
     },
     "android": {
       "package": "com.misscoding.ecoshare",
+      "versionCode": 4,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBnVN-ACYzcA0Sy8BcPLpXG50Y9T8jhJGE"
+        }
+      },
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "extra": {
       "eas": {
-        "projectId": "e9a028a2-5ad1-4cc3-9dbf-62a879c84314"
-      }
+        "projectId": "97f35a2b-2bbf-4893-9f43-cd2df775196a"
+      },
+      "firebaseApiKey": "AIzaSyBMQW59pFle0vVp0xotmnpVTYqAlTbdbQQ",
+      "firebaseAuthDomain": "eco-share-92ef1.firebaseapp.com",
+      "firebaseProjectId": "eco-share-92ef1",
+      "firebaseStorageBucket": "eco-share-92ef1.firebasestorage.app",
+      "firebaseMessagingSenderId": "747419763478",
+      "firebaseAppId": "1:747419763478:android:32f44f9a3306b9c32c8637",
+      "firebaseMeasurementId": "G-XXXXXXXXXX"
     },
-    "plugins": [
-      "expo-secure-store",
-      [
-        "expo-location",
-        {
-          "locationAlwaysAndWhenInUsePermission": "Allow Eco-share to use your location."
-        }
-      ],
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Allow Eco-share to access your camera."
-        }
-      ]
-    ],
-    "sdkVersion": "53.0.0"
+    "plugins": ["expo-secure-store", "expo-web-browser"]
   }
 }

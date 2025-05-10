@@ -10,18 +10,19 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  ScrollView,
 } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
-import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, GoogleAuthProvider, signInWithCredential, signOut } from "firebase/auth";
+import { signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithCredential, onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { db } from "../config/firebase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Google from "expo-auth-session/providers/google";
+import { auth, db } from "../config/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import * as WebBrowser from 'expo-web-browser';
-import * as Google from 'expo-auth-session/providers/google';
 import { makeRedirectUri } from 'expo-auth-session';
 import CavalLogo from "../assets/Caval_courrier_logo-removebg-preview.png";
 import { useTheme } from "../context/ThemeContext";
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -31,8 +32,6 @@ function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [authStateReady, setAuthStateReady] = useState(false);
   const navigation = useNavigation();
-  const auth = getAuth();
-  const { colors, toggleTheme, isDarkMode } = useTheme();
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     clientId: '1007561335979-3c5q3tvj8e5fig9hlas8hnrc6gpa999b.apps.googleusercontent.com',
@@ -214,6 +213,8 @@ function LoginScreen() {
       setLoading(false);
     }
   };
+
+  const { colors, toggleTheme, isDarkMode } = useTheme();
 
   return (
     <KeyboardAvoidingView

@@ -31,6 +31,14 @@ const RideInProgressScreen = () => {
   const mapRef = useRef(null);
   const GOOGLE_MAPS_APIKEY = "AIzaSyBH87gAekJEssZuAX-q3lwjDjLRr0jXMNs";
 
+  // Configure navigation options to prevent swiping back
+  useEffect(() => {
+    navigation.setOptions({
+      gestureEnabled: false, // Disable swipe back gesture
+      headerLeft: () => null, // Remove back button
+    });
+  }, [navigation]);
+
   // Initialize customer info from route params
   const [customerInfo, setCustomerInfo] = useState({
     firstName: route.params?.firstName || "",

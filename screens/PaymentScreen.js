@@ -6,7 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import { getAuth } from "firebase/auth";
 import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../config/firebase";
-import { useStripe } from '@stripe/stripe-react-native';
+import { useStripe, CardField, useConfirmPayment } from '@stripe/stripe-react-native';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const STRIPE_PUBLISHABLE_KEY = 'pk_live_51R9ek8CmEzIPQVTO8V3wcapg87N24eNFOCaJ4dz2krvfKSBaNe5g0vYAW4XBHESTYpQBi6fdz7GA4fPGJh4BlGIW00L1KYPz6m';
