@@ -22,7 +22,13 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "We need your location to show nearby rides and provide accurate navigation.",
         "NSLocationAlwaysUsageDescription": "We need your location to show nearby rides and provide accurate navigation.",
-        "UIBackgroundModes": ["location", "fetch"]
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "location",
+          "fetch"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -37,7 +43,10 @@
           "apiKey": "AIzaSyBnVN-ACYzcA0Sy8BcPLpXG50Y9T8jhJGE"
         }
       },
-      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ],
       "googleServicesFile": "./google-services.json"
     },
     "web": {
@@ -55,6 +64,9 @@
       "firebaseAppId": "1:747419763478:android:32f44f9a3306b9c32c8637",
       "firebaseMeasurementId": "G-XXXXXXXXXX"
     },
-    "plugins": ["expo-secure-store", "expo-web-browser"]
+    "plugins": [
+      "expo-secure-store",
+      "expo-web-browser"
+    ]
   }
 }
