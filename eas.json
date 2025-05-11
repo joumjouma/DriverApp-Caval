@@ -16,6 +16,9 @@
       "android": {
         "buildType": "app-bundle"
       },
+      "ios": {
+        "resourceClass": "m-medium"
+      },
       "distribution": "store",
       "developmentClient": false
     }
