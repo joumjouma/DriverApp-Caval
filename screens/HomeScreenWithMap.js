@@ -19,6 +19,7 @@ import {
   Linking,
   RefreshControl,
   ScrollView,
+  Alert,
 } from "react-native";
 import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
 import { Ionicons, MaterialIcons, FontAwesome5, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -383,14 +384,59 @@ const HomeScreenWithMap = () => {
   // 7. Get Current Location
   // -----------------------------------------------------------------
   useEffect(() => {
-    (async () => {
+    const setupLocation = async () => {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted") {
-          console.log("Permission to access location was denied");
+        // Request both foreground and background permissions
+        const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
+        const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
+        
+        if (foregroundStatus !== 'granted' || backgroundStatus !== 'granted') {
+          Alert.alert(
+            "Location Permission Required",
+            "This app needs location access to function. Please enable location permissions in your device settings.",
+            [
+              {
+                text: "Open Settings",
+                onPress: () => {
+                  if (Platform.OS === 'ios') {
+                    Linking.openURL('app-settings:');
+                  } else {
+                    Linking.openSettings();
+                  }
+                }
+              },
+              { text: "Cancel", style: "cancel" }
+            ]
+          );
           return;
         }
-        const currentPosition = await Location.getCurrentPositionAsync({});
+
+        // Enable location services
+        await Location.enableNetworkProviderAsync();
+        
+        // Get last known location first
+        const lastKnownLocation = await Location.getLastKnownPositionAsync({
+          maxAge: 10000
+        });
+
+        if (lastKnownLocation) {
+          const { latitude, longitude } = lastKnownLocation.coords;
+          setFromLocation({ latitude, longitude });
+          setRegion({
+            latitude,
+            longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          });
+        }
+
+        // Then get current location with high accuracy
+        const currentPosition = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 5000,
+          distanceInterval: 10,
+        });
+
         if (currentPosition?.coords) {
           const { latitude, longitude } = currentPosition.coords;
           setFromLocation({ latitude, longitude });
@@ -401,10 +447,64 @@ const HomeScreenWithMap = () => {
             longitudeDelta: 0.01,
           });
         }
-      } catch (err) {
-        console.error("Error getting location:", err);
+
+        // Start watching position
+        const subscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 5000,
+            distanceInterval: 10,
+          },
+          (location) => {
+            if (location?.coords) {
+              const { latitude, longitude } = location.coords;
+              setFromLocation({ latitude, longitude });
+              setRegion({
+                latitude,
+                longitude,
+                latitudeDelta: 0.01,
+                longitudeDelta: 0.01,
+              });
+            }
+          }
+        );
+
+        return () => {
+          if (subscription) {
+            subscription.remove();
+          }
+        };
+      } catch (error) {
+        console.error("Location setup error:", error);
+        Alert.alert(
+          "Location Error",
+          "There was a problem setting up location services. Please make sure:\n\n" +
+          "1. Location services are enabled in your device settings\n" +
+          "2. You have granted location permission to the app\n" +
+          "3. You are in an area with good GPS signal\n\n" +
+          "Would you like to try again?",
+          [
+            {
+              text: "Try Again",
+              onPress: () => setupLocation()
+            },
+            {
+              text: "Open Settings",
+              onPress: () => {
+                if (Platform.OS === 'ios') {
+                  Linking.openURL('app-settings:');
+                } else {
+                  Linking.openSettings();
+                }
+              }
+            },
+            { text: "Cancel", style: "cancel" }
+          ]
+        );
       }
-    })();
+    };
+
+    setupLocation();
   }, []);
 
   // Start fade-in animation when map is ready
