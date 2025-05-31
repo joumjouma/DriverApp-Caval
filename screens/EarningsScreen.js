@@ -244,9 +244,9 @@ export default function EarningsScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border, marginTop: Platform.OS === 'android' ? 32 : 0 }]}>
         <TouchableOpacity 
-          style={styles.backButton}
+          style={[styles.backButton, { marginTop: Platform.OS === 'android' ? 8 : 0 }]}
           onPress={() => navigation.goBack()}
         >
           <Ionicons name="arrow-back" size={24} color={colors.text} />
@@ -492,10 +492,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
+    marginTop: Platform.OS === 'android' ? 32 : 0,
   },
   backButton: {
     padding: 8,
     marginRight: 16,
+    marginTop: Platform.OS === 'android' ? 8 : 0,
   },
   headerTitle: {
     fontSize: 18,

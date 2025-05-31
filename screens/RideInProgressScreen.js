@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Image,
   Animated,
+  Platform,
 } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import MapViewDirections from "react-native-maps-directions";
@@ -553,8 +554,8 @@ const RideInProgressScreen = () => {
           <Marker coordinate={pickupLocation}>
             <View style={styles.markerContainer}>
               <Image source={CustomPin} style={styles.pin} resizeMode="contain" />
-              <Text style={styles.markerLabel} numberOfLines={2} ellipsizeMode="tail">
-                {pickupAddress || "Point de départ"}
+              <Text style={[styles.markerLabel, Platform.OS === 'android' && styles.pickupLabel]} numberOfLines={2} ellipsizeMode="tail">
+                {Platform.OS === 'android' ? 'PICKUP: ' : ''}{pickupAddress || "Point de départ"}
               </Text>
             </View>
           </Marker>
@@ -565,8 +566,8 @@ const RideInProgressScreen = () => {
           <Marker coordinate={dropOffLocation}>
             <View style={styles.markerContainer}>
               <Image source={CustomPin} style={styles.pin} resizeMode="contain" />
-              <Text style={styles.markerLabel} numberOfLines={2} ellipsizeMode="tail">
-                {destinationAddress || "Destination"}
+              <Text style={[styles.markerLabel, Platform.OS === 'android' && styles.dropoffLabel]} numberOfLines={2} ellipsizeMode="tail">
+                {Platform.OS === 'android' ? 'DROPOFF: ' : ''}{destinationAddress || "Destination"}
               </Text>
             </View>
           </Marker>
@@ -927,34 +928,37 @@ const styles = StyleSheet.create({
   },
   newCustomerBanner: {
     position: "absolute",
-    top: 90,
-    left: 20,
-    right: 20,
-    zIndex: 100,
-    backgroundColor: "rgba(30, 30, 30, 0.95)",
-    borderRadius: 15,
-    padding: 15,
+    top: 70,
+    left: '8%',
+    right: '8%',
+    zIndex: 200,
+    backgroundColor: "rgba(30, 30, 30, 0.98)",
+    borderRadius: 14,
+    padding: 10,
     shadowColor: "#000",
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.3,
     shadowRadius: 5,
-    elevation: 6,
-    borderWidth: 1,
+    elevation: 8,
+    borderWidth: 2,
     borderColor: "#FF6F00",
+    alignItems: 'center',
   },
   newBannerHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 15,
+    marginBottom: 10,
   },
   newAvatarContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#FF6F00",
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 15,
+    marginRight: 10,
     overflow: "hidden",
+    borderWidth: 1,
+    borderColor: '#fff',
   },
   newAvatarImage: {
     width: "100%",
@@ -965,19 +969,19 @@ const styles = StyleSheet.create({
   },
   newCustomerFirstName: {
     color: "#fff",
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: "700",
-    marginBottom: 4,
+    marginBottom: 2,
   },
   newCustomerPhone: {
     color: "#b3b3b3",
-    fontSize: 16,
-    marginBottom: 4,
+    fontSize: 13,
+    marginBottom: 2,
   },
   newRidePrice: {
     color: "#FF6F00",
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
   },
   newActionButtons: {
     flexDirection: "row",
@@ -1008,6 +1012,26 @@ const styles = StyleSheet.create({
   newDisabledButton: {
     backgroundColor: "#5F5F5F",
     opacity: 0.5,
+  },
+  pickupLabel: {
+    backgroundColor: '#4CD964',
+    color: '#fff',
+    fontWeight: 'bold',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    overflow: 'hidden',
+    marginRight: 4,
+  },
+  dropoffLabel: {
+    backgroundColor: '#FF3B30',
+    color: '#fff',
+    fontWeight: 'bold',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    overflow: 'hidden',
+    marginRight: 4,
   },
 });
 

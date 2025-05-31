@@ -12,6 +12,7 @@ import {
   Dimensions,
   StatusBar,
   Modal,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -57,6 +58,7 @@ function Profile() {
         if (storedData) {
           console.log("Found stored driver data:", JSON.parse(storedData));
           const parsedData = JSON.parse(storedData);
+          console.log("Photo URL from AsyncStorage:", parsedData.photo);
           setUserDetails(parsedData);
           
           // Check if user already has a photo
@@ -79,6 +81,7 @@ function Profile() {
         if (docSnapDriver.exists()) {
           const data = docSnapDriver.data();
           console.log("Fetched driver data from Firestore:", data);
+          console.log("Photo URL from Firestore:", data.photo);
           setUserDetails(data);
           
           // Store in AsyncStorage for future use
@@ -106,187 +109,6 @@ function Profile() {
     fetchUserDetails();
   }, []);
 
-  const handleProfilePictureChange = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      Alert.alert("Error", "You must be logged in to change your profile picture.");
-      return;
-    }
-    try {
-      // Request permission first
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please grant permission to access your photos.');
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-      
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setLoading(true);
-        const imageUri = result.assets[0].uri;
-        console.log("Selected image URI:", imageUri);
-        
-        try {
-          // Create a reference to the storage location
-          const filename = `${user.uid}_${Date.now()}.jpg`;
-          const storageRef = ref(storage, `profile_photos/${filename}`);
-          console.log("Storage reference created:", storageRef);
-          
-          // Convert URI to blob
-          console.log("Fetching image...");
-          const response = await fetch(imageUri);
-          if (!response.ok) {
-            throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
-          }
-          
-          console.log("Converting to blob...");
-          const blob = await response.blob();
-          if (!blob) {
-            throw new Error('Failed to convert image to blob');
-          }
-          console.log("Blob created successfully, size:", blob.size);
-          
-          // Upload the image with metadata
-          console.log("Uploading to Firebase Storage...");
-          const metadata = {
-            contentType: 'image/jpeg',
-            customMetadata: {
-              'uploadedBy': user.uid,
-              'uploadedAt': new Date().toISOString()
-            }
-          };
-          
-          const uploadResult = await uploadBytes(storageRef, blob, metadata);
-          console.log("Upload result:", uploadResult);
-          
-          // Get the download URL
-          console.log("Getting download URL...");
-          const downloadURL = await getDownloadURL(uploadResult.ref);
-          console.log("Download URL:", downloadURL);
-          
-          // Update Firestore with the download URL
-          console.log("Updating Firestore...");
-          const docRef = doc(db, "Drivers", user.uid);
-          await updateDoc(docRef, { 
-            photo: downloadURL,
-            photoUpdatedAt: new Date().toISOString()
-          });
-          
-          // Update local state and AsyncStorage
-          const updatedDetails = { 
-            ...userDetails, 
-            photo: downloadURL,
-            photoUpdatedAt: new Date().toISOString()
-          };
-          setUserDetails(updatedDetails);
-          await AsyncStorage.setItem('driverInfo', JSON.stringify(updatedDetails));
-          
-          // Close prompt if open
-          setShowPhotoPrompt(false);
-          
-          Alert.alert("Success", "Profile picture updated successfully.");
-        } catch (uploadError) {
-          console.error("Detailed upload error:", uploadError);
-          console.error("Error code:", uploadError.code);
-          console.error("Error message:", uploadError.message);
-          console.error("Error details:", uploadError.details);
-          
-          Alert.alert(
-            "Error", 
-            `Failed to upload image: ${uploadError.message}. Please try again.`
-          );
-        }
-      }
-    } catch (error) {
-      console.error("Detailed error:", error);
-      Alert.alert(
-        "Error", 
-        `Unable to update profile picture: ${error.message}. Please try again.`
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const dismissPhotoPrompt = () => {
-    setShowPhotoPrompt(false);
-  };
-
-  const PhotoPromptModal = () => (
-    <Modal
-      transparent={true}
-      visible={showPhotoPrompt}
-      animationType="fade"
-      onRequestClose={dismissPhotoPrompt}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
-          <LinearGradient
-            colors={["#ff7e28", "#ff9f43"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.modalHeader}
-          >
-            <Ionicons name="camera" size={32} color="#fff" />
-          </LinearGradient>
-          
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Télécharger une photo de profil</Text>
-            <Text style={styles.modalMessage}>
-              L'ajout d'une photo de profil professionnelle aide à établir la confiance avec les clients et améliore votre 
-              vérification d'identité en tant que chauffeur Caval Courier.
-            </Text>
-            
-            <View style={styles.benefitsContainer}>
-              <View style={styles.benefitItem}>
-                <View style={styles.benefitIconContainer}>
-                  <Ionicons name="shield-checkmark-outline" size={22} color="#ff7e28" />
-                </View>
-                <Text style={styles.benefitText}>Vérification améliorée du chauffeur</Text>
-              </View>
-              
-              <View style={styles.benefitItem}>
-                <View style={styles.benefitIconContainer}>
-                  <Ionicons name="star-outline" size={22} color="#ff7e28" />
-                </View>
-                <Text style={styles.benefitText}>Meilleures évaluations des clients</Text>
-              </View>
-              
-              <View style={styles.benefitItem}>
-                <View style={styles.benefitIconContainer}>
-                  <Ionicons name="person-outline" size={22} color="#ff7e28" />
-                </View>
-                <Text style={styles.benefitText}>Apparence professionnelle</Text>
-              </View>
-            </View>
-            
-            <View style={styles.modalButtonsContainer}>
-              <TouchableOpacity 
-                style={styles.uploadButton}
-                onPress={handleProfilePictureChange}
-              >
-                <Ionicons name="image-outline" size={20} color="#fff" />
-                <Text style={styles.uploadButtonText}>Choisir une photo</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.laterButton}
-                onPress={dismissPhotoPrompt}
-              >
-                <Text style={styles.laterButtonText}>Je le ferai plus tard</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
   const handleLogin = async () => {
     try {
       // Set persistence first
@@ -385,25 +207,6 @@ async function handleLogout() {
     );
   };
 
-  const renderMissingPhotoReminder = () => {
-    if (userDetails?.photo) return null;
-    
-    return (
-      <TouchableOpacity 
-        style={styles.photoReminderBanner}
-        onPress={handleProfilePictureChange}
-      >
-        <View style={styles.photoReminderIconContainer}>
-          <Ionicons name="camera" size={20} color="#fff" />
-        </View>
-        <Text style={styles.photoReminderText}>
-          Ajoutez une photo de profil pour compléter votre profil de chauffeur
-        </Text>
-        <Ionicons name="chevron-forward" size={20} color="#ff7e28" />
-      </TouchableOpacity>
-    );
-  };
-
   const MenuItem = ({ icon, title, onPress, badge }) => (
     <TouchableOpacity
       style={[styles.menuItem, { backgroundColor: colors.card }]}
@@ -430,9 +233,6 @@ async function handleLogout() {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="light-content" backgroundColor="#ff7e28" />
       
-      {/* Photo Upload Prompt Modal */}
-      <PhotoPromptModal />
-      
       {/* Logo Header */}
       <View style={[styles.logoHeader, { backgroundColor: colors.card }]}>
         <Image
@@ -451,22 +251,23 @@ async function handleLogout() {
           style={styles.headerGradient}
         >
           <View style={styles.header}>
-            <TouchableOpacity
-              style={styles.profilePicContainer}
-              onPress={handleProfilePictureChange}
-              activeOpacity={0.8}
-            >
-              {userDetails?.photo ? (
-                <Image source={{ uri: userDetails.photo }} style={styles.profilePic} />
+            <View style={styles.profilePicContainer}>
+              {userDetails?.photo || userDetails?.facePhoto ? (
+                <>
+                  {console.log("Attempting to display photo with URL:", userDetails.photo || userDetails.facePhoto)}
+                  <Image 
+                    source={{ uri: userDetails.photo || userDetails.facePhoto }} 
+                    style={styles.profilePic}
+                    onError={(error) => console.error("Image loading error:", error.nativeEvent.error)}
+                    onLoad={() => console.log("Image loaded successfully")}
+                  />
+                </>
               ) : (
-                <View style={[styles.placeholderPic, { backgroundColor: colors.card }]}>
+                <View style={[styles.placeholderPic, { backgroundColor: colors.card }]}> 
                   <Ionicons name="person" size={42} color={colors.primary} />
                 </View>
               )}
-              <View style={styles.editBadge}>
-                <Ionicons name="camera" size={16} color="#fff" />
-              </View>
-            </TouchableOpacity>
+            </View>
             
             {/* Driver status badge */}
             {renderStatusBadge()}
@@ -481,9 +282,6 @@ async function handleLogout() {
           {renderStars()}
           {renderDriverInfo()}
         </View>
-
-        {/* Missing Photo Reminder if needed */}
-        {renderMissingPhotoReminder()}
 
         
         {/* Menu Sections */}
@@ -538,8 +336,6 @@ async function handleLogout() {
   );
 }
 
-export default Profile;
-
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -553,6 +349,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
+    marginTop: Platform.OS === 'android' ? 32 : 0,
   },
   logo: {
     width: 120,
@@ -560,7 +357,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flexGrow: 1,
-    paddingBottom: 30,
+    paddingBottom: 100,
   },
   headerGradient: {
     paddingTop: 20,
@@ -598,16 +395,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 4,
     borderColor: '#fff',
-  },
-  editBadge: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    backgroundColor: "#ff7e28",
-    padding: 8,
-    borderRadius: 20,
-    borderWidth: 3,
-    borderColor: "#fff",
   },
   statusBadgeContainer: {
     flexDirection: "row",
@@ -744,6 +531,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 14,
     marginHorizontal: 20,
+    marginBottom: 30,
     shadowColor: "#ff7e28",
     shadowOffset: {
       width: 0,
@@ -781,125 +569,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 20,
   },
-  
-  // New styles for photo reminder banner
-  photoReminderBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#FFF5EC",
-    marginHorizontal: 20,
-    marginVertical: 10,
-    padding: 12,
-    borderRadius: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: "#ff7e28",
-  },
-  photoReminderIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#ff7e28",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  photoReminderText: {
-    flex: 1,
-    fontSize: 14,
-    color: "#333",
-    fontWeight: "500",
-  },
-  
-  // Modal styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  modalContainer: {
-    width: "90%",
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 10,
-  },
-  modalHeader: {
-    padding: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalContent: {
-    padding: 20,
-  },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#333",
-    textAlign: "center",
-    marginBottom: 16,
-  },
-  modalMessage: {
-    fontSize: 16,
-    color: "#666",
-    textAlign: "center",
-    marginBottom: 20,
-    lineHeight: 22,
-  },
-  benefitsContainer: {
-    marginBottom: 24,
-  },
-  benefitItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  benefitIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#FFF5EC",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  benefitText: {
-    fontSize: 15,
-    color: "#444",
-  },
-  modalButtonsContainer: {
-    alignItems: "center",
-  },
-  uploadButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#ff7e28",
-    width: "100%",
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  uploadButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-    marginLeft: 10,
-  },
-  laterButton: {
-    paddingVertical: 12,
-  },
-  laterButtonText: {
-    color: "#666",
-    fontSize: 14,
-  },
 });
+
+export default Profile;

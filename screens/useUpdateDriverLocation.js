@@ -1,17 +1,48 @@
-import { useEffect } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import * as Location from "expo-location";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../config/firebase";
+import { useNavigation, useRoute } from "@react-navigation/native";
 
 const useUpdateDriverLocation = () => {
   const auth = getAuth();
+  const navigation = useNavigation();
+  const route = useRoute();
   
-  useEffect(() => {
-    let locationSubscription = null;
-    let onlineStatusInterval = null;
+  // Use refs to store subscriptions
+  const subscriptions = useRef({
+    location: null,
+    onlineStatus: null,
+    auth: null
+  });
 
-    const startLocationUpdates = async () => {
+  const cleanup = useCallback(() => {
+    const { location, onlineStatus, auth } = subscriptions.current;
+    
+    if (location) {
+      location.remove();
+      subscriptions.current.location = null;
+    }
+    
+    if (onlineStatus) {
+      clearInterval(onlineStatus);
+      subscriptions.current.onlineStatus = null;
+    }
+    
+    if (auth) {
+      auth();
+      subscriptions.current.auth = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    const startLocationUpdates = async (user) => {
+      if (!user) {
+        console.log('No authenticated user, skipping location updates');
+        return;
+      }
+
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
@@ -19,12 +50,7 @@ const useUpdateDriverLocation = () => {
           return;
         }
 
-        if (!auth.currentUser) {
-          console.error('No authenticated user found');
-          return;
-        }
-
-        const driverRef = doc(db, "Drivers", auth.currentUser.uid);
+        const driverRef = doc(db, "Drivers", user.uid);
         
         // Get current driver status
         const driverDoc = await getDoc(driverRef);
@@ -42,11 +68,11 @@ const useUpdateDriverLocation = () => {
           latitude: currentLocation.coords.latitude,
           longitude: currentLocation.coords.longitude,
           lastLocationUpdate: new Date().toISOString(),
-          isOnline: isDriverOnline // Maintain existing online status
+          isOnline: isDriverOnline
         });
 
         // Set up location subscription
-        locationSubscription = await Location.watchPositionAsync(
+        const locationSubscription = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.High,
             timeInterval: 5000,
@@ -55,7 +81,7 @@ const useUpdateDriverLocation = () => {
           async (location) => {
             try {
               const { latitude, longitude } = location.coords;
-              const driverRef = doc(db, "Drivers", auth.currentUser.uid);
+              const driverRef = doc(db, "Drivers", user.uid);
               const driverDoc = await getDoc(driverRef);
               
               if (driverDoc.exists()) {
@@ -64,7 +90,7 @@ const useUpdateDriverLocation = () => {
                   latitude,
                   longitude,
                   lastLocationUpdate: new Date().toISOString(),
-                  isOnline: driverData.isOnline // Maintain existing online status
+                  isOnline: driverData.isOnline
                 });
               }
             } catch (error) {
@@ -73,10 +99,13 @@ const useUpdateDriverLocation = () => {
           }
         );
 
+        // Store the location subscription
+        subscriptions.current.location = locationSubscription;
+
         // Set up periodic online status check
-        onlineStatusInterval = setInterval(async () => {
+        const onlineStatusInterval = setInterval(async () => {
           try {
-            const driverRef = doc(db, "Drivers", auth.currentUser.uid);
+            const driverRef = doc(db, "Drivers", user.uid);
             const driverDoc = await getDoc(driverRef);
             
             if (driverDoc.exists()) {
@@ -84,9 +113,8 @@ const useUpdateDriverLocation = () => {
               const lastUpdate = driverData.lastLocationUpdate;
               const now = new Date();
               const lastUpdateTime = new Date(lastUpdate);
-              const timeDiff = (now - lastUpdateTime) / 1000; // in seconds
+              const timeDiff = (now - lastUpdateTime) / 1000;
 
-              // If no location update for more than 30 seconds and driver is marked as online
               if (timeDiff > 30 && driverData.isOnline) {
                 await updateDoc(driverRef, {
                   isOnline: false,
@@ -97,24 +125,40 @@ const useUpdateDriverLocation = () => {
           } catch (error) {
             console.error('Error in online status check:', error);
           }
-        }, 10000); // Check every 10 seconds
+        }, 10000);
+
+        // Store the online status interval
+        subscriptions.current.onlineStatus = onlineStatusInterval;
 
       } catch (error) {
         console.error('Error in location updates:', error);
+        cleanup(); // Clean up on error
       }
     };
 
-    startLocationUpdates();
+    // Get current user and start updates if authenticated
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      startLocationUpdates(currentUser);
+    }
 
-    return () => {
-      if (locationSubscription) {
-        locationSubscription.remove();
+    // Subscribe to auth state changes
+    const authUnsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        startLocationUpdates(user);
+      } else {
+        cleanup();
       }
-      if (onlineStatusInterval) {
-        clearInterval(onlineStatusInterval);
-      }
-    };
-  }, []);
+    });
+
+    // Store the auth unsubscribe function
+    subscriptions.current.auth = authUnsubscribe;
+
+    // Return cleanup function
+    return cleanup;
+  }, [auth, cleanup]);
+
+  return { cleanup };
 };
 
 export default useUpdateDriverLocation;

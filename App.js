@@ -28,6 +28,12 @@ const Tab = createBottomTabNavigator();
 
 // Bottom Tab Navigator (Home and Profile only)
 function HomeTabs() {
+  const { user } = useAuth();
+  
+  if (!user) {
+    return null;
+  }
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -47,9 +53,17 @@ function HomeTabs() {
           borderTopColor: "transparent",
           position: "absolute",
           bottom: 0,
-          height: 70,
-          paddingBottom: 10,
+          height: Platform.OS === 'android' ? 100 : 70,
+          paddingBottom: Platform.OS === 'android' ? 60 : 10,
           zIndex: 10,
+          elevation: 8,
+          shadowColor: "#000",
+          shadowOffset: {
+            width: 0,
+            height: -2,
+          },
+          shadowOpacity: 0.25,
+          shadowRadius: 3.84,
         },
       })}
     >
@@ -57,7 +71,7 @@ function HomeTabs() {
         name="Home"
         options={{ headerShown: false }}
       >
-        {() => <HomeScreenWithMap userName="User" />}
+        {() => <HomeScreenWithMap />}
       </Tab.Screen>
       <Tab.Screen
         name="Profile"
@@ -84,25 +98,43 @@ const AppContent = () => {
     <NavigationContainer>
       <Stack.Navigator
         initialRouteName={user ? "HomeScreenWithMap" : "LoginScreen"}
+        screenOptions={{
+          headerShown: false,
+          gestureEnabled: false // Disable swipe back gesture
+        }}
       >
         {/* Authentication Screens */}
         <Stack.Screen
           name="LoginScreen"
           component={LoginScreen}
-          options={{ headerShown: false }}
+          options={{ 
+            headerShown: false,
+            gestureEnabled: false
+          }}
         />
         <Stack.Screen
           name="RegisterScreen"
           component={RegisterScreen}
-          options={{ headerShown: false }}
+          options={{ 
+            headerShown: false,
+            gestureEnabled: false
+          }}
         />
 
         {/* Bottom Tabs (Home and Profile) */}
-        <Stack.Screen
-          name="HomeScreenWithMap"
-          component={HomeTabs}
-          options={{ headerShown: false }}
-        />
+        {user && (
+          <Stack.Screen
+            name="HomeScreenWithMap"
+            component={HomeTabs}
+            options={{ 
+              headerShown: false,
+              gestureEnabled: false,
+              headerLeft: () => null
+            }}
+          />
+        )}
+        
+        {/* Rest of the screens */}
         <Stack.Screen
           name="RideInProgressScreen"
           component={RideInProgressScreen}
@@ -113,8 +145,6 @@ const AppContent = () => {
           component={DriverInboxScreen}
           options={{ headerShown: false }}
         />
-
-        {/* Ride Options Screen */}
         <Stack.Screen
           name="RideOptionsScreen"
           component={RideOptionsScreen}
@@ -130,25 +160,25 @@ const AppContent = () => {
           component={EarningsScreen}
           options={{ headerShown: false }}
         />
-         <Stack.Screen
+        <Stack.Screen
           name="ModifyInfo"
           component={ModifyInfo}
           options={{ headerShown: false }}
         />
-         <Stack.Screen
+        <Stack.Screen
           name="PaymentScreen"
           component={PaymentScreen}
           options={{ headerShown: false }}
         />
-
         <Stack.Screen
           name="SettingsScreen"
           component={SettingsScreen}
-          options={{headerShown: false
-          }}
+          options={{ headerShown: false }}
         />
-        {/* If needed, Profile can also be accessed in the Stack */}
-        <Stack.Screen name="Profile" component={ProfileScreen} />
+        <Stack.Screen 
+          name="Profile" 
+          component={ProfileScreen} 
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

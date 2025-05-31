@@ -12,6 +12,7 @@ import {
   Animated,
   ActivityIndicator,
   Alert,
+  Platform,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { useTheme } from "../context/ThemeContext";
@@ -599,11 +600,19 @@ function SettingsScreen() {
 
           {/* Logout section */}
           <TouchableOpacity
-            style={[styles.logoutButton, { backgroundColor: colors.errorLight }]}
+            style={[
+              styles.logoutButton,
+              {
+                backgroundColor: colors.error,
+                borderColor: colors.error,
+                borderWidth: 1,
+              }
+            ]}
             onPress={handleLogout}
           >
-            <Ionicons name="log-out-outline" size={20} color={colors.error} />
-            <Text style={[styles.logoutText, { color: colors.error }]}>Logout</Text>
+            <Text style={[styles.logoutButtonText, { color: '#FFFFFF' }]}>
+              Se déconnecter
+            </Text>
           </TouchableOpacity>
 
           <Text style={[styles.footerText, { color: colors.textSecondary }]}>
@@ -639,6 +648,7 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 3,
     zIndex: 10,
+    marginTop: Platform.OS === 'android' ? 32 : 0,
   },
   backButton: {
     padding: 8,
@@ -803,9 +813,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 20,
     marginTop: 12,
+    marginHorizontal: 16,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
-  logoutText: {
-    marginLeft: 8,
+  logoutButtonText: {
     fontSize: 16,
     fontWeight: "600",
   },

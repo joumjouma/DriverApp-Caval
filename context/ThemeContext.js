@@ -45,6 +45,8 @@ export const ThemeProvider = ({ children }) => {
       input: '#333333',
       inputText: '#FFFFFF',
       placeholder: '#999999',
+      error: '#FF3B30',
+      errorLight: 'rgba(255, 59, 48, 0.1)',
     } : {
       background: '#FFFFFF',
       card: '#F5F5F5',
@@ -55,6 +57,8 @@ export const ThemeProvider = ({ children }) => {
       input: '#FFFFFF',
       inputText: '#333333',
       placeholder: '#999999',
+      error: '#FF3B30',
+      errorLight: 'rgba(255, 59, 48, 0.1)',
     }
   };
 

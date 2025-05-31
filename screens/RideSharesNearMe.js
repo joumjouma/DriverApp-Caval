@@ -1,21 +1,66 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image } from 'react-native';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-
-// Sample data for drivers, distances, fares, total time, and car types with image URLs
-const rideShares = [
-  { id: 1, company: 'Taxi', driver: 'John', fare: '620 fdj', distance: '2 km', eta: '5 mins', totalTime: '22 mins', passengers: 3, carType: 'sedan', carImage: 'https://t3.ftcdn.net/jpg/04/72/22/46/360_F_472224646_wWhnzKdHraRcju8NZhME0N2WurlGCjU7.webp' },
-  { id: 2, company: 'Private', driver: 'Sarah', fare: '575 fdj', distance: '3 km', eta: '7 mins', totalTime: '16 mins', passengers: 2, carType: 'van', carImage: 'https://t3.ftcdn.net/jpg/04/72/22/46/360_F_472224646_wWhnzKdHraRcju8NZhME0N2WurlGCjU7.webp' },
-  { id: 3, company: 'Taxi', driver: 'Mike', fare: '610 fdj', distance: '4 km', eta: '10 mins', totalTime: '27 mins', passengers: 4, carType: 'suv', carImage: 'https://t3.ftcdn.net/jpg/04/15/31/60/360_F_415316078_2mM328XtRXgDzu3leOVH1HtGjujXMfcF.jpg' },
-];
+import { useNavigation, useRoute } from '@react-navigation/native';
 
 const RideSharesNearMe = () => {
   const navigation = useNavigation();
+  const route = useRoute();
+  const [rideShares, setRideShares] = useState([]);
+
+  useEffect(() => {
+    // Get the distance from route params
+    const { distance } = route.params || {};
+    
+    // Calculate fares based on actual distance
+    const calculateFare = (baseRate) => {
+      return Math.round(distance * baseRate);
+    };
+
+    // Update ride shares with actual distance and calculated fares
+    setRideShares([
+      { 
+        id: 1, 
+        company: 'Taxi', 
+        driver: 'John', 
+        fare: `${calculateFare(55)} fdj`, 
+        distance: `${distance.toFixed(1)} km`, 
+        eta: '5 mins', 
+        totalTime: '22 mins', 
+        passengers: 3, 
+        carType: 'sedan', 
+        carImage: 'https://t3.ftcdn.net/jpg/04/72/22/46/360_F_472224646_wWhnzKdHraRcju8NZhME0N2WurlGCjU7.webp' 
+      },
+      { 
+        id: 2, 
+        company: 'Private', 
+        driver: 'Sarah', 
+        fare: `${calculateFare(65)} fdj`, 
+        distance: `${distance.toFixed(1)} km`, 
+        eta: '7 mins', 
+        totalTime: '16 mins', 
+        passengers: 2, 
+        carType: 'van', 
+        carImage: 'https://t3.ftcdn.net/jpg/04/72/22/46/360_F_472224646_wWhnzKdHraRcju8NZhME0N2WurlGCjU7.webp' 
+      },
+      { 
+        id: 3, 
+        company: 'Taxi', 
+        driver: 'Mike', 
+        fare: `${calculateFare(55)} fdj`, 
+        distance: `${distance.toFixed(1)} km`, 
+        eta: '10 mins', 
+        totalTime: '27 mins', 
+        passengers: 4, 
+        carType: 'suv', 
+        carImage: 'https://t3.ftcdn.net/jpg/04/15/31/60/360_F_415316078_2mM328XtRXgDzu3leOVH1HtGjujXMfcF.jpg' 
+      },
+    ]);
+  }, [route.params]);
 
   const renderRideShareItem = ({ item }) => {
-    // Remove dollar sign and convert fare to number for calculation
-    const fareAmount = parseFloat(item.fare.replace('fdj', ''));
+    // Remove 'fdj' and convert fare to number for calculation
+    const fareAmount = parseFloat(item.fare.replace(' fdj', ''));
     const splitFare = (fareAmount / item.passengers).toFixed(2);
 
     return (

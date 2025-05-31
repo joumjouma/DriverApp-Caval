@@ -11,6 +11,8 @@ import {
   Platform,
   ActivityIndicator,
   ScrollView,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithCredential, onAuthStateChanged } from "firebase/auth";
@@ -23,6 +25,8 @@ import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import CavalLogo from "../assets/Caval_courrier_logo-removebg-preview.png";
 import { useTheme } from "../context/ThemeContext";
+import PrivacyPolicyModal from "../components/PrivacyPolicyModal";
+import DocumentCollectionModal from '../components/DocumentCollectionModal';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -31,7 +35,11 @@ function LoginScreen() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [authStateReady, setAuthStateReady] = useState(false);
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+  const [pendingUser, setPendingUser] = useState(null);
   const navigation = useNavigation();
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [showDocumentCollection, setShowDocumentCollection] = useState(false);
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     clientId: '1007561335979-3c5q3tvj8e5fig9hlas8hnrc6gpa999b.apps.googleusercontent.com',
@@ -71,6 +79,43 @@ function LoginScreen() {
     }, [])
   );
 
+  const handlePrivacyPolicyAccept = async () => {
+    try {
+      await AsyncStorage.setItem('privacyPolicyAccepted', 'true');
+      setShowPrivacyPolicy(false);
+      
+      // Show document collection modal instead of navigating directly
+      setShowDocumentCollection(true);
+    } catch (error) {
+      console.error("Error saving privacy policy acceptance:", error);
+      Alert.alert("Error", "Failed to save privacy policy acceptance. Please try again.");
+    }
+  };
+
+  const handleDocumentCollectionComplete = () => {
+    setShowDocumentCollection(false);
+    // Navigate to home screen after documents are submitted
+    navigation.navigate("HomeScreenWithMap");
+  };
+
+  const checkPrivacyPolicyAndProceed = async (user) => {
+    try {
+      const hasAccepted = await AsyncStorage.getItem('privacyPolicyAccepted');
+      
+      if (hasAccepted === 'true') {
+        // User has already accepted, proceed with navigation
+        navigation.navigate("HomeScreenWithMap");
+      } else {
+        // Show privacy policy modal and store pending user
+        setPendingUser(user);
+        setShowPrivacyPolicy(true);
+      }
+    } catch (error) {
+      console.error("Error checking privacy policy acceptance:", error);
+      Alert.alert("Error", "Failed to check privacy policy acceptance. Please try again.");
+    }
+  };
+
   useEffect(() => {
     let unsubscribe = () => {};
     
@@ -98,12 +143,12 @@ function LoginScreen() {
                 setLoading(false);
                 return;
               }
-              
-              Alert.alert(
-                "Error",
-                "Driver account not found. Please register as a driver first.",
-                [{ text: "OK", onPress: () => signOut(auth) }]
-              );
+              // Mask the message below:
+              // Alert.alert(
+              //   "Error",
+              //   "Driver account not found. Please register as a driver first.",
+              //   [{ text: "OK", onPress: () => signOut(auth) }]
+              // );
               setLoading(false);
               return;
             }
@@ -118,7 +163,8 @@ function LoginScreen() {
             const storedData = await AsyncStorage.getItem('driverInfo');
             console.log("Stored driver data:", JSON.parse(storedData));
             
-            navigation.navigate("HomeScreenWithMap");
+            // Check privacy policy acceptance before proceeding
+            await checkPrivacyPolicyAndProceed(user);
           } catch (error) {
             console.error("Error fetching driver information:", error);
             Alert.alert("Error", "Failed to fetch driver information. Please try again.");
@@ -193,12 +239,12 @@ function LoginScreen() {
           setLoading(false);
           return;
         }
-        
-        Alert.alert(
-          "Error",
-          "Driver account not found. Please register as a driver first.",
-          [{ text: "OK", onPress: () => signOut(auth) }]
-        );
+        // Mask the message below:
+        // Alert.alert(
+        //   "Error",
+        //   "Driver account not found. Please register as a driver first.",
+        //   [{ text: "OK", onPress: () => signOut(auth) }]
+        // );
         setLoading(false);
         return;
       }
@@ -216,96 +262,137 @@ function LoginScreen() {
 
   const { colors, toggleTheme, isDarkMode } = useTheme();
 
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      () => {
+        setKeyboardVisible(true);
+      }
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        setKeyboardVisible(false);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
   return (
     <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={60}
+      style={[
+        styles.container,
+        { backgroundColor: colors.background },
+        keyboardVisible && Platform.OS === 'android' && styles.containerWithKeyboard
+      ]}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === 'android' ? 0 : 60}
     >
-      <TouchableOpacity
-        style={styles.themeToggle}
-        onPress={toggleTheme}
-      >
-        <Ionicons
-          name={isDarkMode ? "sunny" : "moon"}
-          size={24}
-          color={colors.text}
-        />
-      </TouchableOpacity>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.innerContainer}>
+          <TouchableOpacity
+            style={styles.themeToggle}
+            onPress={toggleTheme}
+          >
+            <Ionicons
+              name={isDarkMode ? "sunny" : "moon"}
+              size={24}
+              color={colors.text}
+            />
+          </TouchableOpacity>
 
-      <Image style={styles.logo} source={CavalLogo} />
+          <Image style={styles.logo} source={CavalLogo} />
 
-      <Text style={[styles.driverOnlyMessage, { color: colors.text }]}>
-        Cette application est réservée uniquement aux chauffeurs Caval Courier
-      </Text>
-
-      <View style={[styles.card, { backgroundColor: colors.card }]}>
-        <TextInput
-          style={[styles.input, { 
-            backgroundColor: colors.input,
-            color: colors.inputText,
-            borderColor: colors.border,
-          }]}
-          placeholder="Email"
-          placeholderTextColor={colors.placeholder}
-          onChangeText={setEmail}
-          value={email}
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
-
-        <TextInput
-          style={[styles.input, { 
-            backgroundColor: colors.input,
-            color: colors.inputText,
-            borderColor: colors.border,
-          }]}
-          placeholder="Mot de passe"
-          placeholderTextColor={colors.placeholder}
-          onChangeText={setPassword}
-          value={password}
-          secureTextEntry
-        />
-
-        <TouchableOpacity 
-          style={[styles.button, { backgroundColor: colors.primary }]} 
-          onPress={handleLogin}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Connexion</Text>
-          )}
-        </TouchableOpacity>
-
-        <View style={styles.divider}>
-          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-          <Text style={[styles.dividerText, { color: colors.textSecondary }]}>OU</Text>
-          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-        </View>
-
-        <TouchableOpacity 
-          style={[styles.googleButton, { backgroundColor: colors.input }]}
-          onPress={handleGoogleSignIn}
-          disabled={loading}
-        >
-          <Image 
-            source={{ uri: 'https://www.google.com/favicon.ico' }} 
-            style={styles.googleIcon} 
-          />
-          <Text style={[styles.googleButtonText, { color: colors.text }]}>
-            Continuer avec Google
+          <Text style={[styles.driverOnlyText, { color: colors.text }]}>
+            Cette application est réservée uniquement aux chauffeurs Caval Courier
           </Text>
-        </TouchableOpacity>
-      </View>
 
-      <Text
-        style={[styles.linkText, { color: colors.text }]}
-        onPress={() => navigation.navigate("RegisterScreen")}
-      >
-        Pas de compte ? Inscrivez-vous ici
-      </Text>
+          <View style={[styles.card, { backgroundColor: colors.card }]}>
+            <TextInput
+              style={[styles.input, { 
+                backgroundColor: colors.input,
+                color: colors.inputText,
+                borderColor: colors.border,
+              }]}
+              placeholder="Email"
+              placeholderTextColor={colors.placeholder}
+              onChangeText={setEmail}
+              value={email}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+
+            <TextInput
+              style={[styles.input, { 
+                backgroundColor: colors.input,
+                color: colors.inputText,
+                borderColor: colors.border,
+              }]}
+              placeholder="Mot de passe"
+              placeholderTextColor={colors.placeholder}
+              onChangeText={setPassword}
+              value={password}
+              secureTextEntry
+            />
+
+            <TouchableOpacity 
+              style={[styles.button, { backgroundColor: colors.primary }]} 
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Connexion</Text>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.divider}>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+              <Text style={[styles.dividerText, { color: colors.textSecondary }]}>OU</Text>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            </View>
+
+            <TouchableOpacity 
+              style={[styles.googleButton, { 
+                backgroundColor: colors.input,
+                borderColor: colors.border 
+              }]}
+              onPress={handleGoogleSignIn}
+              disabled={loading}
+            >
+              <Image 
+                source={{ uri: 'https://www.google.com/favicon.ico' }} 
+                style={styles.googleIcon} 
+              />
+              <Text style={[styles.googleButtonText, { color: colors.text }]}>
+                Continuer avec Google
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text
+            style={[styles.linkText, { color: colors.primary }]}
+            onPress={() => navigation.navigate("RegisterScreen")}
+          >
+            Pas de compte ? Inscrivez-vous ici
+          </Text>
+        </View>
+      </TouchableWithoutFeedback>
+
+      <PrivacyPolicyModal
+        visible={showPrivacyPolicy}
+        onAccept={handlePrivacyPolicyAccept}
+      />
+
+      <DocumentCollectionModal
+        visible={showDocumentCollection}
+        onComplete={handleDocumentCollectionComplete}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -315,66 +402,69 @@ export default LoginScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    alignItems: "center",
     padding: 20,
+    paddingTop: Platform.OS === 'android' ? 10 : 15,
+  },
+  containerWithKeyboard: {
+    justifyContent: 'flex-start',
+  },
+  innerContainer: {
+    width: '100%',
+    alignItems: 'center',
   },
   themeToggle: {
     position: 'absolute',
-    top: 40,
+    top: Platform.OS === 'android' ? 5 : 10,
     right: 20,
     padding: 10,
     borderRadius: 20,
   },
   logo: {
-    width: 300,
-    height: undefined,
-    aspectRatio: 1,
-    alignSelf: "center",
-    marginBottom: 40,
+    width: 260,
+    height: 260,
+    marginBottom: 10,
     resizeMode: "contain",
   },
   card: {
-    borderRadius: 20,
-    padding: 20,
+    width: "100%",
+    padding: 18,
+    borderRadius: 15,
     shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
     elevation: 5,
   },
   input: {
-    height: 50,
-    borderRadius: 12,
+    height: 48,
+    borderWidth: 1,
+    borderRadius: 10,
+    marginBottom: 12,
     paddingHorizontal: 15,
     fontSize: 16,
-    marginBottom: 20,
-    borderWidth: 1,
   },
   button: {
-    paddingVertical: 15,
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 3,
-    marginTop: 10,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    marginTop: 6,
   },
   buttonText: {
-    color: "#fff",
+    color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "600",
-    textAlign: "center",
   },
   linkText: {
-    textAlign: "center",
-    marginTop: 20,
     fontSize: 16,
+    marginTop: 10,
+    textAlign: "center",
   },
   divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 12,
   },
   dividerLine: {
     flex: 1,
@@ -382,15 +472,17 @@ const styles = StyleSheet.create({
   },
   dividerText: {
     marginHorizontal: 10,
-    fontSize: 14,
+    fontSize: 16,
   },
   googleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 15,
-    borderRadius: 12,
-    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 6,
   },
   googleIcon: {
     width: 20,
@@ -399,13 +491,12 @@ const styles = StyleSheet.create({
   },
   googleButtonText: {
     fontSize: 16,
-    fontWeight: '600',
+    marginLeft: 10,
   },
-  driverOnlyMessage: {
-    textAlign: 'center',
+  driverOnlyText: {
     fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 20,
-    paddingHorizontal: 20,
+    textAlign: "center",
+    marginTop: 12,
+    marginBottom: 10,
   },
 });

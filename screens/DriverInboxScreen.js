@@ -244,8 +244,8 @@ const DriverInboxScreen = () => {
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 20}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -340,7 +340,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: Platform.OS === 'android' ? 6 : 12,
     paddingHorizontal: 16,
     backgroundColor: '#1A1A1A',
     borderBottomWidth: 1,
@@ -350,6 +350,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
+    marginTop: Platform.OS === 'android' ? 32 : 0,
   },
   backButton: {
     padding: 4,
@@ -392,11 +393,12 @@ const styles = StyleSheet.create({
   },
   messagesContainer: {
     flex: 1,
-    marginBottom: Platform.OS === 'ios' ? 0 : 16,
+    marginBottom: Platform.OS === 'android' ? 4 : 16,
   },
   messagesList: {
-    padding: 16,
-    paddingBottom: 16,
+    paddingTop: Platform.OS === 'android' ? 6 : 16,
+    paddingBottom: Platform.OS === 'android' ? 6 : 16,
+    paddingHorizontal: 16,
   },
   messageContainer: {
     flexDirection: 'row',
@@ -459,8 +461,8 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    padding: Platform.OS === 'android' ? 6 : 12,
+    paddingBottom: Platform.OS === 'ios' ? 24 : (Platform.OS === 'android' ? 48 : 12),
     backgroundColor: '#1A1A1A',
     borderTopWidth: 1,
     borderTopColor: '#333',

@@ -53,11 +53,13 @@ const MapScreen = () => {
         throw new Error('Distance information not found in the route');
       }
 
-      const distance = route.legs[0].distance.text;
+      // Extract distance in kilometers
+      const distanceText = route.legs[0].distance.text;
+      const distance = parseFloat(distanceText.replace(' km', ''));
       console.log('Route fetched successfully. Distance:', distance);
 
-      // Navigate to the RideShareScreen after fetching the route
-      navigation.navigate('RideSharesNearMe');
+      // Navigate to the RideShareScreen with the actual distance
+      navigation.navigate('RideSharesNearMe', { distance });
     } catch (error) {
       console.error('Error fetching directions:', error);
       let errorMessage = 'Failed to fetch the route. Please try again.';

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -12,21 +12,27 @@ import {
   ActivityIndicator,
   StatusBar,
   Image,
+  Modal,
 } from "react-native";
 import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { useNavigation } from "@react-navigation/native";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import CavalLogo from "../assets/Caval_courrier_logo-removebg-preview.png";
 import { useTheme } from "../context/ThemeContext";
 import { APP_CONFIG } from "../constants/appConfig";
+import PrivacyPolicyModal from "../components/PrivacyPolicyModal";
+import * as ImagePicker from 'expo-image-picker';
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { storage } from "../config/firebase";
 
 function RegisterScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [prenom, setPrenom] = useState("");
   const [nom, setNom] = useState("");
   const [telephone, setTelephone] = useState("");
@@ -34,6 +40,18 @@ function RegisterScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [ville, setVille] = useState("");
   const [pays, setPays] = useState("");
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+  const [pendingUser, setPendingUser] = useState(null);
+  
+  // New state variables for documents and payment methods
+  const [driverLicense, setDriverLicense] = useState(null);
+  const [carteGrise, setCarteGrise] = useState(null);
+  const [facePhoto, setFacePhoto] = useState(null);
+  const [paymentMethods, setPaymentMethods] = useState({
+    dmoney: false,
+    cacpay: false,
+    waafi: false
+  });
 
   const navigation = useNavigation();
 
@@ -67,11 +85,118 @@ function RegisterScreen() {
     setTelephone(formatted);
   };
 
+  const handlePrivacyPolicyAccept = async () => {
+    try {
+      await AsyncStorage.setItem('privacyPolicyAccepted', 'true');
+      setShowPrivacyPolicy(false);
+      
+      // Add a small delay to ensure all data is properly saved
+      setTimeout(() => {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'HomeScreenWithMap' }],
+        });
+      }, 500);
+    } catch (error) {
+      console.error("Error saving privacy policy acceptance:", error);
+      Alert.alert("Error", "Failed to save privacy policy acceptance. Please try again.");
+    }
+  };
+
+  const takeFacePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Camera permission is required to take your photo.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled) {
+        setFacePhoto(result.assets[0]);
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo. Please try again.');
+    }
+  };
+
+  const pickImage = async (type) => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled) {
+        if (type === 'license') {
+          setDriverLicense(result.assets[0]);
+        } else if (type === 'carteGrise') {
+          setCarteGrise(result.assets[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
+  const togglePaymentMethod = (method) => {
+    setPaymentMethods(prev => ({
+      ...prev,
+      [method]: !prev[method]
+    }));
+  };
+
+  const uploadImageToStorage = async (uri, path) => {
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      
+      const storageRef = ref(storage, path);
+      await uploadBytes(storageRef, blob);
+      
+      const downloadURL = await getDownloadURL(storageRef);
+      return downloadURL;
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      throw new Error("Failed to upload image");
+    }
+  };
+
   const handleRegister = async () => {
-    if (!email || !password || !prenom || !nom || !telephone) {
+    if (!email || !password || !confirmPassword || !prenom || !nom || !telephone || !driverLicense || !carteGrise || !facePhoto) {
       Alert.alert(
         "Informations manquantes",
-        "Veuillez remplir tous les champs obligatoires",
+        "Veuillez remplir tous les champs obligatoires et télécharger tous les documents requis",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert(
+        "Erreur de mot de passe",
+        "Les mots de passe ne correspondent pas. Veuillez vérifier et réessayer.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    if (!paymentMethods.dmoney && !paymentMethods.cacpay && !paymentMethods.waafi) {
+      Alert.alert(
+        "Méthodes de paiement requises",
+        "Veuillez sélectionner au moins une méthode de paiement",
         [{ text: "OK" }]
       );
       return;
@@ -80,16 +205,29 @@ function RegisterScreen() {
     setIsLoading(true);
 
     try {
+      // First create the user account
       const userCredential = await createUserWithEmailAndPassword(
         getAuth(),
         email,
         password
       );
       const user = userCredential.user;
+      console.log("User created with UID:", user.uid);
+
+      // Upload images to Firebase Storage
+      console.log("Starting image uploads...");
+      const [driverLicenseURL, carteGriseURL, facePhotoURL] = await Promise.all([
+        uploadImageToStorage(driverLicense.uri, `drivers/${user.uid}/license`),
+        uploadImageToStorage(carteGrise.uri, `drivers/${user.uid}/carteGrise`),
+        uploadImageToStorage(facePhoto.uri, `drivers/${user.uid}/profile_photo`)
+      ]);
+      console.log("All images uploaded successfully");
+      console.log("Face photo URL:", facePhotoURL);
 
       // Enregistrer l'UID du chauffeur dans AsyncStorage
       try {
         await AsyncStorage.setItem('driverUID', user.uid);
+        console.log("Driver UID saved to AsyncStorage");
       } catch (e) {
         console.log("Erreur lors de l'enregistrement de l'UID dans AsyncStorage:", e);
       }
@@ -116,27 +254,37 @@ function RegisterScreen() {
         lastOnline: new Date(),
         isOnline: false,
         driverType: typeDeVehicule,
+        driverLicense: driverLicenseURL,
+        carteGrise: carteGriseURL,
+        photo: facePhotoURL, // Save face photo as profile photo
+        paymentMethods: paymentMethods,
+        documentsVerified: false,
       };
 
+      console.log("Driver data prepared for Firestore:", driverData);
+
       try {
+        // Save to Firestore first
         await setDoc(doc(db, "Drivers", user.uid), driverData);
+        console.log("Data saved to Firestore successfully");
+        
+        // Then save to AsyncStorage
+        await AsyncStorage.setItem('driverInfo', JSON.stringify(driverData));
+        console.log("Data saved to AsyncStorage successfully");
+        
+        // Show privacy policy modal after successful registration
+        setPendingUser(user);
+        setShowPrivacyPolicy(true);
+        setIsLoading(false);
       } catch (firestoreError) {
+        console.error("Error saving to Firestore:", firestoreError);
+        // If Firestore update fails, delete the user account
         await user.delete();
         throw firestoreError;
       }
-
-      await AsyncStorage.setItem('driverInfo', JSON.stringify(driverData));
-      await signOut(getAuth());
-
-      setIsLoading(false);
-      Alert.alert(
-        "Inscription réussie",
-        "Votre compte a été créé avec succès ! Veuillez vous connecter.",
-        [{ text: "OK", onPress: () => navigation.navigate("LoginScreen") }]
-      );
     } catch (error) {
       setIsLoading(false);
-      console.log("Registration error:", error);
+      console.error("Registration error:", error);
       Alert.alert(
         "Échec de l'inscription", 
         error.message || "Une erreur est survenue lors de l'inscription. Veuillez réessayer.",
@@ -195,6 +343,12 @@ function RegisterScreen() {
                       ]}
                       onPress={() => setTypeDeVehicule(type)}
                     >
+                      <MaterialIcons
+                        name={type.includes("moto") ? "two-wheeler" : "directions-car"}
+                        size={24}
+                        color={typeDeVehicule === type ? "#FFFFFF" : "#FF8C00"}
+                        style={styles.typeIcon}
+                      />
                       <Text
                         style={[
                           styles.typeButtonText,
@@ -202,6 +356,109 @@ function RegisterScreen() {
                         ]}
                       >
                         {type}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Documents Section */}
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Documents requis</Text>
+                
+                {/* Driver's License */}
+                <View style={styles.documentSection}>
+                  <Text style={styles.documentLabel}>Permis de conduire</Text>
+                  <TouchableOpacity
+                    style={styles.documentUploadButton}
+                    onPress={() => pickImage('license')}
+                  >
+                    {driverLicense ? (
+                      <Image source={{ uri: driverLicense.uri }} style={styles.documentPreview} />
+                    ) : (
+                      <View style={styles.uploadPlaceholder}>
+                        <MaterialIcons name="add-photo-alternate" size={24} color="#FF8C00" />
+                        <Text style={styles.uploadText}>Télécharger le permis</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                {/* Carte Grise */}
+                <View style={styles.documentSection}>
+                  <Text style={styles.documentLabel}>Carte grise</Text>
+                  <TouchableOpacity
+                    style={styles.documentUploadButton}
+                    onPress={() => pickImage('carteGrise')}
+                  >
+                    {carteGrise ? (
+                      <Image source={{ uri: carteGrise.uri }} style={styles.documentPreview} />
+                    ) : (
+                      <View style={styles.uploadPlaceholder}>
+                        <MaterialIcons name="add-photo-alternate" size={24} color="#FF8C00" />
+                        <Text style={styles.uploadText}>Télécharger la carte grise</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                {/* Face Photo */}
+                <View style={styles.documentSection}>
+                  <Text style={styles.documentLabel}>Photo de votre visage</Text>
+                  <TouchableOpacity
+                    style={styles.documentUploadButton}
+                    onPress={takeFacePhoto}
+                  >
+                    {facePhoto ? (
+                      <View style={styles.photoPreviewContainer}>
+                        <Image source={{ uri: facePhoto.uri }} style={styles.facePhotoPreview} />
+                        <TouchableOpacity
+                          style={styles.retakeButton}
+                          onPress={takeFacePhoto}
+                        >
+                          <MaterialIcons name="camera-alt" size={20} color="#FFFFFF" />
+                          <Text style={styles.retakeText}>Reprendre</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <View style={styles.uploadPlaceholder}>
+                        <MaterialIcons name="face" size={24} color="#FF8C00" />
+                        <Text style={styles.uploadText}>Prendre une photo</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Payment Methods Section */}
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Méthodes de paiement acceptées</Text>
+                <View style={styles.paymentMethodsContainer}>
+                  {[
+                    { id: 'dmoney', label: 'D-money', icon: 'phone-android' },
+                    { id: 'cacpay', label: 'Cac pay', icon: 'payment' },
+                    { id: 'waafi', label: 'Waafi', icon: 'smartphone' }
+                  ].map((method) => (
+                    <TouchableOpacity
+                      key={method.id}
+                      style={[
+                        styles.paymentMethodButton,
+                        paymentMethods[method.id] && styles.selectedPaymentMethod
+                      ]}
+                      onPress={() => togglePaymentMethod(method.id)}
+                    >
+                      <MaterialIcons
+                        name={method.icon}
+                        size={24}
+                        color={paymentMethods[method.id] ? '#FFFFFF' : '#FF8C00'}
+                      />
+                      <Text
+                        style={[
+                          styles.paymentMethodText,
+                          paymentMethods[method.id] && styles.selectedPaymentMethodText
+                        ]}
+                      >
+                        {method.label}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -352,6 +609,26 @@ function RegisterScreen() {
                     />
                   </View>
                 </View>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Confirmer le mot de passe</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={20}
+                      color="#a0a0a0"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Confirmez votre mot de passe"
+                      placeholderTextColor="#757575"
+                      onChangeText={setConfirmPassword}
+                      value={confirmPassword}
+                      secureTextEntry
+                    />
+                  </View>
+                </View>
               </View>
 
               <TouchableOpacity
@@ -382,6 +659,11 @@ function RegisterScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </LinearGradient>
+
+      <PrivacyPolicyModal
+        visible={showPrivacyPolicy}
+        onAccept={handlePrivacyPolicyAccept}
+      />
     </View>
   );
 }
@@ -446,40 +728,57 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.05)",
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 20,
+    fontWeight: "700",
     color: "#ffffff",
-    marginBottom: 18,
+    marginBottom: 20,
     letterSpacing: 0.5,
+    textAlign: 'center',
   },
   buttonGroup: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 5,
+    gap: 15,
   },
   typeButton: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 20,
     paddingHorizontal: 15,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: "#333333",
-    marginHorizontal: 5,
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.05)",
+    borderWidth: 2,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   selectedButton: {
     backgroundColor: "#FF6B00",
     borderColor: "#FF6B00",
+    transform: [{ scale: 1.02 }],
+    shadowColor: "#FF6B00",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
   typeButtonText: {
-    fontSize: 14,
+    fontSize: 16,
     color: "#BBBBBB",
-    fontWeight: "500",
+    fontWeight: "600",
+    marginTop: 8,
+    textAlign: 'center',
   },
   selectedButtonText: {
     color: "#fff",
-    fontWeight: "600",
+    fontWeight: "700",
+  },
+  typeIcon: {
+    marginBottom: 8,
   },
   inputRow: {
     flexDirection: "row",
@@ -564,5 +863,97 @@ const styles = StyleSheet.create({
   },
   phoneInput: {
     marginLeft: 0,
+  },
+  documentSection: {
+    marginBottom: 18,
+  },
+  documentLabel: {
+    fontSize: 14,
+    color: "#A0A0A0",
+    marginBottom: 8,
+    fontWeight: "500",
+    letterSpacing: 0.3,
+  },
+  documentUploadButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    backgroundColor: "#333333",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+  },
+  documentPreview: {
+    width: 80,
+    height: 120,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  uploadPlaceholder: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 12,
+    backgroundColor: "#333333",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+  },
+  uploadText: {
+    color: "#BBBBBB",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  paymentMethodsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  paymentMethodButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 10,
+    backgroundColor: "#333333",
+    marginHorizontal: 5,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.05)",
+  },
+  selectedPaymentMethod: {
+    backgroundColor: "#FF6B00",
+    borderColor: "#FF6B00",
+  },
+  paymentMethodText: {
+    fontSize: 14,
+    color: "#BBBBBB",
+    fontWeight: "500",
+  },
+  selectedPaymentMethodText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  photoPreviewContainer: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  facePhotoPreview: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    marginBottom: 10,
+  },
+  retakeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF6B00',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  retakeText: {
+    color: '#FFFFFF',
+    marginLeft: 5,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

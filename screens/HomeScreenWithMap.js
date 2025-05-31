@@ -37,7 +37,7 @@ import {
   getDocs,
   serverTimestamp,
 } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../config/firebase";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import * as Location from "expo-location";
@@ -55,19 +55,33 @@ const { width, height } = Dimensions.get("window");
 
 const HomeScreenWithMap = () => {
   // -----------------------------------------------------------------
-  // 1. Update driver's location in real time using custom hook
+  // 1. All hooks must be called in the same order every render
   // -----------------------------------------------------------------
-  useUpdateDriverLocation();
+  // Navigation hooks
+  const navigation = useNavigation();
+  const route = useRoute();
+  const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
 
-  // -----------------------------------------------------------------
-  // 2. State Variables
-  // -----------------------------------------------------------------
+  // Auth state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const auth = getAuth();
+
+  // Location updates hook - called at top level
+  const locationUpdates = useUpdateDriverLocation();
+
+  // Location and map state
   const [region, setRegion] = useState(null);
   const [fromLocation, setFromLocation] = useState(null);
+  const [mapReady, setMapReady] = useState(false);
+
+  // Driver info state
   const [userName, setUserName] = useState("Driver");
   const [driverType, setDriverType] = useState("");
   const [driverPhoto, setDriverPhoto] = useState("");
   const [isOnline, setIsOnline] = useState(false);
+
+  // Ride state
   const [earnings, setEarnings] = useState(0.0);
   const [rideCount, setRideCount] = useState(0);
   const [currentRideRequest, setCurrentRideRequest] = useState(null);
@@ -75,18 +89,18 @@ const HomeScreenWithMap = () => {
   const [destinationAddress, setDestinationAddress] = useState("");
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isLoadingAddress, setIsLoadingAddress] = useState(false);
+  const [rideDistance, setRideDistance] = useState(null);
+  const [estimatedTime, setEstimatedTime] = useState(null);
+
+  // Time tracking state
   const [lastResetWeek, setLastResetWeek] = useState(null);
   const [activeTime, setActiveTime] = useState(0);
   const [startTime, setStartTime] = useState(null);
   const [timeLeft, setTimeLeft] = useState(15);
-  const [rideDistance, setRideDistance] = useState(null);
-  const [estimatedTime, setEstimatedTime] = useState(null);
-  const [mapReady, setMapReady] = useState(false);
   const [lastEarningsDate, setLastEarningsDate] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Animated values
+  // Animation refs
   const countdownAnim = useRef(new Animated.Value(1)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -106,22 +120,47 @@ const HomeScreenWithMap = () => {
   const expandingRing2 = useRef(new Animated.Value(0)).current;
   const expandingRing3 = useRef(new Animated.Value(0)).current;
 
-  // Flags
-  const [rideInProgress, setRideInProgress] = useState(false);
-  const [rideCooldown, setRideCooldown] = useState(false);
-
-  // Refs
-  const intervalRef = useRef(null); // Ref to store the interval ID
+  // Other refs
+  const intervalRef = useRef(null);
   const currentRideRequestRef = useRef(null);
   const timerRef = useRef(null);
   const onSnapshotUnsubscribe = useRef(null);
   const mapRef = useRef(null);
-  const insets = useSafeAreaInsets();
 
-  // Additional state and animated values for status popup
+  // Flags
+  const [rideInProgress, setRideInProgress] = useState(false);
+  const [rideCooldown, setRideCooldown] = useState(false);
   const [showStatusPopup, setShowStatusPopup] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
-  // Keep a ref so we don't process the same ride doc multiple times
+  // -----------------------------------------------------------------
+  // 2. Effects
+  // -----------------------------------------------------------------
+  // Auth state effect
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setIsAuthenticated(!!user);
+      if (user) {
+        loadPersistedData();
+        fetchDriverDataFromFirestore();
+      } else {
+        navigation.replace('LoginScreen');
+      }
+    });
+    return () => unsubscribe();
+  }, [auth, navigation]);
+
+  // Effect to handle location updates based on auth and route
+  useEffect(() => {
+    if (!isAuthenticated || route.name !== 'Home') {
+      // Clean up location updates if not authenticated or not on home screen
+      if (locationUpdates?.cleanup) {
+        locationUpdates.cleanup();
+      }
+    }
+  }, [isAuthenticated, route.name, locationUpdates]);
+
+  // Keep currentRideRequest ref updated
   useEffect(() => {
     currentRideRequestRef.current = currentRideRequest;
   }, [currentRideRequest]);
@@ -129,10 +168,6 @@ const HomeScreenWithMap = () => {
   // -----------------------------------------------------------------
   // 3. React Navigation
   // -----------------------------------------------------------------
-  const navigation = useNavigation();
-  const route = useRoute();
-  const auth = getAuth();
-
   // Add authentication check
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
@@ -346,13 +381,19 @@ const HomeScreenWithMap = () => {
       if (cachedData) {
         console.log("Found cached data in AsyncStorage");
         const parsedData = JSON.parse(cachedData);
+        console.log("Cached data:", parsedData);
         console.log("Cached photo URL:", parsedData.photo);
         setUserName(parsedData.firstName || "Driver");
         setDriverType(parsedData.driverType || "");
-        if (parsedData.photo) {
-          console.log("Setting photo from cache:", parsedData.photo);
-          setDriverPhoto(parsedData.photo);
+        if (parsedData.photo || parsedData.facePhoto) {
+          const photoUrl = parsedData.photo || parsedData.facePhoto;
+          console.log("Setting photo from cache:", photoUrl);
+          setDriverPhoto(photoUrl);
+        } else {
+          console.log("No photo URL found in cached data");
         }
+      } else {
+        console.log("No cached data found in AsyncStorage");
       }
 
       // Then fetch from Firestore to ensure we have the latest data
@@ -364,9 +405,12 @@ const HomeScreenWithMap = () => {
         const userData = docSnap.data();
         setUserName(userData.firstName || "Driver");
         setDriverType(userData.driverType || "");
-        if (userData.photo) {
-          console.log("Setting photo from Firestore:", userData.photo);
-          setDriverPhoto(userData.photo);
+        if (userData.photo || userData.facePhoto) {
+          const photoUrl = userData.photo || userData.facePhoto;
+          console.log("Setting photo from Firestore:", photoUrl);
+          setDriverPhoto(photoUrl);
+        } else {
+          console.log("No photo URL found in Firestore data");
         }
         
         // Update AsyncStorage with latest data
@@ -624,16 +668,27 @@ const HomeScreenWithMap = () => {
         docs: snapshot.docs.map(doc => doc.id)
       });
 
-      if (snapshot.empty) return;
+      // If the snapshot is empty, hide the modal and clear the current ride request
+      if (snapshot.empty) {
+        setIsModalVisible(false);
+        setCurrentRideRequest(null);
+        return;
+      }
+
+      // If the current ride offer is not in the snapshot, hide the modal and clear the current ride request
+      if (currentRideRequestRef.current && !snapshot.docs.some(doc => doc.id === currentRideRequestRef.current.id)) {
+        setIsModalVisible(false);
+        setCurrentRideRequest(null);
+        return;
+      }
       
       const docItem = snapshot.docs[0];
       const ride = { id: docItem.id, ...docItem.data() };
       
-      if (
-        currentRideRequestRef.current &&
-        currentRideRequestRef.current.id === ride.id
-      ) {
-        console.log('Skipping duplicate ride request:', ride.id);
+      // Hide the offer if the ride status is declined
+      if (ride.status === 'declined') {
+        setIsModalVisible(false);
+        setCurrentRideRequest(null);
         return;
       }
 
@@ -687,6 +742,7 @@ const HomeScreenWithMap = () => {
                 longitude: ride.destinationLng,
               };
               const distance = calculateDistance(pickupLocation, destinationLocation);
+              console.log('Calculated distance:', distance); // Add logging
               setRideDistance(distance);
               const estimatedMinutes = Math.round((distance / 30) * 60);
               setEstimatedTime(estimatedMinutes);
@@ -944,6 +1000,79 @@ const HomeScreenWithMap = () => {
   };
 
   const toggleOnlineStatus = async () => {
+    // Start loading state immediately
+    setIsUpdatingStatus(true);
+    
+    // Start the animation sequence immediately
+    Animated.sequence([
+      // Initial scale down
+      Animated.timing(scaleAnim, {
+        toValue: 0.9,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      // Scale up with glow effect and expanding rings
+      Animated.parallel([
+        Animated.spring(scaleAnim, {
+          toValue: 1.2,
+          tension: 50,
+          friction: 7,
+          useNativeDriver: true,
+        }),
+        Animated.timing(glowAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(screenGlowAnim, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        // First expanding ring
+        Animated.sequence([
+          Animated.timing(expandingRing1, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(expandingRing1, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]),
+        // Second expanding ring
+        Animated.sequence([
+          Animated.timing(expandingRing2, {
+            toValue: 1,
+            duration: 800,
+            delay: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(expandingRing2, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]),
+        // Third expanding ring
+        Animated.sequence([
+          Animated.timing(expandingRing3, {
+            toValue: 1,
+            duration: 800,
+            delay: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(expandingRing3, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]),
+    ]).start();
+
     const newStatus = !isOnline;
     
     try {
@@ -973,112 +1102,63 @@ const HomeScreenWithMap = () => {
       // Only update local state after successful Firestore update
       setIsOnline(newStatus);
       
-      // Start the animation sequence after state update
-      Animated.sequence([
-        // Initial scale down
-        Animated.timing(scaleAnim, {
-          toValue: 0.9,
-          duration: 100,
+      // Scale back to normal with success check
+      Animated.parallel([
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          tension: 50,
+          friction: 7,
           useNativeDriver: true,
         }),
-        // Scale up with glow effect and expanding rings
-        Animated.parallel([
-          Animated.spring(scaleAnim, {
-            toValue: 1.2,
-            tension: 50,
-            friction: 7,
-            useNativeDriver: true,
-          }),
-          Animated.timing(glowAnim, {
+        Animated.timing(glowAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(screenGlowAnim, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.sequence([
+          Animated.timing(successCheckAnim, {
             toValue: 1,
-            duration: 300,
+            duration: 200,
             useNativeDriver: true,
           }),
-          Animated.timing(screenGlowAnim, {
-            toValue: 1,
-            duration: 500,
-            useNativeDriver: true,
-          }),
-          // First expanding ring
-          Animated.sequence([
-            Animated.timing(expandingRing1, {
-              toValue: 1,
-              duration: 800,
-              useNativeDriver: true,
-            }),
-            Animated.timing(expandingRing1, {
-              toValue: 0,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-          ]),
-          // Second expanding ring
-          Animated.sequence([
-            Animated.timing(expandingRing2, {
-              toValue: 1,
-              duration: 800,
-              delay: 100,
-              useNativeDriver: true,
-            }),
-            Animated.timing(expandingRing2, {
-              toValue: 0,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-          ]),
-          // Third expanding ring
-          Animated.sequence([
-            Animated.timing(expandingRing3, {
-              toValue: 1,
-              duration: 800,
-              delay: 200,
-              useNativeDriver: true,
-            }),
-            Animated.timing(expandingRing3, {
-              toValue: 0,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-          ]),
-        ]),
-        // Scale back to normal with success check
-        Animated.parallel([
-          Animated.spring(scaleAnim, {
-            toValue: 1,
-            tension: 50,
-            friction: 7,
-            useNativeDriver: true,
-          }),
-          Animated.timing(glowAnim, {
+          Animated.timing(successCheckAnim, {
             toValue: 0,
-            duration: 300,
+            duration: 200,
+            delay: 500,
             useNativeDriver: true,
           }),
-          Animated.timing(screenGlowAnim, {
-            toValue: 0,
-            duration: 500,
-            useNativeDriver: true,
-          }),
-          Animated.sequence([
-            Animated.timing(successCheckAnim, {
-              toValue: 1,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-            Animated.timing(successCheckAnim, {
-              toValue: 0,
-              duration: 200,
-              delay: 500,
-              useNativeDriver: true,
-            }),
-          ]),
         ]),
       ]).start();
 
       console.log(`Driver ${currentUser.uid} is now ${newStatus ? 'online' : 'offline'}`);
     } catch (error) {
       console.error("Error updating online status:", error);
-      // Don't revert the state if there's an error, as it could lead to inconsistency
+      // Revert the animation if there's an error
+      Animated.parallel([
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          tension: 50,
+          friction: 7,
+          useNativeDriver: true,
+        }),
+        Animated.timing(glowAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(screenGlowAnim, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } finally {
+      setIsUpdatingStatus(false);
     }
   };
 
@@ -1338,12 +1418,37 @@ const HomeScreenWithMap = () => {
           onRegionChangeComplete={setRegion}
           showsUserLocation={true}
           showsMyLocationButton={true}
-          onMapReady={() => setMapReady(true)}
+          onMapReady={() => {
+            console.log('Map is ready');
+            setMapReady(true);
+          }}
+          onError={(error) => {
+            console.error('Map error:', error);
+          }}
           moveOnMarkerPress={false}
           scrollEnabled={true}
           zoomEnabled={true}
           rotateEnabled={true}
           pitchEnabled={true}
+          minZoomLevel={10}
+          maxZoomLevel={20}
+          androidRenderMode="hardware"
+          followsUserLocation={true}
+          showsCompass={true}
+          showsScale={true}
+          showsTraffic={false}
+          showsBuildings={true}
+          showsIndoors={true}
+          showsPointsOfInterest={true}
+          loadingEnabled={true}
+          loadingIndicatorColor="#FF8C00"
+          loadingBackgroundColor="#000000"
+          toolbarEnabled={true}
+          mapType="standard"
+          userInterfaceStyle="dark"
+          customMapStyle={mapStyle}
+          panDragEnabled={true}
+          initialRegion={region}
         >
           {fromLocation && (
             <Marker coordinate={fromLocation} title="Your Location">
@@ -1439,7 +1544,7 @@ const HomeScreenWithMap = () => {
               <BlurView intensity={80} tint="dark" style={styles.searchingBlur}>
                 <View style={styles.searchingContent}>
                   <ActivityIndicator size="small" color="#FF8C00" />
-                  <Text style={styles.searchingText}>Searching for requests</Text>
+                  <Text style={styles.searchingText}>Recherche de courses en cours...</Text>
                 </View>
               </BlurView>
             </Animated.View>
@@ -1540,9 +1645,11 @@ const HomeScreenWithMap = () => {
               style={[
                 styles.onlineButton,
                 isOnline ? styles.onlineButtonActive : {},
+                isUpdatingStatus && styles.onlineButtonUpdating
               ]}
               onPress={toggleOnlineStatus}
               activeOpacity={1}
+              disabled={isUpdatingStatus}
             >
               <LinearGradient
                 colors={isOnline ? ["#1D7A1D", "#228B22"] : ["#E67E00", "#FF8C00"]}
@@ -1550,61 +1657,67 @@ const HomeScreenWithMap = () => {
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
               >
-                <Animated.View
-                  style={[
-                    styles.glowEffect,
-                    {
-                      opacity: glowAnim,
-                      transform: [
+                {isUpdatingStatus ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <>
+                    <Animated.View
+                      style={[
+                        styles.glowEffect,
                         {
-                          scale: glowAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [1, 1.5],
-                          }),
+                          opacity: glowAnim,
+                          transform: [
+                            {
+                              scale: glowAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [1, 1.5],
+                              }),
+                            },
+                          ],
                         },
-                      ],
-                    },
-                  ]}
-                />
-                <Text style={styles.onlineButtonText}>
-                  {isOnline ? "EN LIGNE" : "GO"}
-                </Text>
-                {!isOnline && (
-                  <Animated.View
-                    style={[
-                      styles.ripple,
-                      {
-                        transform: [
+                      ]}
+                    />
+                    <Text style={styles.onlineButtonText}>
+                      {isOnline ? "EN LIGNE" : "GO"}
+                    </Text>
+                    {!isOnline && (
+                      <Animated.View
+                        style={[
+                          styles.ripple,
                           {
-                            scale: rippleAnim.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [0.5, 2],
-                            }),
+                            transform: [
+                              {
+                                scale: rippleAnim.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [0.5, 2],
+                                }),
+                              },
+                            ],
+                            opacity: rippleOpacity,
                           },
-                        ],
-                        opacity: rippleOpacity,
-                      },
-                    ]}
-                  />
-                )}
-                <Animated.View
-                  style={[
-                    styles.successCheck,
-                    {
-                      opacity: successCheckAnim,
-                      transform: [
+                        ]}
+                      />
+                    )}
+                    <Animated.View
+                      style={[
+                        styles.successCheck,
                         {
-                          scale: successCheckAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0.8, 1],
-                          }),
+                          opacity: successCheckAnim,
+                          transform: [
+                            {
+                              scale: successCheckAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0.8, 1],
+                              }),
+                            },
+                          ],
                         },
-                      ],
-                    },
-                  ]}
-                >
-                  <Ionicons name="checkmark" size={24} color="#FFFFFF" />
-                </Animated.View>
+                      ]}
+                    >
+                      <Ionicons name="checkmark" size={24} color="#FFFFFF" />
+                    </Animated.View>
+                  </>
+                )}
               </LinearGradient>
             </TouchableOpacity>
           </Animated.View>
@@ -1747,7 +1860,7 @@ const HomeScreenWithMap = () => {
                         <View style={styles.rideInfoItem}>
                           <MaterialIcons name="speed" size={20} color="#FF8C00" />
                           <Text style={styles.rideInfoText}>
-                            {rideDistance} km
+                            {rideDistance !== null ? rideDistance.toFixed(1) : "0.0"}
                           </Text>
                         </View>
                         
@@ -2117,11 +2230,15 @@ const styles = StyleSheet.create({
     flex: 1,
     position: "relative",
     zIndex: 1,
+    overflow: 'hidden',
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     zIndex: 1,
-    elevation: 0, // Remove elevation from map
   },
   loadingContainer: {
     flex: 1,
@@ -2261,12 +2378,12 @@ const styles = StyleSheet.create({
   },
   onlineButtonContainer: {
     position: "absolute",
-    bottom: 100,
+    bottom: 140,
     left: 0,
     right: 0,
     alignItems: "center",
-    zIndex: 3, // Increase zIndex to be above other elements
-    elevation: 6, // Add elevation for Android
+    zIndex: 3,
+    elevation: 6,
   },
   onlineButtonWrapper: {
     shadowColor: "#FF8C00",
@@ -2776,6 +2893,9 @@ const styles = StyleSheet.create({
     marginLeft: -40,
     marginTop: -40,
     zIndex: 2,
+  },
+  onlineButtonUpdating: {
+    opacity: 0.8,
   },
 });
 

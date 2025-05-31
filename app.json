@@ -23,6 +23,8 @@
         "NSLocationWhenInUseUsageDescription": "We need your location to show nearby rides and provide accurate navigation.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "We need your location to show nearby rides and provide accurate navigation even when the app is in the background.",
         "NSLocationAlwaysUsageDescription": "We need your location to show nearby rides and provide accurate navigation even when the app is in the background.",
+        "NSCameraUsageDescription": "We need access to your camera to allow you to take profile pictures and document your rides.",
+        "NSPhotoLibraryUsageDescription": "We need access to your photo library to allow you to select profile pictures and document your rides.",
         "UIBackgroundModes": [
           "location",
           "fetch"
