@@ -21,7 +21,7 @@ import {
   ScrollView,
   Alert,
 } from "react-native";
-import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { Ionicons, MaterialIcons, FontAwesome5, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   doc,
@@ -61,7 +61,7 @@ const HomeScreenWithMap = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
+  const { colors } = useTheme();
 
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -430,160 +430,38 @@ const HomeScreenWithMap = () => {
   useEffect(() => {
     const setupLocation = async () => {
       try {
-        // Request both foreground and background permissions
-        const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
-        const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
+        console.log('Setting up location...');
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        console.log('Location permission status:', status);
         
-        if (foregroundStatus !== 'granted' || backgroundStatus !== 'granted') {
-          Alert.alert(
-            "Location Permission Required",
-            "This app needs location access to function. Please enable location permissions in your device settings.",
-            [
-              {
-                text: "Open Settings",
-                onPress: () => {
-                  if (Platform.OS === 'ios') {
-                    Linking.openURL('app-settings:');
-                  } else {
-                    Linking.openSettings();
-                  }
-                }
-              },
-              { text: "Cancel", style: "cancel" }
-            ]
-          );
+        if (status !== 'granted') {
+          console.error('Location permission not granted');
           return;
         }
 
-        // Enable location services
-        await Location.enableNetworkProviderAsync();
+        const location = await Location.getCurrentPositionAsync({});
+        console.log('Current location:', location);
         
-        // Get last known location first
-        const lastKnownLocation = await Location.getLastKnownPositionAsync({
-          maxAge: 10000
-        });
-
-        if (lastKnownLocation) {
-          const { latitude, longitude } = lastKnownLocation.coords;
-          setFromLocation({ latitude, longitude });
-          setRegion({
-            latitude,
-            longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          });
-        }
-
-        // Then get current location with high accuracy
-        const currentPosition = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 5000,
-          distanceInterval: 10,
-        });
-
-        if (currentPosition?.coords) {
-          const { latitude, longitude } = currentPosition.coords;
-          setFromLocation({ latitude, longitude });
-          setRegion({
-            latitude,
-            longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          });
-        }
-
-        // Start watching position
-        const subscription = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.Balanced,
-            timeInterval: 5000,
-            distanceInterval: 10,
-          },
-          (location) => {
-            if (location?.coords) {
-              const { latitude, longitude } = location.coords;
-              setFromLocation({ latitude, longitude });
-              setRegion({
-                latitude,
-                longitude,
-                latitudeDelta: 0.01,
-                longitudeDelta: 0.01,
-              });
-            }
-          }
-        );
-
-        return () => {
-          if (subscription) {
-            subscription.remove();
-          }
+        const newRegion = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          latitudeDelta: 0.0922,
+          longitudeDelta: 0.0421,
         };
+        
+        console.log('Setting new region:', newRegion);
+        setRegion(newRegion);
+        setFromLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
       } catch (error) {
-        console.error("Location setup error:", error);
-        Alert.alert(
-          "Location Error",
-          "There was a problem setting up location services. Please make sure:\n\n" +
-          "1. Location services are enabled in your device settings\n" +
-          "2. You have granted location permission to the app\n" +
-          "3. You are in an area with good GPS signal\n\n" +
-          "Would you like to try again?",
-          [
-            {
-              text: "Try Again",
-              onPress: () => setupLocation()
-            },
-            {
-              text: "Open Settings",
-              onPress: () => {
-                if (Platform.OS === 'ios') {
-                  Linking.openURL('app-settings:');
-                } else {
-                  Linking.openSettings();
-                }
-              }
-            },
-            { text: "Cancel", style: "cancel" }
-          ]
-        );
+        console.error('Error in setupLocation:', error);
       }
     };
 
     setupLocation();
   }, []);
-
-  // Start fade-in animation when map is ready
-  useEffect(() => {
-    if (mapReady) {
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [mapReady, fadeAnim]);
-
-  // Start pulse animation for GO button
-  useEffect(() => {
-    if (!isOnline) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-    } else {
-      // Stop pulsing when online
-      pulseAnim.setValue(1);
-    }
-  }, [isOnline, pulseAnim]);
 
   // -----------------------------------------------------------------
   // 8. Subscribe to Ride Requests if driver is online, not in progress, etc.
@@ -1408,16 +1286,15 @@ const HomeScreenWithMap = () => {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.mapContainer}>
         <MapView
           ref={mapRef}
-          provider={PROVIDER_DEFAULT}
+          provider={PROVIDER_GOOGLE}
           style={styles.map}
-          region={region}
-          onRegionChangeComplete={setRegion}
-          showsUserLocation={true}
-          showsMyLocationButton={true}
+          initialRegion={region}
+          showsUserLocation
+          showsMyLocationButton
           onMapReady={() => {
             console.log('Map is ready');
             setMapReady(true);
@@ -1425,611 +1302,591 @@ const HomeScreenWithMap = () => {
           onError={(error) => {
             console.error('Map error:', error);
           }}
-          moveOnMarkerPress={false}
-          scrollEnabled={true}
-          zoomEnabled={true}
-          rotateEnabled={true}
-          pitchEnabled={true}
-          minZoomLevel={10}
-          maxZoomLevel={20}
-          androidRenderMode="hardware"
-          followsUserLocation={true}
-          showsCompass={true}
-          showsScale={true}
-          showsTraffic={false}
-          showsBuildings={true}
-          showsIndoors={true}
-          showsPointsOfInterest={true}
-          loadingEnabled={true}
-          loadingIndicatorColor="#FF8C00"
-          loadingBackgroundColor="#000000"
-          toolbarEnabled={true}
-          mapType="standard"
-          userInterfaceStyle="dark"
+          onRegionChangeComplete={(newRegion) => {
+            console.log('Region changed:', newRegion);
+            setRegion(newRegion);
+          }}
           customMapStyle={mapStyle}
-          panDragEnabled={true}
-          initialRegion={region}
         >
           {fromLocation && (
-            <Marker coordinate={fromLocation} title="Your Location">
-              <View style={styles.customMarker}>
-                <Ionicons name="car" size={24} color="#FF8C00" />
-              </View>
-            </Marker>
+            <Marker
+              coordinate={fromLocation}
+              title="Your Location"
+              description="You are here"
+            />
           )}
         </MapView>
-        
-        {/* Top panel with earnings and settings */}
-        <BlurView intensity={80} tint="dark" style={[styles.topPanel, { paddingTop: insets.top }]}>
-          <View style={styles.statusBar}>
-            <View style={styles.driverStatusContainer}>
-              <View style={[styles.statusDot, isOnline ? styles.statusDotOnline : styles.statusDotOffline]} />
-              <Text style={styles.statusText}>{isOnline ? "En ligne" : "Hors ligne"}</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.settingsButton}
-              onPress={() => navigation.navigate("SettingsScreen")}
-            >
-              <Ionicons name="settings-outline" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
+      </View>
+      {/* Top panel with earnings and settings */}
+      <BlurView intensity={80} tint="dark" style={[styles.topPanel, { paddingTop: insets.top }]}>
+        <View style={styles.statusBar}>
+          <View style={styles.driverStatusContainer}>
+            <View style={[styles.statusDot, isOnline ? styles.statusDotOnline : styles.statusDotOffline]} />
+            <Text style={styles.statusText}>{isOnline ? "En ligne" : "Hors ligne"}</Text>
           </View>
-          
           <TouchableOpacity
-            style={styles.earningsCard}
-            onPress={() => {
-              const currentActiveTime = isOnline ? Math.floor((Date.now() - startTime) / 1000) : activeTime;
-              navigation.navigate("EarningsScreen", { 
-                isOnline,
-                activeTime: currentActiveTime,
-                startTime: isOnline ? startTime : null,
-                rideCount: rideCount
-              });
-            }}
+            style={styles.settingsButton}
+            onPress={() => navigation.navigate("SettingsScreen")}
           >
-            <LinearGradient
-              colors={["#2C2C2C", "#1A1A1A"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.earningsGradient}
-            >
-              <View style={styles.earningsRow}>
-                <View>
-                  <Text style={styles.earningsLabel}>Gains du jour</Text>
-                  <Text style={styles.earningsText}>Fdj{earnings.toFixed(2)}</Text>
-                </View>
-                <View style={styles.dividerVertical} />
-                <View>
-                  <Text style={styles.earningsLabel}>Courses</Text>
-                  <Text style={styles.rideCountText}>{rideCount}</Text>
-                </View>
-              </View>
-            </LinearGradient>
+            <Ionicons name="settings-outline" size={24} color="#FFFFFF" />
           </TouchableOpacity>
-          <Text style={styles.tapHintText}>Press here to view earnings</Text>
-
-          {/* French message for no ride found - moved to top panel */}
-          {isOnline && !currentRideRequest && (
-            <View style={styles.noRideMessage}>
-              <BlurView intensity={80} tint="dark" style={styles.noRideBlur}>
-                <View style={styles.noRideContent}>
-                  <MaterialIcons name="info-outline" size={20} color="#FF8C00" style={styles.noRideIcon} />
-                  <Text style={styles.noRideText}>
-                    Si vous ne trouvez pas de course, essayez de redémarrer l'application
-                  </Text>
-                </View>
-              </BlurView>
+        </View>
+        
+        <TouchableOpacity
+          style={styles.earningsCard}
+          onPress={() => {
+            const currentActiveTime = isOnline ? Math.floor((Date.now() - startTime) / 1000) : activeTime;
+            navigation.navigate("EarningsScreen", { 
+              isOnline,
+              activeTime: currentActiveTime,
+              startTime: isOnline ? startTime : null,
+              rideCount: rideCount
+            });
+          }}
+        >
+          <LinearGradient
+            colors={["#2C2C2C", "#1A1A1A"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.earningsGradient}
+          >
+            <View style={styles.earningsRow}>
+              <View>
+                <Text style={styles.earningsLabel}>Gains du jour</Text>
+                <Text style={styles.earningsText}>Fdj{earnings.toFixed(2)}</Text>
+              </View>
+              <View style={styles.dividerVertical} />
+              <View>
+                <Text style={styles.earningsLabel}>Courses</Text>
+                <Text style={styles.rideCountText}>{rideCount}</Text>
+              </View>
             </View>
-          )}
+          </LinearGradient>
+        </TouchableOpacity>
+        <Text style={styles.tapHintText}>Press here to view earnings</Text>
 
-          <View style={styles.refreshContainer}>
-            <TouchableOpacity
-              style={styles.refreshButton}
-              onPress={onRefresh}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="refresh" size={20} color="#FF6F00" />
-            </TouchableOpacity>
-            <Text style={styles.refreshMessage}>
-              Appuyez sur le bouton ci-dessus si vous remarquez des comportements inhabituels
-            </Text>
+        {/* French message for no ride found - moved to top panel */}
+        {isOnline && !currentRideRequest && (
+          <View style={styles.noRideMessage}>
+            <BlurView intensity={80} tint="dark" style={styles.noRideBlur}>
+              <View style={styles.noRideContent}>
+                <MaterialIcons name="info-outline" size={20} color="#FF8C00" style={styles.noRideIcon} />
+                <Text style={styles.noRideText}>
+                  Si vous ne trouvez pas de course, essayez de redémarrer l'application
+                </Text>
+              </View>
+            </BlurView>
           </View>
+        )}
 
-          {isOnline && !currentRideRequest && (
-            <Animated.View 
-              style={[
-                styles.searchingContainer,
-                { opacity: fadeAnim }
-              ]}
-            >
-              <BlurView intensity={80} tint="dark" style={styles.searchingBlur}>
-                <View style={styles.searchingContent}>
-                  <ActivityIndicator size="small" color="#FF8C00" />
-                  <Text style={styles.searchingText}>Recherche de courses en cours...</Text>
-                </View>
-              </BlurView>
-            </Animated.View>
-          )}
-        </BlurView>
+        <View style={styles.refreshContainer}>
+          <TouchableOpacity
+            style={styles.refreshButton}
+            onPress={onRefresh}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="refresh" size={20} color="#FF6F00" />
+          </TouchableOpacity>
+          <Text style={styles.refreshMessage}>
+            Appuyez sur le bouton ci-dessus si vous remarquez des comportements inhabituels
+          </Text>
+        </View>
 
-        {/* Screen-wide glow effect */}
-        <Animated.View
-          style={[
-            styles.screenGlow,
-            {
-              opacity: screenGlowAnim,
-              transform: [
-                {
-                  scale: screenGlowAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [1, 1.5],
-                  }),
-                },
-              ],
-            },
-          ]}
-        />
-        
-        {/* Expanding rings */}
-        <Animated.View
-          style={[
-            styles.expandingRing,
-            {
-              transform: [
-                {
-                  scale: expandingRing1.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [1, 3],
-                  }),
-                },
-              ],
-              opacity: expandingRing1.interpolate({
-                inputRange: [0, 0.5, 1],
-                outputRange: [0, 0.5, 0],
-              }),
-            },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.expandingRing,
-            {
-              transform: [
-                {
-                  scale: expandingRing2.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [1, 3],
-                  }),
-                },
-              ],
-              opacity: expandingRing2.interpolate({
-                inputRange: [0, 0.5, 1],
-                outputRange: [0, 0.5, 0],
-              }),
-            },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.expandingRing,
-            {
-              transform: [
-                {
-                  scale: expandingRing3.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [1, 3],
-                  }),
-                },
-              ],
-              opacity: expandingRing3.interpolate({
-                inputRange: [0, 0.5, 1],
-                outputRange: [0, 0.5, 0],
-              }),
-            },
-          ]}
-        />
-        
-        {/* Go Online Button */}
-        <View style={styles.onlineButtonContainer}>
-          <Animated.View
+        {isOnline && !currentRideRequest && (
+          <Animated.View 
             style={[
-              styles.onlineButtonWrapper,
-              {
-                transform: [
-                  { scale: isOnline ? 1 : pulseAnim },
-                  { scale: scaleAnim }
-                ],
-              },
+              styles.searchingContainer,
+              { opacity: fadeAnim }
             ]}
           >
-            <TouchableOpacity
-              style={[
-                styles.onlineButton,
-                isOnline ? styles.onlineButtonActive : {},
-                isUpdatingStatus && styles.onlineButtonUpdating
-              ]}
-              onPress={toggleOnlineStatus}
-              activeOpacity={1}
-              disabled={isUpdatingStatus}
+            <BlurView intensity={80} tint="dark" style={styles.searchingBlur}>
+              <View style={styles.searchingContent}>
+                <ActivityIndicator size="small" color="#FF8C00" />
+                <Text style={styles.searchingText}>Recherche de courses en cours...</Text>
+              </View>
+            </BlurView>
+          </Animated.View>
+        )}
+      </BlurView>
+
+      {/* Screen-wide glow effect */}
+      <Animated.View
+        style={[
+          styles.screenGlow,
+          {
+            opacity: screenGlowAnim,
+            transform: [
+              {
+                scale: screenGlowAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1, 1.5],
+                }),
+              },
+            ],
+          },
+        ]}
+      />
+      
+      {/* Expanding rings */}
+      <Animated.View
+        style={[
+          styles.expandingRing,
+          {
+            transform: [
+              {
+                scale: expandingRing1.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1, 3],
+                }),
+              },
+            ],
+            opacity: expandingRing1.interpolate({
+              inputRange: [0, 0.5, 1],
+              outputRange: [0, 0.5, 0],
+            }),
+          },
+        ]}
+      />
+      <Animated.View
+        style={[
+          styles.expandingRing,
+          {
+            transform: [
+              {
+                scale: expandingRing2.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1, 3],
+                }),
+              },
+            ],
+            opacity: expandingRing2.interpolate({
+              inputRange: [0, 0.5, 1],
+              outputRange: [0, 0.5, 0],
+            }),
+          },
+        ]}
+      />
+      <Animated.View
+        style={[
+          styles.expandingRing,
+          {
+            transform: [
+              {
+                scale: expandingRing3.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1, 3],
+                }),
+              },
+            ],
+            opacity: expandingRing3.interpolate({
+              inputRange: [0, 0.5, 1],
+              outputRange: [0, 0.5, 0],
+            }),
+          },
+        ]}
+      />
+      
+      {/* Go Online Button */}
+      <View style={styles.onlineButtonContainer}>
+        <Animated.View
+          style={[
+            styles.onlineButtonWrapper,
+            {
+              transform: [
+                { scale: isOnline ? 1 : pulseAnim },
+                { scale: scaleAnim }
+              ],
+            },
+          ]}
+        >
+          <TouchableOpacity
+            style={[
+              styles.onlineButton,
+              isOnline ? styles.onlineButtonActive : {},
+              isUpdatingStatus && styles.onlineButtonUpdating
+            ]}
+            onPress={toggleOnlineStatus}
+            activeOpacity={1}
+            disabled={isUpdatingStatus}
+          >
+            <LinearGradient
+              colors={isOnline ? ["#1D7A1D", "#228B22"] : ["#E67E00", "#FF8C00"]}
+              style={styles.buttonGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
             >
-              <LinearGradient
-                colors={isOnline ? ["#1D7A1D", "#228B22"] : ["#E67E00", "#FF8C00"]}
-                style={styles.buttonGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                {isUpdatingStatus ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <>
+              {isUpdatingStatus ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <>
+                  <Animated.View
+                    style={[
+                      styles.glowEffect,
+                      {
+                        opacity: glowAnim,
+                        transform: [
+                          {
+                            scale: glowAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [1, 1.5],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
+                  />
+                  <Text style={styles.onlineButtonText}>
+                    {isOnline ? "EN LIGNE" : "GO"}
+                  </Text>
+                  {!isOnline && (
                     <Animated.View
                       style={[
-                        styles.glowEffect,
+                        styles.ripple,
                         {
-                          opacity: glowAnim,
                           transform: [
                             {
-                              scale: glowAnim.interpolate({
+                              scale: rippleAnim.interpolate({
                                 inputRange: [0, 1],
-                                outputRange: [1, 1.5],
+                                outputRange: [0.5, 2],
                               }),
                             },
                           ],
+                          opacity: rippleOpacity,
                         },
                       ]}
                     />
-                    <Text style={styles.onlineButtonText}>
-                      {isOnline ? "EN LIGNE" : "GO"}
-                    </Text>
-                    {!isOnline && (
+                  )}
+                  <Animated.View
+                    style={[
+                      styles.successCheck,
+                      {
+                        opacity: successCheckAnim,
+                        transform: [
+                          {
+                            scale: successCheckAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0.8, 1],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
+                  >
+                    <Ionicons name="checkmark" size={24} color="#FFFFFF" />
+                  </Animated.View>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
+
+      {/* Driver Info Card */}
+      {mapReady && (
+        <View style={styles.driverCardContainer}>
+          <BlurView intensity={80} tint="dark" style={styles.driverCard}>
+            <View style={styles.driverInfo}>
+              {driverPhoto ? (
+                <Image 
+                  source={{ uri: driverPhoto }} 
+                  style={styles.driverPhoto}
+                  onError={(error) => {
+                    console.error("Error loading driver photo:", error.nativeEvent.error);
+                    setDriverPhoto(""); // Reset photo on error
+                  }}
+                  onLoad={() => console.log("Driver photo loaded successfully")}
+                />
+              ) : (
+                <View style={styles.driverPhotoPlaceholder}>
+                  <Ionicons name="person" size={30} color="#FFFFFF" />
+                </View>
+              )}
+              <View style={styles.driverDetails}>
+                <Text style={styles.driverName}>{userName}</Text>
+                <Text style={styles.driverType}>{driverType || "Chauffeur"}</Text>
+              </View>
+            </View>
+          </BlurView>
+        </View>
+      )}
+
+      {/* Ride Request Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={isModalVisible}
+        onRequestClose={() => {}}
+        statusBarTranslucent
+      >
+        <View style={styles.modalOverlay}>
+          <BlurView intensity={80} tint="dark" style={styles.blurContainer}>
+            <View style={styles.modalContent}>
+              {isLoadingAddress ? (
+                <View style={styles.loadingModalContent}>
+                  <ActivityIndicator size="large" color="#FF8C00" />
+                  <Text style={styles.loadingModalText}>Traitement de la demande de course...</Text>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>Nouvelle demande de course</Text>
+                    <LinearGradient
+                      colors={timeLeft <= 5 ? ["#FF3B30", "#FF5E3A"] : ["#FF8C00", "#FFA500"]}
+                      style={styles.timerGradient}
+                    >
                       <Animated.View
                         style={[
-                          styles.ripple,
+                          styles.timerFill,
                           {
-                            transform: [
-                              {
-                                scale: rippleAnim.interpolate({
-                                  inputRange: [0, 1],
-                                  outputRange: [0.5, 2],
-                                }),
-                              },
-                            ],
-                            opacity: rippleOpacity,
+                            transform: [{ scale: countdownAnim }],
                           },
                         ]}
                       />
-                    )}
-                    <Animated.View
-                      style={[
-                        styles.successCheck,
-                        {
-                          opacity: successCheckAnim,
-                          transform: [
-                            {
-                              scale: successCheckAnim.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [0.8, 1],
-                              }),
-                            },
-                          ],
-                        },
-                      ]}
-                    >
-                      <Ionicons name="checkmark" size={24} color="#FFFFFF" />
-                    </Animated.View>
-                  </>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
-
-        {/* Driver Info Card */}
-        {mapReady && (
-          <View style={styles.driverCardContainer}>
-            <BlurView intensity={80} tint="dark" style={styles.driverCard}>
-              <View style={styles.driverInfo}>
-                {driverPhoto ? (
-                  <Image 
-                    source={{ uri: driverPhoto }} 
-                    style={styles.driverPhoto}
-                    onError={(error) => {
-                      console.error("Error loading driver photo:", error.nativeEvent.error);
-                      setDriverPhoto(""); // Reset photo on error
-                    }}
-                    onLoad={() => console.log("Driver photo loaded successfully")}
-                  />
-                ) : (
-                  <View style={styles.driverPhotoPlaceholder}>
-                    <Ionicons name="person" size={30} color="#FFFFFF" />
-                  </View>
-                )}
-                <View style={styles.driverDetails}>
-                  <Text style={styles.driverName}>{userName}</Text>
-                  <Text style={styles.driverType}>{driverType || "Chauffeur"}</Text>
-                </View>
-              </View>
-            </BlurView>
-          </View>
-        )}
-
-        {/* Ride Request Modal */}
-        <Modal
-          animationType="fade"
-          transparent={true}
-          visible={isModalVisible}
-          onRequestClose={() => {}}
-          statusBarTranslucent
-        >
-          <View style={styles.modalOverlay}>
-            <BlurView intensity={80} tint="dark" style={styles.blurContainer}>
-              <View style={styles.modalContent}>
-                {isLoadingAddress ? (
-                  <View style={styles.loadingModalContent}>
-                    <ActivityIndicator size="large" color="#FF8C00" />
-                    <Text style={styles.loadingModalText}>Traitement de la demande de course...</Text>
-                  </View>
-                ) : (
-                  <>
-                    <View style={styles.modalHeader}>
-                      <Text style={styles.modalTitle}>Nouvelle demande de course</Text>
-                      <LinearGradient
-                        colors={timeLeft <= 5 ? ["#FF3B30", "#FF5E3A"] : ["#FF8C00", "#FFA500"]}
-                        style={styles.timerGradient}
-                      >
-                        <Animated.View
-                          style={[
-                            styles.timerFill,
-                            {
-                              transform: [{ scale: countdownAnim }],
-                            },
-                          ]}
-                        />
-                        <Text style={styles.timerText}>{timeLeft}</Text>
-                      </LinearGradient>
-                    </View>
-                    
-                    <LinearGradient
-                      colors={["#2C2C2C", "#222222"]}
-                      style={styles.rideCard}
-                    >
-                      <View style={styles.addressContainer}>
-                        <View style={styles.addressRow}>
-                          <View style={styles.addressIconContainer}>
-                            <View style={[styles.dot, styles.pickupDot]} />
-                          </View>
-                          <View style={styles.addressTextContainer}>
-                            <Text style={styles.addressLabel}>DÉPART</Text>
-                            <Text style={styles.addressText}>{pickupAddress}</Text>
-                          </View>
-                        </View>
-                        <View style={styles.routeLine} />
-                        <View style={styles.addressRow}>
-                          <View style={styles.addressIconContainer}>
-                            <View style={[styles.dot, styles.destinationDot]} />
-                          </View>
-                          <View style={styles.addressTextContainer}>
-                            <Text style={styles.addressLabel}>DESTINATION</Text>
-                            <Text style={styles.addressText}>{destinationAddress}</Text>
-                          </View>
-                        </View>
-                      </View>
-
-                      {/* Customer Information Section */}
-                      <View style={styles.customerContainer}>
-                        <View style={styles.customerInfo}>
-                          <View style={styles.customerPhotoContainer}>
-                            {currentRideRequest?.photo ? (
-                              <Image
-                                source={{ uri: currentRideRequest.photo }}
-                                style={styles.customerPhoto}
-                              />
-                            ) : (
-                              <MaterialCommunityIcons name="account" size={24} color="#FFFFFF" />
-                            )}
-                          </View>
-                          <View style={styles.customerTextContainer}>
-                            <Text style={styles.customerName}>
-                              {currentRideRequest?.firstName || "Customer"}
-                            </Text>
-                            {currentRideRequest?.number && (
-                              <Text style={styles.customerPhone}>{currentRideRequest.number}</Text>
-                            )}
-                          </View>
-                        </View>
-                        
-                        {currentRideRequest?.number && (
-                          <TouchableOpacity 
-                            style={styles.phoneButton}
-                            onPress={() => Linking.openURL(`tel:${currentRideRequest.number}`)}
-                          >
-                            <Ionicons name="call-outline" size={20} color="#FFFFFF" />
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                      
-                      <View style={styles.rideInfoContainer}>
-                        <View style={styles.rideInfoItem}>
-                          <MaterialIcons name="attach-money" size={20} color="#FF8C00" />
-                          <Text style={styles.rideInfoText}>
-                            Fdj{currentRideRequest?.fare?.toFixed(2) || "0.00"}
-                          </Text>
-                        </View>
-                        
-                        <View style={styles.dividerVerticalSmall} />
-                        
-                        <View style={styles.rideInfoItem}>
-                          <MaterialIcons name="speed" size={20} color="#FF8C00" />
-                          <Text style={styles.rideInfoText}>
-                            {rideDistance !== null ? rideDistance.toFixed(1) : "0.0"}
-                          </Text>
-                        </View>
-                        
-                        <View style={styles.dividerVerticalSmall} />
-                        
-                        <View style={styles.rideInfoItem}>
-                          <MaterialIcons name="schedule" size={20} color="#FF8C00" />
-                          <Text style={styles.rideInfoText}>
-                            ~{estimatedTime} min
-                          </Text>
-                        </View>
-                      </View>
+                      <Text style={styles.timerText}>{timeLeft}</Text>
                     </LinearGradient>
-                    
-                    <View style={styles.buttonContainer}>
-                      <TouchableOpacity
-                        style={styles.declineButton}
-                        onPress={declineRide}
-                      >
-                        <Text style={styles.declineButtonText}>Decline</Text>
-                      </TouchableOpacity>
-                      
-                      <TouchableOpacity
-                        style={styles.acceptButton}
-                        onPress={acceptRide}
-                      >
-                        <LinearGradient
-                          colors={["#228B22", "#1D7A1D"]}
-                          style={styles.acceptButtonGradient}
-                        >
-                          <Text style={styles.acceptButtonText}>Accept</Text>
-                        </LinearGradient>
-                      </TouchableOpacity>
+                  </View>
+                  
+                  <LinearGradient
+                    colors={["#2C2C2C", "#222222"]}
+                    style={styles.rideCard}
+                  >
+                    <View style={styles.addressContainer}>
+                      <View style={styles.addressRow}>
+                        <View style={styles.addressIconContainer}>
+                          <View style={[styles.dot, styles.pickupDot]} />
+                        </View>
+                        <View style={styles.addressTextContainer}>
+                          <Text style={styles.addressLabel}>DÉPART</Text>
+                          <Text style={styles.addressText}>{pickupAddress}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.routeLine} />
+                      <View style={styles.addressRow}>
+                        <View style={styles.addressIconContainer}>
+                          <View style={[styles.dot, styles.destinationDot]} />
+                        </View>
+                        <View style={styles.addressTextContainer}>
+                          <Text style={styles.addressLabel}>DESTINATION</Text>
+                          <Text style={styles.addressText}>{destinationAddress}</Text>
+                        </View>
+                      </View>
                     </View>
-                  </>
-                )}
-              </View>
-            </BlurView>
-          </View>
-        </Modal>
 
-        {showStatusPopup && (
-          <Animated.View style={styles.statusPopup}>
-            <Animated.View
-              style={[
-                styles.statusRing,
-                {
-                  transform: [
-                    {
-                      scale: ringAnim1.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.5, 2.5],
-                      })
-                    },
-                  ],
-                  opacity: ringAnim1.interpolate({
-                    inputRange: [0, 0.4, 1],
-                    outputRange: [0, 0.6, 0],
-                  }),
-                },
-              ]}
-            />
-            <Animated.View
-              style={[
-                styles.statusRing,
-                {
-                  transform: [
-                    {
-                      scale: ringAnim2.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.5, 2.2],
-                      })
-                    },
-                  ],
-                  opacity: ringAnim2.interpolate({
-                    inputRange: [0, 0.4, 1],
-                    outputRange: [0, 0.5, 0],
-                  }),
-                },
-              ]}
-            />
-            <Animated.View
-              style={[
-                styles.statusRing,
-                {
-                  transform: [
-                    {
-                      scale: ringAnim3.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.5, 1.9],
-                      })
-                    },
-                  ],
-                  opacity: ringAnim3.interpolate({
-                    inputRange: [0, 0.4, 1],
-                    outputRange: [0, 0.4, 0],
-                  }),
-                },
-              ]}
-            />
-            <Animated.View
-              style={[
-                styles.statusPopupMain,
-                {
-                  transform: [
-                    {
-                      scale: statusPopupAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.3, 1],
-                      }),
-                    },
-                  ],
-                  opacity: statusPopupAnim,
-                },
-              ]}
+                    {/* Customer Information Section */}
+                    <View style={styles.customerContainer}>
+                      <View style={styles.customerInfo}>
+                        <View style={styles.customerPhotoContainer}>
+                          {currentRideRequest?.photo ? (
+                            <Image
+                              source={{ uri: currentRideRequest.photo }}
+                              style={styles.customerPhoto}
+                            />
+                          ) : (
+                            <MaterialCommunityIcons name="account" size={24} color="#FFFFFF" />
+                          )}
+                        </View>
+                        <View style={styles.customerTextContainer}>
+                          <Text style={styles.customerName}>
+                            {currentRideRequest?.firstName || "Customer"}
+                          </Text>
+                          {currentRideRequest?.number && (
+                            <Text style={styles.customerPhone}>{currentRideRequest.number}</Text>
+                          )}
+                        </View>
+                      </View>
+                      
+                      {currentRideRequest?.number && (
+                        <TouchableOpacity 
+                          style={styles.phoneButton}
+                          onPress={() => Linking.openURL(`tel:${currentRideRequest.number}`)}
+                        >
+                          <Ionicons name="call-outline" size={20} color="#FFFFFF" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    
+                    <View style={styles.rideInfoContainer}>
+                      <View style={styles.rideInfoItem}>
+                        <MaterialIcons name="attach-money" size={20} color="#FF8C00" />
+                        <Text style={styles.rideInfoText}>
+                          Fdj{currentRideRequest?.fare?.toFixed(2) || "0.00"}
+                        </Text>
+                      </View>
+                      
+                      <View style={styles.dividerVerticalSmall} />
+                      
+                      <View style={styles.rideInfoItem}>
+                        <MaterialIcons name="speed" size={20} color="#FF8C00" />
+                        <Text style={styles.rideInfoText}>
+                          {rideDistance !== null ? rideDistance.toFixed(1) : "0.0"}
+                        </Text>
+                      </View>
+                      
+                      <View style={styles.dividerVerticalSmall} />
+                      
+                      <View style={styles.rideInfoItem}>
+                        <MaterialIcons name="schedule" size={20} color="#FF8C00" />
+                        <Text style={styles.rideInfoText}>
+                          ~{estimatedTime} min
+                        </Text>
+                      </View>
+                    </View>
+                  </LinearGradient>
+                  
+                  <View style={styles.buttonContainer}>
+                    <TouchableOpacity
+                      style={styles.declineButton}
+                      onPress={declineRide}
+                    >
+                      <Text style={styles.declineButtonText}>Decline</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={styles.acceptButton}
+                      onPress={acceptRide}
+                    >
+                      <LinearGradient
+                        colors={["#228B22", "#1D7A1D"]}
+                        style={styles.acceptButtonGradient}
+                      >
+                        <Text style={styles.acceptButtonText}>Accept</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+          </BlurView>
+        </View>
+      </Modal>
+
+      {showStatusPopup && (
+        <Animated.View style={styles.statusPopup}>
+          <Animated.View
+            style={[
+              styles.statusRing,
+              {
+                transform: [
+                  {
+                    scale: ringAnim1.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.5, 2.5],
+                    })
+                  },
+                ],
+                opacity: ringAnim1.interpolate({
+                  inputRange: [0, 0.4, 1],
+                  outputRange: [0, 0.6, 0],
+                }),
+              },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.statusRing,
+              {
+                transform: [
+                  {
+                    scale: ringAnim2.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.5, 2.2],
+                    })
+                  },
+                ],
+                opacity: ringAnim2.interpolate({
+                  inputRange: [0, 0.4, 1],
+                  outputRange: [0, 0.5, 0],
+                }),
+              },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.statusRing,
+              {
+                transform: [
+                  {
+                    scale: ringAnim3.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.5, 1.9],
+                    })
+                  },
+                ],
+                opacity: ringAnim3.interpolate({
+                  inputRange: [0, 0.4, 1],
+                  outputRange: [0, 0.4, 0],
+                }),
+              },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.statusPopupMain,
+              {
+                transform: [
+                  {
+                    scale: statusPopupAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.3, 1],
+                    }),
+                  },
+                ],
+                opacity: statusPopupAnim,
+              },
+            ]}
+          >
+            <LinearGradient
+              colors={isOnline ? 
+                ['rgba(255, 255, 255, 0.9)', 'rgba(255, 255, 255, 0.7)'] : 
+                ['rgba(40, 40, 40, 0.95)', 'rgba(30, 30, 30, 0.9)']}
+              style={styles.statusPopupGradient}
             >
-              <LinearGradient
-                colors={isOnline ? 
-                  ['rgba(255, 255, 255, 0.9)', 'rgba(255, 255, 255, 0.7)'] : 
-                  ['rgba(40, 40, 40, 0.95)', 'rgba(30, 30, 30, 0.9)']}
-                style={styles.statusPopupGradient}
+              <Animated.View
+                style={[
+                  styles.statusIcon,
+                  {
+                    transform: [
+                      { scale: iconAnim },
+                      { 
+                        rotate: iconAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['-45deg', '0deg'],
+                        })
+                      },
+                    ],
+                    opacity: iconAnim,
+                  },
+                ]}
               >
-                <Animated.View
-                  style={[
-                    styles.statusIcon,
-                    {
-                      transform: [
-                        { scale: iconAnim },
-                        { 
-                          rotate: iconAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: ['-45deg', '0deg'],
-                          })
-                        },
-                      ],
-                      opacity: iconAnim,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={isOnline ? "power" : "power-outline"}
-                    size={50}
-                    color={isOnline ? "#222" : "#fff"}
-                  />
-                </Animated.View>
-                <Animated.Text
-                  style={[
-                    styles.statusPopupText,
-                    {
-                      color: isOnline ? "#222" : "#fff",
-                      transform: [
-                        {
-                          translateY: statusTextAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [20, 0],
-                          }),
-                        },
-                      ],
-                      opacity: statusTextAnim,
-                    },
-                  ]}
-                >
-                  {isOnline ? "EN LIGNE" : "HORS LIGNE"}
-                </Animated.Text>
-              </LinearGradient>
-            </Animated.View>
+                <Ionicons
+                  name={isOnline ? "power" : "power-outline"}
+                  size={50}
+                  color={isOnline ? "#222" : "#fff"}
+                />
+              </Animated.View>
+              <Animated.Text
+                style={[
+                  styles.statusPopupText,
+                  {
+                    color: isOnline ? "#222" : "#fff",
+                    transform: [
+                      {
+                        translateY: statusTextAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [20, 0],
+                        }),
+                      },
+                    ],
+                    opacity: statusTextAnim,
+                  },
+                ]}
+              >
+                {isOnline ? "EN LIGNE" : "HORS LIGNE"}
+              </Animated.Text>
+            </LinearGradient>
           </Animated.View>
-        )}
-      </View>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 };
@@ -2224,21 +2081,16 @@ const mapStyle = [
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000000",
   },
   mapContainer: {
     flex: 1,
-    position: "relative",
-    zIndex: 1,
-    overflow: 'hidden',
+    width: '100%',
+    height: '100%',
   },
   map: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 1,
+    flex: 1,
+    width: '100%',
+    height: '100%',
   },
   loadingContainer: {
     flex: 1,
