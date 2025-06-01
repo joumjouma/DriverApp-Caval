@@ -34,7 +34,7 @@
     },
     "android": {
       "package": "com.misscoding.ecoshare",
-      "versionCode": 7,
+      "versionCode": 10,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
