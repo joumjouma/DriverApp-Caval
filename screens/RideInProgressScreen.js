@@ -30,7 +30,7 @@ const RideInProgressScreen = () => {
   const route = useRoute();
   const navigation = useNavigation();
   const mapRef = useRef(null);
-  const GOOGLE_MAPS_APIKEY = "AIzaSyBH87gAekJEssZuAX-q3lwjDjLRr0jXMNs";
+  const GOOGLE_MAPS_APIKEY = "AIzaSyBnVN-ACYzcA0Sy8BcPLpXG50Y9T8jhJGE";
 
   // Configure navigation options to prevent swiping back
   useEffect(() => {
