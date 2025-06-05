@@ -436,12 +436,30 @@ const HomeScreenWithMap = () => {
         
         if (status !== 'granted') {
           console.error('Location permission not granted');
+          Alert.alert(
+            'Location Permission Required',
+            'Please enable location services to use the map.',
+            [{ text: 'OK' }]
+          );
           return;
         }
 
-        const location = await Location.getCurrentPositionAsync({});
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+          maximumAge: 10000
+        });
         console.log('Current location:', location);
         
+        if (!location || !location.coords) {
+          console.error('Invalid location data received');
+          Alert.alert(
+            'Location Error',
+            'Unable to get your current location. Please check your location settings.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
         const newRegion = {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
@@ -457,11 +475,26 @@ const HomeScreenWithMap = () => {
         });
       } catch (error) {
         console.error('Error in setupLocation:', error);
+        Alert.alert(
+          'Error',
+          'There was an error setting up the map. Please try again.',
+          [{ text: 'OK' }]
+        );
       }
     };
 
     setupLocation();
   }, []);
+
+  // Add this new effect to monitor map state
+  useEffect(() => {
+    console.log('Map state changed:', {
+      region,
+      fromLocation,
+      mapReady,
+      isAuthenticated
+    });
+  }, [region, fromLocation, mapReady, isAuthenticated]);
 
   // -----------------------------------------------------------------
   // 8. Subscribe to Ride Requests if driver is online, not in progress, etc.
@@ -1271,6 +1304,7 @@ const HomeScreenWithMap = () => {
   // -----------------------------------------------------------------
   // 17. Render
   if (!region) {
+    console.log('No region available, showing loading screen');
     return (
       <View style={styles.loadingContainer}>
         <StatusBar barStyle="light-content" />
@@ -1285,37 +1319,64 @@ const HomeScreenWithMap = () => {
     );
   }
 
+  console.log('Rendering map with region:', region);
+  console.log('Google Maps API Key:', GOOGLE_MAPS_APIKEY);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.mapContainer}>
-        <MapView
-          ref={mapRef}
-          provider={PROVIDER_GOOGLE}
-          style={styles.map}
-          initialRegion={region}
-          showsUserLocation
-          showsMyLocationButton
-          onMapReady={() => {
-            console.log('Map is ready');
-            setMapReady(true);
-          }}
-          onError={(error) => {
-            console.error('Map error:', error);
-          }}
-          onRegionChangeComplete={(newRegion) => {
-            console.log('Region changed:', newRegion);
-            setRegion(newRegion);
-          }}
-          customMapStyle={mapStyle}
-        >
-          {fromLocation && (
-            <Marker
-              coordinate={fromLocation}
-              title="Your Location"
-              description="You are here"
-            />
-          )}
-        </MapView>
+        {region ? (
+          <MapView
+            ref={mapRef}
+            provider={PROVIDER_GOOGLE}
+            style={[styles.map, { backgroundColor: '#000000' }]}
+            initialRegion={region}
+            showsUserLocation
+            showsMyLocationButton
+            onMapReady={() => {
+              console.log('Map is ready');
+              console.log('Current region:', region);
+              console.log('Map provider:', PROVIDER_GOOGLE);
+              setMapReady(true);
+            }}
+            onError={(error) => {
+              console.error('Map error:', error);
+              console.error('Error details:', error.nativeEvent);
+              Alert.alert(
+                'Map Error',
+                'There was an error loading the map. Please check your internet connection and try again.',
+                [{ text: 'OK' }]
+              );
+            }}
+            onRegionChangeComplete={(newRegion) => {
+              console.log('Region changed:', newRegion);
+              setRegion(newRegion);
+            }}
+            customMapStyle={mapStyle}
+            loadingEnabled={true}
+            loadingIndicatorColor="#FF8C00"
+            loadingBackgroundColor="#000000"
+          >
+            {fromLocation && (
+              <Marker
+                coordinate={fromLocation}
+                title="Your Location"
+                description="You are here"
+              />
+            )}
+          </MapView>
+        ) : (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#FF8C00" />
+            <Text style={styles.loadingText}>Loading map...</Text>
+          </View>
+        )}
+        {!mapReady && region && (
+          <View style={styles.mapLoadingOverlay}>
+            <ActivityIndicator size="large" color="#FF8C00" />
+            <Text style={styles.mapLoadingText}>Initializing map...</Text>
+          </View>
+        )}
       </View>
       {/* Top panel with earnings and settings */}
       <BlurView intensity={80} tint="dark" style={[styles.topPanel, { paddingTop: insets.top }]}>
@@ -1388,7 +1449,7 @@ const HomeScreenWithMap = () => {
             <Ionicons name="refresh" size={20} color="#FF6F00" />
           </TouchableOpacity>
           <Text style={styles.refreshMessage}>
-            Appuyez sur le bouton ci-dessus si vous remarquez des comportements inhabituels
+            Appuya sur le bouton ci-dessus si vous remarquez des comportements inhabituels
           </Text>
         </View>
 
@@ -2748,6 +2809,21 @@ const styles = StyleSheet.create({
   },
   onlineButtonUpdating: {
     opacity: 0.8,
+  },
+  mapLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mapLoadingText: {
+    color: '#FFFFFF',
+    marginTop: 10,
+    fontSize: 16,
   },
 });
 
