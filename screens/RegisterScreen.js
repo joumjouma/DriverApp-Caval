@@ -225,6 +225,13 @@ function RegisterScreen() {
     }
   };
 
+  const togglePaymentMethod = (method) => {
+    setPaymentMethods(prev => ({
+      ...prev,
+      [method]: !prev[method]
+    }));
+  };
+
   return (
     <View style={styles.mainContainer}>
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
