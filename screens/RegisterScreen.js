@@ -44,8 +44,6 @@ function RegisterScreen() {
   const [pendingUser, setPendingUser] = useState(null);
   
   // New state variables for documents and payment methods
-  const [driverLicense, setDriverLicense] = useState(null);
-  const [carteGrise, setCarteGrise] = useState(null);
   const [facePhoto, setFacePhoto] = useState(null);
   const [paymentMethods, setPaymentMethods] = useState({
     dmoney: false,
@@ -129,35 +127,6 @@ function RegisterScreen() {
     }
   };
 
-  const pickImage = async (type) => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-      });
-
-      if (!result.canceled) {
-        if (type === 'license') {
-          setDriverLicense(result.assets[0]);
-        } else if (type === 'carteGrise') {
-          setCarteGrise(result.assets[0]);
-        }
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image. Please try again.');
-    }
-  };
-
-  const togglePaymentMethod = (method) => {
-    setPaymentMethods(prev => ({
-      ...prev,
-      [method]: !prev[method]
-    }));
-  };
-
   const uploadImageToStorage = async (uri, path) => {
     try {
       const response = await fetch(uri);
@@ -175,15 +144,14 @@ function RegisterScreen() {
   };
 
   const handleRegister = async () => {
-    if (!email || !password || !confirmPassword || !prenom || !nom || !telephone || !driverLicense || !carteGrise || !facePhoto) {
+    if (!email || !password || !confirmPassword || !prenom || !nom || !telephone || !facePhoto) {
       Alert.alert(
         "Informations manquantes",
-        "Veuillez remplir tous les champs obligatoires et télécharger tous les documents requis",
+        "Veuillez remplir tous les champs obligatoires et prendre une photo de votre visage",
         [{ text: "OK" }]
       );
       return;
     }
-
     if (password !== confirmPassword) {
       Alert.alert(
         "Erreur de mot de passe",
@@ -192,7 +160,6 @@ function RegisterScreen() {
       );
       return;
     }
-
     if (!paymentMethods.dmoney && !paymentMethods.cacpay && !paymentMethods.waafi) {
       Alert.alert(
         "Méthodes de paiement requises",
@@ -201,38 +168,18 @@ function RegisterScreen() {
       );
       return;
     }
-
     setIsLoading(true);
-
     try {
-      // First create the user account
       const userCredential = await createUserWithEmailAndPassword(
         getAuth(),
         email,
         password
       );
       const user = userCredential.user;
-      console.log("User created with UID:", user.uid);
-
-      // Upload images to Firebase Storage
-      console.log("Starting image uploads...");
-      const [driverLicenseURL, carteGriseURL, facePhotoURL] = await Promise.all([
-        uploadImageToStorage(driverLicense.uri, `drivers/${user.uid}/license`),
-        uploadImageToStorage(carteGrise.uri, `drivers/${user.uid}/carteGrise`),
-        uploadImageToStorage(facePhoto.uri, `drivers/${user.uid}/profile_photo`)
-      ]);
-      console.log("All images uploaded successfully");
-      console.log("Face photo URL:", facePhotoURL);
-
-      // Enregistrer l'UID du chauffeur dans AsyncStorage
+      const facePhotoURL = await uploadImageToStorage(facePhoto.uri, `drivers/${user.uid}/profile_photo`);
       try {
         await AsyncStorage.setItem('driverUID', user.uid);
-        console.log("Driver UID saved to AsyncStorage");
-      } catch (e) {
-        console.log("Erreur lors de l'enregistrement de l'UID dans AsyncStorage:", e);
-      }
-
-      // Enregistrer les informations utilisateur dans Firestore
+      } catch (e) {}
       const driverData = {
         email: user.email,
         firstName: prenom,
@@ -254,37 +201,22 @@ function RegisterScreen() {
         lastOnline: new Date(),
         isOnline: false,
         driverType: typeDeVehicule,
-        driverLicense: driverLicenseURL,
-        carteGrise: carteGriseURL,
-        photo: facePhotoURL, // Save face photo as profile photo
+        photo: facePhotoURL,
         paymentMethods: paymentMethods,
         documentsVerified: false,
       };
-
-      console.log("Driver data prepared for Firestore:", driverData);
-
       try {
-        // Save to Firestore first
         await setDoc(doc(db, "Drivers", user.uid), driverData);
-        console.log("Data saved to Firestore successfully");
-        
-        // Then save to AsyncStorage
         await AsyncStorage.setItem('driverInfo', JSON.stringify(driverData));
-        console.log("Data saved to AsyncStorage successfully");
-        
-        // Show privacy policy modal after successful registration
         setPendingUser(user);
         setShowPrivacyPolicy(true);
         setIsLoading(false);
       } catch (firestoreError) {
-        console.error("Error saving to Firestore:", firestoreError);
-        // If Firestore update fails, delete the user account
         await user.delete();
         throw firestoreError;
       }
     } catch (error) {
       setIsLoading(false);
-      console.error("Registration error:", error);
       Alert.alert(
         "Échec de l'inscription", 
         error.message || "Une erreur est survenue lors de l'inscription. Veuillez réessayer.",
@@ -366,42 +298,6 @@ function RegisterScreen() {
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Documents requis</Text>
                 
-                {/* Driver's License */}
-                <View style={styles.documentSection}>
-                  <Text style={styles.documentLabel}>Permis de conduire</Text>
-                  <TouchableOpacity
-                    style={styles.documentUploadButton}
-                    onPress={() => pickImage('license')}
-                  >
-                    {driverLicense ? (
-                      <Image source={{ uri: driverLicense.uri }} style={styles.documentPreview} />
-                    ) : (
-                      <View style={styles.uploadPlaceholder}>
-                        <MaterialIcons name="add-photo-alternate" size={24} color="#FF8C00" />
-                        <Text style={styles.uploadText}>Télécharger le permis</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                </View>
-
-                {/* Carte Grise */}
-                <View style={styles.documentSection}>
-                  <Text style={styles.documentLabel}>Carte grise</Text>
-                  <TouchableOpacity
-                    style={styles.documentUploadButton}
-                    onPress={() => pickImage('carteGrise')}
-                  >
-                    {carteGrise ? (
-                      <Image source={{ uri: carteGrise.uri }} style={styles.documentPreview} />
-                    ) : (
-                      <View style={styles.uploadPlaceholder}>
-                        <MaterialIcons name="add-photo-alternate" size={24} color="#FF8C00" />
-                        <Text style={styles.uploadText}>Télécharger la carte grise</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                </View>
-
                 {/* Face Photo */}
                 <View style={styles.documentSection}>
                   <Text style={styles.documentLabel}>Photo de votre visage</Text>

@@ -26,7 +26,6 @@ import { makeRedirectUri } from 'expo-auth-session';
 import CavalLogo from "../assets/Caval_courrier_logo-removebg-preview.png";
 import { useTheme } from "../context/ThemeContext";
 import PrivacyPolicyModal from "../components/PrivacyPolicyModal";
-import DocumentCollectionModal from '../components/DocumentCollectionModal';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -39,7 +38,6 @@ function LoginScreen() {
   const [pendingUser, setPendingUser] = useState(null);
   const navigation = useNavigation();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [showDocumentCollection, setShowDocumentCollection] = useState(false);
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     clientId: '1007561335979-3c5q3tvj8e5fig9hlas8hnrc6gpa999b.apps.googleusercontent.com',
@@ -83,19 +81,11 @@ function LoginScreen() {
     try {
       await AsyncStorage.setItem('privacyPolicyAccepted', 'true');
       setShowPrivacyPolicy(false);
-      
-      // Show document collection modal instead of navigating directly
-      setShowDocumentCollection(true);
+      navigation.navigate("HomeScreenWithMap");
     } catch (error) {
       console.error("Error saving privacy policy acceptance:", error);
       Alert.alert("Error", "Failed to save privacy policy acceptance. Please try again.");
     }
-  };
-
-  const handleDocumentCollectionComplete = () => {
-    setShowDocumentCollection(false);
-    // Navigate to home screen after documents are submitted
-    navigation.navigate("HomeScreenWithMap");
   };
 
   const checkPrivacyPolicyAndProceed = async (user) => {
@@ -131,24 +121,7 @@ function LoginScreen() {
             console.log("Driver document exists:", driverDoc.exists());
             
             if (!driverDoc.exists()) {
-              // If document doesn't exist in Drivers collection, check if it exists in Customers
-              const customerDoc = await getDoc(doc(db, "Customers", user.uid));
-              if (customerDoc.exists()) {
-                console.log("User found in Customers collection");
-                Alert.alert(
-                  "Error",
-                  "This account is registered as a customer. Please use the customer app.",
-                  [{ text: "OK", onPress: () => signOut(auth) }]
-                );
-                setLoading(false);
-                return;
-              }
-              // Mask the message below:
-              // Alert.alert(
-              //   "Error",
-              //   "Driver account not found. Please register as a driver first.",
-              //   [{ text: "OK", onPress: () => signOut(auth) }]
-              // );
+              navigation.navigate("RegisterScreen");
               setLoading(false);
               return;
             }
@@ -228,23 +201,7 @@ function LoginScreen() {
       const driverDoc = await getDoc(doc(db, "Drivers", user.uid));
       
       if (!driverDoc.exists()) {
-        // If document doesn't exist in Drivers collection, check if it exists in Customers
-        const customerDoc = await getDoc(doc(db, "Customers", user.uid));
-        if (customerDoc.exists()) {
-          Alert.alert(
-            "Error",
-            "This account is registered as a customer. Please use the customer app.",
-            [{ text: "OK", onPress: () => signOut(auth) }]
-          );
-          setLoading(false);
-          return;
-        }
-        // Mask the message below:
-        // Alert.alert(
-        //   "Error",
-        //   "Driver account not found. Please register as a driver first.",
-        //   [{ text: "OK", onPress: () => signOut(auth) }]
-        // );
+        navigation.navigate("RegisterScreen");
         setLoading(false);
         return;
       }
@@ -387,11 +344,6 @@ function LoginScreen() {
       <PrivacyPolicyModal
         visible={showPrivacyPolicy}
         onAccept={handlePrivacyPolicyAccept}
-      />
-
-      <DocumentCollectionModal
-        visible={showDocumentCollection}
-        onComplete={handleDocumentCollectionComplete}
       />
     </KeyboardAvoidingView>
   );
