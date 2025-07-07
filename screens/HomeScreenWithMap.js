@@ -1631,7 +1631,7 @@ const HomeScreenWithMap = () => {
             <Ionicons name="refresh" size={20} color="#FF6F00" />
           </TouchableOpacity>
           <Text style={styles.refreshMessage}>
-            Appuya sur le bouton ci-dessus si vous remarquez des comportements inhabituels
+            Appuyer sur le bouton ci-dessus si vous remarquez des comportements inhabituels
           </Text>
         </View>
 
