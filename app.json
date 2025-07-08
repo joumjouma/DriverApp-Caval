@@ -3,7 +3,7 @@
     "name": "Eco-share",
     "slug": "Eco-share",
     "owner": "zouhair123",
-    "version": "1.32.0",
+    "version": "1.00",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,7 @@
       "bundleIdentifier": "com.misscoding.Eco-Share",
       "googleServicesFile": "./GoogleService-Info.plist",
       "newArchEnabled": true,
-      "buildNumber": "132",
+      "buildNumber": "26",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "We need your location to show nearby rides and provide accurate navigation.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "We need your location to show nearby rides and provide accurate navigation even when the app is in the background.",
