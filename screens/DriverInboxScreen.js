@@ -18,7 +18,7 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { getAuth } from 'firebase/auth';
+import { auth } from '../config/firebase';
 
 const formatMessageTime = (timestamp) => {
   if (!timestamp || !timestamp.toDate) return '';
@@ -63,7 +63,6 @@ const DriverInboxScreen = () => {
   const [customerPhotoUrl, setCustomerPhotoUrl] = useState(customerPhoto);
 
   useEffect(() => {
-    const auth = getAuth();
     const currentUser = auth.currentUser;
 
     if (!conversationId || !currentUser) {
@@ -139,7 +138,6 @@ const DriverInboxScreen = () => {
 
     try {
       setSending(true);
-      const auth = getAuth();
       const currentUser = auth.currentUser;
 
       if (!currentUser) {
@@ -184,7 +182,6 @@ const DriverInboxScreen = () => {
   };
 
   const renderMessage = ({ item }) => {
-    const auth = getAuth();
     const currentUser = auth.currentUser;
     const isDriver = item.senderId === currentUser.uid;
     const formattedTime = formatMessageTime(item.timestamp);

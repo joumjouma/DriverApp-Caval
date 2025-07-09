@@ -10,15 +10,17 @@ import {
   Image,
   Animated,
   Platform,
+  Alert,
+  ScrollView,
 } from "react-native";
+import * as Haptics from 'expo-haptics';
 import MapView, { Marker } from "react-native-maps";
 import MapViewDirections from "react-native-maps-directions";
 import { Ionicons } from "@expo/vector-icons";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { doc, updateDoc, serverTimestamp, getDoc, onSnapshot } from "firebase/firestore";
-import { db } from "../config/firebase";
-import { getAuth } from "firebase/auth";
+import { db, auth } from "../config/firebase";
 import { createConversation } from "../utils/messaging";
 
 // Import your custom pin image
@@ -99,14 +101,125 @@ const RideInProgressScreen = () => {
     return null;
   });
   const [hasPickedUpCustomer, setHasPickedUpCustomer] = useState(false);
+  const [hasArrivedAtPickup, setHasArrivedAtPickup] = useState(false);
+  const [hasDroppedOffCustomer, setHasDroppedOffCustomer] = useState(false);
+
   const [isNavigating, setIsNavigating] = useState(false);
   const [distance, setDistance] = useState(0);
   const [duration, setDuration] = useState(0);
   const [pressing, setPressing] = useState(false);
+  const [buttonScale] = useState(new Animated.Value(1));
+  const [buttonGlow] = useState(new Animated.Value(0));
+  const [successAnimation] = useState(new Animated.Value(0));
+  const [pulseAnimation] = useState(new Animated.Value(1));
+  const [rippleAnimation] = useState(new Animated.Value(0));
+  const [successScaleAnimation] = useState(new Animated.Value(1));
   const progress = useRef(new Animated.Value(0)).current;
   const progressAnimation = useRef(null);
   const longPressTimer = useRef(null);
   const [currentRideId, setCurrentRideId] = useState(rideId);
+  const [showProblemModal, setShowProblemModal] = useState(false);
+  const [selectedProblem, setSelectedProblem] = useState(null);
+  const [currentStep, setCurrentStep] = useState(1); // 1: select problem, 2: answer questions, 3: contact support
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [customAnswers, setCustomAnswers] = useState({});
+  const [isLoadingState, setIsLoadingState] = useState(true);
+  const stateInitializedRef = useRef(false);
+
+  // Questions that need custom answer options
+  const customAnswerQuestions = {
+    1: [false, false, false], // Client non présent - all Yes/No
+    2: [false, false, false], // Adresse incorrecte - all Yes/No
+    3: [false, false, false], // Client annule - all Yes/No
+    4: [false, false, false], // Problème de paiement - all Yes/No
+    5: [false, false, false], // Problème technique - all Yes/No
+    6: [true, true, false], // Autre problème - custom answers for first two questions
+  };
+
+  // Custom answer options for specific questions
+  const customAnswerOptions = {
+    6: [ // Autre problème
+      ["Client", "Moi"], // For "Ce problème affecte-t-il votre sécurité ou celle du client ?"
+      ["Client", "Moi"], // For "Ce problème affecte-t-il votre sécurité ou celle du client ?"
+      ["Oui", "Non"] // For "Avez-vous besoin d'une assistance urgente ?"
+    ]
+  };
+
+  // Questions for each problem type
+  const problemQuestions = {
+    1: [ // Client non présent
+      "Avez-vous attendu plus de 5 minutes au point de rendez-vous ?",
+      "Avez-vous essayé d'appeler le client ?",
+      "Le client a-t-il confirmé qu'il était en route ?"
+    ],
+    2: [ // Adresse incorrecte
+      "L'adresse est-elle complètement incorrecte ou imprécise ?",
+      "Avez-vous essayé de localiser le client par téléphone ?",
+      "Le client peut-il vous donner une adresse alternative ?"
+    ],
+    3: [ // Client annule
+      "Le client a-t-il explicitement demandé l'annulation ?",
+      "Avez-vous déjà commencé le trajet vers le client ?",
+      "Le client a-t-il donné une raison pour l'annulation ?"
+    ],
+    4: [ // Problème de paiement
+      "Le client conteste-t-il le tarif affiché ?",
+      "Y a-t-il un problème avec le mode de paiement ?",
+      "Le client refuse-t-il de payer ?"
+    ],
+    5: [ // Problème technique
+      "L'application ne fonctionne-t-elle pas correctement ?",
+      "Le GPS ne fonctionne-t-il pas ?",
+      "Avez-vous des problèmes de connexion internet ?"
+    ],
+    6: [ // Autre problème
+      "Pouvez-vous décrire brièvement le problème ?",
+      "Ce problème affecte-t-il votre capacité à effectuer la course ?",
+      "Avez-vous besoin d'une assistance immédiate ?"
+    ]
+  };
+
+  // Additional "Autre" option for custom problems
+  const autreQuestions = [
+    "Pouvez-vous décrire le problème en détail ?",
+    "Ce problème affecte-t-il votre sécurité ou celle du client ?",
+    "Avez-vous besoin d'une assistance urgente ?"
+  ];
+
+  // Common problems list
+  const commonProblems = [
+    {
+      id: 1,
+      title: "Client non présent au point de rendez-vous",
+      description: "Le client n'est pas arrivé au point de prise en charge"
+    },
+    {
+      id: 2,
+      title: "Adresse incorrecte",
+      description: "L'adresse fournie est incorrecte ou imprécise"
+    },
+    {
+      id: 3,
+      title: "Client annule la course",
+      description: "Le client souhaite annuler la course"
+    },
+    {
+      id: 4,
+      title: "Problème de paiement",
+      description: "Difficulté avec le paiement ou le tarif"
+    },
+    {
+      id: 5,
+      title: "Problème technique",
+      description: "Problème avec l'application ou le GPS"
+    },
+    {
+      id: 6,
+      title: "Autre problème",
+      description: "Autre problème non listé ci-dessus"
+    }
+  ];
 
   // Add listener for ride status changes
   useEffect(() => {
@@ -120,6 +233,11 @@ const RideInProgressScreen = () => {
           // Clear ride state and navigate back to home screen
           clearRideState();
           navigation.navigate("HomeScreenWithMap");
+        } else if (rideData.status === "completed") {
+          // Ride is completed, navigate away
+          console.log("Ride completed in Firebase, navigating to HomeScreenWithMap");
+          AsyncStorage.removeItem('currentRide');
+          navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
         }
       }
     });
@@ -131,7 +249,7 @@ const RideInProgressScreen = () => {
   useEffect(() => {
     const storeRideState = async () => {
       try {
-        console.log('Storing ride state with customer info:', {
+        console.log('💾 Storing ride state with customer info:', {
           firstName: customerInfo.firstName,
           number: customerInfo.number,
           photo: customerInfo.photo,
@@ -151,52 +269,211 @@ const RideInProgressScreen = () => {
           firstName: customerInfo.firstName,
           number: customerInfo.number,
           photo: customerInfo.photo,
+          hasArrivedAtPickup,
           hasPickedUpCustomer,
+          hasDroppedOffCustomer,
           rideId: currentRideId,
         };
         
+        console.log('💾 Full ride state to save:', rideState);
         await AsyncStorage.setItem('currentRide', JSON.stringify(rideState));
-        console.log('Successfully stored ride state');
+        console.log('✅ Successfully stored ride state');
       } catch (error) {
-        console.error('Error storing ride state:', error);
+        console.error('❌ Error storing ride state:', error);
       }
     };
 
-    if (route.params) {
+    if (route.params && currentRideId) {
       storeRideState();
     }
   }, [pickupLat, pickupLng, destinationLat, destinationLng, pickupAddress, destinationAddress, 
-      driverLat, driverLng, customerInfo, hasPickedUpCustomer, currentRideId]);
+      driverLat, driverLng, customerInfo, hasArrivedAtPickup, hasPickedUpCustomer, hasDroppedOffCustomer, currentRideId]);
 
-  // Check for existing ride state on mount
+  // Log state changes for debugging
   useEffect(() => {
-    const checkExistingRide = async () => {
+    console.log("🔄 State updated:", {
+      hasArrivedAtPickup,
+      hasPickedUpCustomer,
+      hasDroppedOffCustomer,
+      currentRideId,
+      customerInfo
+    });
+  }, [hasArrivedAtPickup, hasPickedUpCustomer, hasDroppedOffCustomer, currentRideId, customerInfo]);
+
+  // Track component mount/unmount
+  useEffect(() => {
+    console.log("🚀 RideInProgressScreen mounted");
+    return () => {
+      console.log("🛑 RideInProgressScreen unmounted");
+    };
+  }, []);
+
+  // Function to manually clear AsyncStorage (for testing)
+  const clearAsyncStorage = async () => {
+    try {
+      await AsyncStorage.removeItem('currentRide');
+      console.log("🧹 AsyncStorage cleared manually");
+    } catch (error) {
+      console.error("❌ Error clearing AsyncStorage:", error);
+    }
+  };
+
+  // Function to save current state to AsyncStorage
+  const saveCurrentStateToStorage = async () => {
+    try {
+      const rideState = {
+        pickupLat,
+        pickupLng,
+        destinationLat,
+        destinationLng,
+        pickupAddress,
+        destinationAddress,
+        driverLat,
+        driverLng,
+        ridePrice: customerInfo.price,
+        firstName: customerInfo.firstName,
+        number: customerInfo.number,
+        photo: customerInfo.photo,
+        hasArrivedAtPickup,
+        hasPickedUpCustomer,
+        hasDroppedOffCustomer,
+        rideId: currentRideId,
+      };
+      
+      console.log("💾 Auto-saving current state:", rideState);
+      await AsyncStorage.setItem('currentRide', JSON.stringify(rideState));
+      console.log("✅ Current state auto-saved");
+    } catch (error) {
+      console.error("❌ Error auto-saving state:", error);
+    }
+  };
+
+  // Auto-save state whenever ride progress changes
+  useEffect(() => {
+    if (currentRideId && !isLoadingState) {
+      saveCurrentStateToStorage();
+    }
+  }, [hasArrivedAtPickup, hasPickedUpCustomer, hasDroppedOffCustomer, currentRideId]);
+
+  // Check for existing ride state on mount - IMMEDIATE RESTORATION
+  useEffect(() => {
+    const restoreStateImmediately = async () => {
       try {
+        console.log('🚀 IMMEDIATE STATE RESTORATION STARTING...');
+        setIsLoadingState(true);
+        
         const storedRide = await AsyncStorage.getItem('currentRide');
-        console.log('Checking existing ride:', storedRide);
+        console.log('🔍 Raw stored ride data:', storedRide);
+        
         if (storedRide) {
           const rideState = JSON.parse(storedRide);
-          console.log('Found stored ride state:', rideState);
-          // Only restore if we don't have route params
-          if (!route.params) {
-            setHasPickedUpCustomer(rideState.hasPickedUpCustomer);
-            setCurrentRideId(rideState.rideId);
+          console.log('📦 Parsed stored ride state:', rideState);
+          
+          // Check if ride is completed - if so, navigate away immediately
+          const hasDroppedOff = Boolean(rideState.hasDroppedOffCustomer);
+          if (hasDroppedOff) {
+            console.log('✅ Ride already completed, navigating to HomeScreenWithMap');
+            await AsyncStorage.removeItem('currentRide'); // Clean up any remaining data
+            navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+            return;
+          }
+          
+          // IMMEDIATELY restore all states
+          const hasArrived = Boolean(rideState.hasArrivedAtPickup);
+          const hasPickedUp = Boolean(rideState.hasPickedUpCustomer);
+          
+          console.log('🔄 IMMEDIATELY restoring ride progress:', {
+            hasArrived,
+            hasPickedUp,
+            hasDroppedOff,
+            rideId: rideState.rideId
+          });
+          
+          // Set all states IMMEDIATELY
+          setHasArrivedAtPickup(hasArrived);
+          setHasPickedUpCustomer(hasPickedUp);
+          setHasDroppedOffCustomer(hasDroppedOff);
+          setCurrentRideId(rideState.rideId);
+          
+          // Set customer info from stored state
+          if (rideState.firstName) {
             setCustomerInfo({
               firstName: rideState.firstName || "",
               number: rideState.number || "",
               photo: rideState.photo || "",
               price: rideState.ridePrice || 0
             });
-            navigation.setParams(rideState);
           }
+          
+          console.log('✅ IMMEDIATE state restoration completed');
+        } else {
+          console.log('❌ No stored ride found in AsyncStorage');
         }
       } catch (error) {
-        console.error('Error checking existing ride:', error);
+        console.error('❌ Error in immediate state restoration:', error);
+      } finally {
+        setIsLoadingState(false);
       }
     };
 
-    checkExistingRide();
-  }, []);
+    // Call immediately on mount
+    restoreStateImmediately();
+  }, []); // Empty dependency array - only run once on mount
+
+  // Sync state when route params change
+  useEffect(() => {
+    console.log('🔄 Route params changed:', route.params);
+    
+    if (route.params) {
+      // If we have route params, make sure we also check AsyncStorage for the latest state
+      const syncState = async () => {
+        try {
+          const storedRide = await AsyncStorage.getItem('currentRide');
+          console.log('🔄 Syncing state with stored ride:', storedRide);
+          
+          if (storedRide) {
+            const rideState = JSON.parse(storedRide);
+            console.log('🔄 Found stored state for sync:', rideState);
+            
+            // Only update the ride progress states, keep route params for other data
+            const hasArrived = rideState.hasArrivedAtPickup || false;
+            const hasPickedUp = rideState.hasPickedUpCustomer || false;
+            const hasDroppedOff = rideState.hasDroppedOffCustomer || false;
+            
+            console.log('🔄 Syncing ride progress:', {
+              hasArrived,
+              hasPickedUp,
+              hasDroppedOff
+            });
+            
+            // Only update if the stored state is different from current state
+            if (hasArrived !== hasArrivedAtPickup) {
+              console.log('🔄 Updating hasArrivedAtPickup from', hasArrivedAtPickup, 'to', hasArrived);
+              setHasArrivedAtPickup(hasArrived);
+            }
+            
+            if (hasPickedUp !== hasPickedUpCustomer) {
+              console.log('🔄 Updating hasPickedUpCustomer from', hasPickedUpCustomer, 'to', hasPickedUp);
+              setHasPickedUpCustomer(hasPickedUp);
+            }
+            
+            if (hasDroppedOff !== hasDroppedOffCustomer) {
+              console.log('🔄 Updating hasDroppedOffCustomer from', hasDroppedOffCustomer, 'to', hasDroppedOff);
+              setHasDroppedOffCustomer(hasDroppedOff);
+            }
+            
+            if (rideState.rideId !== currentRideId) {
+              console.log('🔄 Updating currentRideId from', currentRideId, 'to', rideState.rideId);
+              setCurrentRideId(rideState.rideId);
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error syncing state:', error);
+        }
+      };
+      syncState();
+    }
+  }, [route.params]);
 
   // Update ride status in Firebase when component mounts
   useEffect(() => {
@@ -251,11 +528,12 @@ const RideInProgressScreen = () => {
         });
 
         // Update driver's status to be available for new rides
-        const auth = getAuth();
         if (auth.currentUser) {
           const driverRef = doc(db, "Drivers", auth.currentUser.uid);
           await updateDoc(driverRef, {
             isAvailable: true,
+            isOnline: true,
+            rideInProgress: false,
             currentRideId: null,
             lastRideCompletedAt: serverTimestamp()
           });
@@ -307,7 +585,6 @@ const RideInProgressScreen = () => {
   // Function to message the customer
   const messageCustomer = async () => {
     try {
-      const auth = getAuth();
       const currentUser = auth.currentUser;
       
       if (!currentUser) {
@@ -436,17 +713,113 @@ const RideInProgressScreen = () => {
   // Functions to handle long press for pickup button
   const startLongPress = (callback) => {
     setPressing(true);
-    progressAnimation.current = Animated.timing(progress, {
+    
+    // Initial haptic feedback
+    try {
+      if (Platform.OS === 'ios') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } else {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+    } catch (error) {
+      console.log('Haptics not supported on this device');
+    }
+    
+    // Start pulsing animation (native driver)
+    const pulseAnim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnimation, {
+          toValue: 1.05,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnimation, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulseAnim.start();
+    
+    // Start ripple animation (JS driver for opacity)
+    Animated.timing(rippleAnimation, {
       toValue: 1,
       duration: 2000,
       useNativeDriver: false,
-    });
+    }).start();
     
-    progressAnimation.current.start();
+    // Scale animations (native driver)
+    Animated.timing(buttonScale, {
+      toValue: 0.95,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+    
+    // Glow animation (JS driver for shadow)
+    Animated.timing(buttonGlow, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+    
+    // Progress animation (JS driver)
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: 2000,
+      useNativeDriver: false,
+    }).start();
     
     longPressTimer.current = setTimeout(() => {
-      callback();
-      resetPress();
+      // Stop pulsing
+      pulseAnim.stop();
+      
+      // Haptic feedback
+      try {
+        if (Platform.OS === 'ios') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        }
+      } catch (error) {
+        console.log('Haptics not supported on this device');
+      }
+      
+      // Success animation (native driver for transform, JS driver for opacity)
+      Animated.parallel([
+        Animated.timing(successAnimation, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: false, // Use JS driver for opacity
+        }),
+        Animated.timing(successScaleAnimation, {
+          toValue: 1.1,
+          duration: 200,
+          useNativeDriver: true, // Use native driver for transform
+        }),
+      ]).start();
+      
+      // Reset success animation
+      setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(successAnimation, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: false,
+          }),
+          Animated.timing(successScaleAnimation, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }, 200);
+      
+      // Execute callback after success animation
+      setTimeout(() => {
+        callback();
+        resetPress();
+      }, 500);
     }, 2000);
   };
 
@@ -463,6 +836,43 @@ const RideInProgressScreen = () => {
   const resetPress = () => {
     progress.setValue(0);
     setPressing(false);
+    
+    // Reset animations with consistent native driver settings
+    Animated.timing(buttonScale, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+    
+    Animated.timing(buttonGlow, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: false,
+    }).start();
+    
+    Animated.timing(pulseAnimation, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+    
+    Animated.timing(rippleAnimation, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: false,
+    }).start();
+    
+    Animated.timing(successScaleAnimation, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+    
+    Animated.timing(successAnimation, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: false,
+    }).start();
   };
 
   // Recenter map to show full route
@@ -476,37 +886,313 @@ const RideInProgressScreen = () => {
   // Update ride status when customer is picked up
   const handleCustomerPickup = async () => {
     try {
+      console.log("✅ Customer pickup confirmed - updating state");
+      
+      // Update local state first
       setHasPickedUpCustomer(true);
       
-      const rideIdToUse = rideId || currentRideId;
-      if (rideIdToUse) {
-        const rideRequestRef = doc(db, "rideRequests", rideIdToUse);
-        await updateDoc(rideRequestRef, {
-          customerPickedUp: true,
-          pickupTime: serverTimestamp()
+      // Update ride status in Firebase
+      if (currentRideId) {
+        const rideRef = doc(db, "rideRequests", currentRideId);
+        await updateDoc(rideRef, {
+          status: "picked_up",
+          pickedUpAt: serverTimestamp(),
         });
+        console.log("✅ Ride status updated to picked_up in Firebase");
       }
+      
+      // Update local storage immediately
+      const rideState = {
+        pickupLat,
+        pickupLng,
+        destinationLat,
+        destinationLng,
+        pickupAddress,
+        destinationAddress,
+        driverLat,
+        driverLng,
+        ridePrice: customerInfo.price,
+        firstName: customerInfo.firstName,
+        number: customerInfo.number,
+        photo: customerInfo.photo,
+        hasArrivedAtPickup,
+        hasPickedUpCustomer: true,
+        hasDroppedOffCustomer,
+        rideId: currentRideId,
+      };
+      
+      console.log("💾 Saving ride state to AsyncStorage:", rideState);
+      await AsyncStorage.setItem('currentRide', JSON.stringify(rideState));
+      console.log("✅ Ride state saved to AsyncStorage");
+      
+      await updateProgress({ hasArrivedAtPickup, hasPickedUpCustomer: true, hasDroppedOffCustomer });
     } catch (error) {
-      console.error("Error updating pickup status:", error);
+      console.error("❌ Error updating pickup status:", error);
     }
   };
 
-  // Log state changes
-  useEffect(() => {
-    console.log('State updated:', {
-      hasPickedUpCustomer,
-      dropOffLocation,
-      destinationLat,
-      destinationLng
+  // Handle arrival at pickup location
+  const handleArrivedAtPickup = async () => {
+    try {
+      console.log("✅ Arrived at pickup location - updating state");
+      
+      // Update local state first
+      setHasArrivedAtPickup(true);
+      
+      // Update ride status in Firebase
+      if (currentRideId) {
+        const rideRef = doc(db, "rideRequests", currentRideId);
+        await updateDoc(rideRef, {
+          status: "driver_arrived",
+          driverArrivedAt: serverTimestamp(),
+        });
+        console.log("✅ Ride status updated to driver_arrived in Firebase");
+      }
+      
+      // Update local storage immediately
+      const rideState = {
+        pickupLat,
+        pickupLng,
+        destinationLat,
+        destinationLng,
+        pickupAddress,
+        destinationAddress,
+        driverLat,
+        driverLng,
+        ridePrice: customerInfo.price,
+        firstName: customerInfo.firstName,
+        number: customerInfo.number,
+        photo: customerInfo.photo,
+        hasArrivedAtPickup: true,
+        hasPickedUpCustomer,
+        hasDroppedOffCustomer,
+        rideId: currentRideId,
+      };
+      
+      console.log("💾 Saving ride state to AsyncStorage:", rideState);
+      await AsyncStorage.setItem('currentRide', JSON.stringify(rideState));
+      console.log("✅ Ride state saved to AsyncStorage");
+      
+      await updateProgress({ hasArrivedAtPickup: true, hasPickedUpCustomer, hasDroppedOffCustomer });
+    } catch (error) {
+      console.error("❌ Error updating arrival status:", error);
+    }
+  };
+
+  // Handle customer drop off
+  const handleCustomerDropOff = async () => {
+    try {
+      console.log("Customer drop off confirmed");
+      setHasDroppedOffCustomer(true);
+      
+      // Update ride status in Firebase
+      if (currentRideId) {
+        const rideRef = doc(db, "rideRequests", currentRideId);
+        await updateDoc(rideRef, {
+          status: "completed",
+          completedAt: serverTimestamp(),
+        });
+        console.log("Ride status updated to completed");
+      }
+      
+      // Clear ride state and navigate back to home screen
+      await clearRideState();
+      
+      // Ensure AsyncStorage is cleared
+      await AsyncStorage.removeItem('currentRide');
+      
+      // Navigate to home screen
+      navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+      
+      await updateProgress({ hasArrivedAtPickup, hasPickedUpCustomer, hasDroppedOffCustomer: true });
+    } catch (error) {
+      console.error("Error updating drop off status:", error);
+      // Even if there's an error, try to navigate away
+      await AsyncStorage.removeItem('currentRide');
+      navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+    }
+  };
+
+  // Problem handling functions
+  const handleProblemButton = () => {
+    setShowProblemModal(true);
+    setCurrentStep(1);
+    setSelectedProblem(null);
+    setCurrentQuestionIndex(0);
+    setAnswers({});
+    setCustomAnswers({});
+  };
+
+  const handleProblemSelection = (problem) => {
+    setSelectedProblem(problem);
+    setCurrentStep(2);
+    setCurrentQuestionIndex(0);
+    setAnswers({});
+    setCustomAnswers({});
+  };
+
+  const handleAnswerQuestion = (answer) => {
+    const newAnswers = { ...answers };
+    newAnswers[currentQuestionIndex] = answer;
+    setAnswers(newAnswers);
+
+    if (currentQuestionIndex < 2) {
+      // Move to next question
+      setCurrentQuestionIndex(currentQuestionIndex + 1);
+    } else {
+      // All questions answered, move to support contact
+      setCurrentStep(3);
+    }
+  };
+
+  const handleCustomAnswer = (answer) => {
+    const newCustomAnswers = { ...customAnswers };
+    newCustomAnswers[currentQuestionIndex] = answer;
+    setCustomAnswers(newCustomAnswers);
+
+    if (currentQuestionIndex < 2) {
+      // Move to next question
+      setCurrentQuestionIndex(currentQuestionIndex + 1);
+    } else {
+      // All questions answered, move to support contact
+      setCurrentStep(3);
+    }
+  };
+
+  const handleContactSupport = () => {
+    const supportNumber = "+25377702036";
+    const problemTitle = selectedProblem?.title || "Problème non spécifié";
+    const rideId = currentRideId || 'N/A';
+    
+    // Create detailed message with problem and answers
+    let message = `Bonjour, je rencontre un problème avec ma course.\n\n`;
+    message += `**Problème:** ${problemTitle}\n`;
+    message += `**Course ID:** ${rideId}\n\n`;
+    message += `**Réponses aux questions:**\n`;
+    
+    // Use appropriate questions based on problem type
+    const questions = selectedProblem?.id === 6 ? autreQuestions : (problemQuestions[selectedProblem?.id] || []);
+    const needsCustomAnswers = customAnswerQuestions[selectedProblem?.id] || [false, false, false];
+    
+    questions.forEach((question, index) => {
+      let answer;
+      if (needsCustomAnswers[index]) {
+        answer = customAnswers[index] || "Non spécifié";
+      } else {
+        answer = answers[index] === true ? "Oui" : "Non";
+      }
+      message += `• ${question}\n   Réponse: ${answer}\n`;
     });
-  }, [hasPickedUpCustomer, dropOffLocation, destinationLat, destinationLng]);
+    
+    message += `\nMerci de votre assistance.`;
+    
+    // Encode message for WhatsApp URL
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/${supportNumber.replace('+', '')}?text=${encodedMessage}`;
+    
+    Linking.openURL(whatsappUrl);
+  };
+
+  const handleCancelRide = () => {
+    Alert.alert(
+      "Annuler la course",
+      "Êtes-vous sûr de vouloir annuler cette course ? Cette action ne peut pas être annulée.",
+      [
+        {
+          text: "Non",
+          style: "cancel"
+        },
+        {
+          text: "Oui, annuler",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (currentRideId) {
+                const rideRef = doc(db, "rideRequests", currentRideId);
+                await updateDoc(rideRef, {
+                  status: "cancelled_by_driver",
+                  cancelledAt: serverTimestamp(),
+                  cancellationReason: selectedProblem?.title || "Problème non spécifié"
+                });
+              }
+              await clearRideState();
+              navigation.navigate("HomeScreenWithMap");
+            } catch (error) {
+              console.error("Error cancelling ride:", error);
+              Alert.alert("Erreur", "Impossible d'annuler la course. Veuillez contacter le support.");
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const closeProblemModal = () => {
+    setShowProblemModal(false);
+    setSelectedProblem(null);
+    setCurrentStep(1);
+    setCurrentQuestionIndex(0);
+    setAnswers({});
+    setCustomAnswers({});
+  };
+
+  const goBackToProblemSelection = () => {
+    setCurrentStep(1);
+    setSelectedProblem(null);
+    setCurrentQuestionIndex(0);
+    setAnswers({});
+    setCustomAnswers({});
+  };
+
+  const goBackToQuestions = () => {
+    setCurrentStep(2);
+    setCurrentQuestionIndex(0);
+  };
+
+  // Restore progress from AsyncStorage on mount
+  useEffect(() => {
+    const restoreProgress = async () => {
+      setIsLoadingState(true);
+      try {
+        const storedRide = await AsyncStorage.getItem('currentRide');
+        if (storedRide) {
+          const rideState = JSON.parse(storedRide);
+          setHasArrivedAtPickup(!!rideState.hasArrivedAtPickup);
+          setHasPickedUpCustomer(!!rideState.hasPickedUpCustomer);
+          setHasDroppedOffCustomer(!!rideState.hasDroppedOffCustomer);
+          // Optionally restore other info (customer, etc.)
+        }
+      } catch (e) {
+        console.error('Error restoring progress from AsyncStorage', e);
+      }
+      setIsLoadingState(false);
+    };
+    restoreProgress();
+  }, []);
+
+  // Helper to update progress and AsyncStorage
+  const updateProgress = async (progress) => {
+    setHasArrivedAtPickup(progress.hasArrivedAtPickup);
+    setHasPickedUpCustomer(progress.hasPickedUpCustomer);
+    setHasDroppedOffCustomer(progress.hasDroppedOffCustomer);
+    try {
+      const storedRide = await AsyncStorage.getItem('currentRide');
+      let rideState = storedRide ? JSON.parse(storedRide) : {};
+      rideState = { ...rideState, ...progress };
+      await AsyncStorage.setItem('currentRide', JSON.stringify(rideState));
+    } catch (e) {
+      console.error('Error updating progress in AsyncStorage', e);
+    }
+  };
 
   // Loading state
-  if (!pickupLocation || !driverLocation) {
+  if (!pickupLocation || !driverLocation || isLoadingState) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#FF6F00" />
-        <Text style={{ color: "#fff", marginTop: 10 }}>Chargement...</Text>
+        <Text style={{ color: "#fff", marginTop: 10 }}>
+          {isLoadingState ? "Chargement de l'état..." : "Chargement..."}
+        </Text>
       </View>
     );
   }
@@ -639,7 +1325,12 @@ const RideInProgressScreen = () => {
       {/* Ride Details */}
       <View style={styles.bottomSheet}>
         <Text style={styles.headerText}>
-          {hasPickedUpCustomer ? "En route vers la destination" : "En route vers le client"}
+          {!hasArrivedAtPickup 
+            ? "En route vers le client" 
+            : !hasPickedUpCustomer 
+              ? "Client notifié de votre arrivée" 
+              : "En route vers la destination"
+          }
         </Text>
 
         {/* Ride Info */}
@@ -665,18 +1356,36 @@ const RideInProgressScreen = () => {
           <Ionicons name="location" size={24} color="#FF6F00" />
           <View style={styles.destinationTextContainer}>
             <Text style={styles.destinationText} numberOfLines={2}>
-              {hasPickedUpCustomer ? destinationAddress || "Destination" : pickupAddress || "Point de départ"}
+              {!hasArrivedAtPickup 
+                ? pickupAddress || "Point de départ"
+                : !hasPickedUpCustomer 
+                  ? "En attente du client"
+                  : destinationAddress || "Destination"
+              }
             </Text>
             <Text style={styles.arrivalTime}>
-              {hasPickedUpCustomer 
-                ? `Arrivée vers ${getFormattedArrivalTime(duration)}` 
-                : `Arrivée vers ${getFormattedArrivalTime(duration / 2)}`}
+              {!hasArrivedAtPickup 
+                ? `Arrivée vers ${getFormattedArrivalTime(duration / 2)}`
+                : !hasPickedUpCustomer 
+                  ? "Client notifié"
+                  : `Arrivée vers ${getFormattedArrivalTime(duration)}`
+              }
             </Text>
           </View>
         </View>
 
+        {/* Problem Button */}
+        <TouchableOpacity 
+          style={styles.problemButton}
+          onPress={handleProblemButton}
+        >
+          <Ionicons name="warning" size={20} color="#FF6F00" />
+          <Text style={styles.problemButtonText}>J'ai un problème</Text>
+        </TouchableOpacity>
+
         {/* Ride Buttons */}
-        {!hasPickedUpCustomer ? (
+        {!hasArrivedAtPickup ? (
+          // Step 1: Navigate to pickup and mark arrival
           <>
             <TouchableOpacity 
               style={styles.buttonPrimary}
@@ -688,29 +1397,213 @@ const RideInProgressScreen = () => {
             
             <TouchableOpacity 
               style={styles.buttonSecondary}
+              onPressIn={() => startLongPress(handleArrivedAtPickup)}
+              onPressOut={cancelLongPress}
+              activeOpacity={0.9}
+            >
+              {/* Scale and pulse animations (native driver) */}
+              <Animated.View
+                style={[
+                  styles.buttonContent,
+                  {
+                    transform: [
+                      { scale: buttonScale },
+                      { scale: pulseAnimation },
+                      { scale: successScaleAnimation },
+                    ],
+                  },
+                ]}
+              >
+                {/* Glow effect (JS driver) */}
+                <Animated.View
+                  style={[
+                    styles.buttonGlow,
+                    {
+                      shadowOpacity: buttonGlow.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.3, 0.8],
+                      }),
+                      shadowRadius: buttonGlow.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [4, 12],
+                      }),
+                      shadowColor: '#FF6F00',
+                    },
+                  ]}
+                />
+                
+                {/* Ripple Effect (JS driver) */}
+                <Animated.View
+                  style={[
+                    styles.rippleEffect,
+                    {
+                      opacity: rippleAnimation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.6, 0],
+                      }),
+                      transform: [
+                        { scale: rippleAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 2],
+                        })},
+                      ],
+                    },
+                  ]}
+                />
+                
+                <Text style={styles.buttonText}>
+                  {pressing ? "Maintenez pour confirmer..." : "Arrivé au point de rendez-vous"}
+                </Text>
+                
+                {/* Success Icon (JS driver for opacity, native for transform) */}
+                <Animated.View
+                  style={[
+                    styles.successIcon,
+                    {
+                      opacity: successAnimation,
+                      transform: [
+                        { scale: successAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 1],
+                        })},
+                        { rotate: successAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0deg', '360deg'],
+                        })},
+                      ],
+                    },
+                  ]}
+                >
+                  <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
+                </Animated.View>
+                
+                <View style={styles.progressContainer}>
+                  <Animated.View
+                    style={[
+                      styles.progressBar,
+                      {
+                        width: progress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ["0%", "100%"],
+                        }),
+                      },
+                    ]}
+                  />
+                </View>
+              </Animated.View>
+            </TouchableOpacity>
+          </>
+        ) : !hasPickedUpCustomer ? (
+          // Step 2: Mark customer as picked up
+          <>
+            <TouchableOpacity 
+              style={styles.buttonPrimary}
+              onPress={() => openGoogleMapsDirections(dropOffLocation.latitude, dropOffLocation.longitude)}
+              disabled={isNavigating || !dropOffLocation}
+            >
+              <Text style={styles.buttonText}>Naviguer vers la destination</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.buttonSecondary}
               onPressIn={() => startLongPress(handleCustomerPickup)}
               onPressOut={cancelLongPress}
               activeOpacity={0.9}
             >
-              <Text style={styles.buttonText}>
-                {pressing ? "Maintenez pour confirmer..." : "Client pris en charge"}
-              </Text>
-              <View style={styles.progressContainer}>
+              {/* Scale and pulse animations (native driver) */}
+              <Animated.View
+                style={[
+                  styles.buttonContent,
+                  {
+                    transform: [
+                      { scale: buttonScale },
+                      { scale: pulseAnimation },
+                      { scale: successScaleAnimation },
+                    ],
+                  },
+                ]}
+              >
+                {/* Glow effect (JS driver) */}
                 <Animated.View
                   style={[
-                    styles.progressBar,
+                    styles.buttonGlow,
                     {
-                      width: progress.interpolate({
+                      shadowOpacity: buttonGlow.interpolate({
                         inputRange: [0, 1],
-                        outputRange: ["0%", "100%"],
+                        outputRange: [0.3, 0.8],
                       }),
+                      shadowRadius: buttonGlow.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [4, 12],
+                      }),
+                      shadowColor: '#FF6F00',
                     },
                   ]}
                 />
-              </View>
+                
+                {/* Ripple Effect (JS driver) */}
+                <Animated.View
+                  style={[
+                    styles.rippleEffect,
+                    {
+                      opacity: rippleAnimation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.6, 0],
+                      }),
+                      transform: [
+                        { scale: rippleAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 2],
+                        })},
+                      ],
+                    },
+                  ]}
+                />
+                
+                <Text style={styles.buttonText}>
+                  {pressing ? "Maintenez pour confirmer..." : "Client pris en charge"}
+                </Text>
+                
+                {/* Success Icon (JS driver for opacity, native for transform) */}
+                <Animated.View
+                  style={[
+                    styles.successIcon,
+                    {
+                      opacity: successAnimation,
+                      transform: [
+                        { scale: successAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 1],
+                        })},
+                        { rotate: successAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0deg', '360deg'],
+                        })},
+                      ],
+                    },
+                  ]}
+                >
+                  <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
+                </Animated.View>
+                
+                <View style={styles.progressContainer}>
+                  <Animated.View
+                    style={[
+                      styles.progressBar,
+                      {
+                        width: progress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ["0%", "100%"],
+                        }),
+                      },
+                    ]}
+                  />
+                </View>
+              </Animated.View>
             </TouchableOpacity>
           </>
         ) : (
+          // Step 3: Mark customer as dropped off
           <>
             <TouchableOpacity 
               style={[
@@ -718,22 +1611,8 @@ const RideInProgressScreen = () => {
                 (!dropOffLocation || isNavigating) && styles.disabledButton
               ]}
               onPress={() => {
-                console.log('Navigation button pressed');
-                console.log('Current state:', {
-                  hasPickedUpCustomer,
-                  isNavigating,
-                  dropOffLocation,
-                  destinationLat,
-                  destinationLng
-                });
                 if (dropOffLocation) {
-                  console.log('Opening navigation with coordinates:', {
-                    latitude: dropOffLocation.latitude,
-                    longitude: dropOffLocation.longitude
-                  });
                   openGoogleMapsDirections(dropOffLocation.latitude, dropOffLocation.longitude);
-                } else {
-                  console.error('No drop-off location available');
                 }
               }}
               disabled={isNavigating || !dropOffLocation}
@@ -743,33 +1622,269 @@ const RideInProgressScreen = () => {
             
             <TouchableOpacity 
               style={styles.buttonSecondary}
-              onPressIn={() => startLongPress(async () => {
-                await clearRideState();
-                navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
-              })}
+              onPressIn={() => startLongPress(handleCustomerDropOff)}
               onPressOut={cancelLongPress}
               activeOpacity={0.9}
             >
-              <Text style={styles.buttonText}>
-                {pressing ? "Maintenez pour confirmer..." : "Client déposé"}
-              </Text>
-              <View style={styles.progressContainer}>
+              {/* Scale and pulse animations (native driver) */}
+              <Animated.View
+                style={[
+                  styles.buttonContent,
+                  {
+                    transform: [
+                      { scale: buttonScale },
+                      { scale: pulseAnimation },
+                      { scale: successScaleAnimation },
+                    ],
+                  },
+                ]}
+              >
+                {/* Glow effect (JS driver) */}
                 <Animated.View
                   style={[
-                    styles.progressBar,
+                    styles.buttonGlow,
                     {
-                      width: progress.interpolate({
+                      shadowOpacity: buttonGlow.interpolate({
                         inputRange: [0, 1],
-                        outputRange: ["0%", "100%"],
+                        outputRange: [0.3, 0.8],
                       }),
+                      shadowRadius: buttonGlow.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [4, 12],
+                      }),
+                      shadowColor: '#FF6F00',
                     },
                   ]}
                 />
-              </View>
+                
+                {/* Ripple Effect (JS driver) */}
+                <Animated.View
+                  style={[
+                    styles.rippleEffect,
+                    {
+                      opacity: rippleAnimation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.6, 0],
+                      }),
+                      transform: [
+                        { scale: rippleAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 2],
+                        })},
+                      ],
+                    },
+                  ]}
+                />
+                
+                <Text style={styles.buttonText}>
+                  {pressing ? "Maintenez pour confirmer..." : "Client déposé"}
+                </Text>
+                
+                {/* Success Icon (JS driver for opacity, native for transform) */}
+                <Animated.View
+                  style={[
+                    styles.successIcon,
+                    {
+                      opacity: successAnimation,
+                      transform: [
+                        { scale: successAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 1],
+                        })},
+                        { rotate: successAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0deg', '360deg'],
+                        })},
+                      ],
+                    },
+                  ]}
+                >
+                  <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
+                </Animated.View>
+                
+                <View style={styles.progressContainer}>
+                  <Animated.View
+                    style={[
+                      styles.progressBar,
+                      {
+                        width: progress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ["0%", "100%"],
+                        }),
+                      },
+                    ]}
+                  />
+                </View>
+              </Animated.View>
             </TouchableOpacity>
           </>
         )}
       </View>
+
+      {/* Problem Modal */}
+      {showProblemModal && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            {/* Step 1: Problem Selection */}
+            {currentStep === 1 && (
+              <>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Problème rencontré</Text>
+                  <TouchableOpacity onPress={closeProblemModal} style={styles.closeButton}>
+                    <Ionicons name="close" size={24} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+                
+                <Text style={styles.modalSubtitle}>
+                  Sélectionnez le problème que vous rencontrez :
+                </Text>
+
+                <ScrollView style={styles.problemsList}>
+                  {commonProblems.map((problem) => (
+                    <TouchableOpacity
+                      key={problem.id}
+                      style={styles.problemItem}
+                      onPress={() => handleProblemSelection(problem)}
+                    >
+                      <View style={styles.problemContent}>
+                        <Text style={styles.problemTitle}>{problem.title}</Text>
+                        <Text style={styles.problemDescription}>{problem.description}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={24} color="#FF6F00" />
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </>
+            )}
+
+            {/* Step 2: Answer Questions */}
+            {currentStep === 2 && selectedProblem && (
+              <>
+                <View style={styles.modalHeader}>
+                  <TouchableOpacity onPress={goBackToProblemSelection} style={styles.backButton}>
+                    <Ionicons name="arrow-back" size={24} color="#FF6F00" />
+                  </TouchableOpacity>
+                  <Text style={styles.modalTitle}>Questions</Text>
+                  <TouchableOpacity onPress={closeProblemModal} style={styles.closeButton}>
+                    <Ionicons name="close" size={24} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.questionContainer}>
+                  <Text style={styles.questionNumber}>
+                    Question {currentQuestionIndex + 1} sur 3
+                  </Text>
+                  <Text style={styles.questionText}>
+                    {selectedProblem?.id === 6 
+                      ? autreQuestions[currentQuestionIndex]
+                      : problemQuestions[selectedProblem?.id]?.[currentQuestionIndex]
+                    }
+                  </Text>
+
+                  <View style={styles.answerButtons}>
+                    {(() => {
+                      const needsCustomAnswers = customAnswerQuestions[selectedProblem?.id] || [false, false, false];
+                      const isCustomAnswer = needsCustomAnswers[currentQuestionIndex];
+                      
+                      if (isCustomAnswer) {
+                        const customOptions = customAnswerOptions[selectedProblem?.id]?.[currentQuestionIndex] || ["Oui", "Non"];
+                        return customOptions.map((option, index) => (
+                          <TouchableOpacity
+                            key={index}
+                            style={[styles.answerButton, styles.customButton]}
+                            onPress={() => handleCustomAnswer(option)}
+                          >
+                            <Text style={styles.customAnswerButtonText}>{option}</Text>
+                          </TouchableOpacity>
+                        ));
+                      } else {
+                        return (
+                          <>
+                            <TouchableOpacity
+                              style={[styles.answerButton, styles.yesButton]}
+                              onPress={() => handleAnswerQuestion(true)}
+                            >
+                              <Ionicons name="checkmark" size={24} color="#fff" />
+                              <Text style={styles.answerButtonText}>Oui</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              style={[styles.answerButton, styles.noButton]}
+                              onPress={() => handleAnswerQuestion(false)}
+                            >
+                              <Ionicons name="close" size={24} color="#fff" />
+                              <Text style={styles.answerButtonText}>Non</Text>
+                            </TouchableOpacity>
+                          </>
+                        );
+                      }
+                    })()}
+                  </View>
+                </View>
+              </>
+            )}
+
+            {/* Step 3: Contact Support */}
+            {currentStep === 3 && selectedProblem && (
+              <>
+                <View style={styles.modalHeader}>
+                  <TouchableOpacity onPress={goBackToQuestions} style={styles.backButton}>
+                    <Ionicons name="arrow-back" size={24} color="#FF6F00" />
+                  </TouchableOpacity>
+                  <Text style={styles.modalTitle}>Contacter le support</Text>
+                  <TouchableOpacity onPress={closeProblemModal} style={styles.closeButton}>
+                    <Ionicons name="close" size={24} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.supportContainer}>
+                  <View style={styles.supportIconContainer}>
+                    <View style={styles.whatsappLogoContainer}>
+                      <Ionicons name="logo-whatsapp" size={32} color="#fff" />
+                    </View>
+                  </View>
+                  
+                  <Text style={styles.supportTitle}>
+                    Contacter le support
+                  </Text>
+                  
+                  <Text style={styles.supportDescription}>
+                    Nous avons préparé un message détaillé avec votre problème et vos réponses. Cliquez ci-dessous pour ouvrir WhatsApp et contacter notre équipe de support.
+                  </Text>
+
+                  <View style={styles.supportButtonsContainer}>
+                    <TouchableOpacity
+                      style={styles.whatsappButton}
+                      onPress={handleContactSupport}
+                    >
+                      <Ionicons name="logo-whatsapp" size={24} color="#fff" />
+                      <Text style={styles.whatsappButtonText}>Ouvrir WhatsApp</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.cancelRideButton}
+                      onPress={handleCancelRide}
+                    >
+                      <Ionicons name="close-circle" size={20} color="#FF3B30" />
+                      <Text style={styles.cancelRideButtonText}>Annuler la course</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={styles.supportInfo}>
+                  <View style={styles.supportInfoHeader}>
+                    <Ionicons name="information-circle" size={16} color="#FF6F00" />
+                    <Text style={styles.supportInfoTitle}>Support disponible 24h/24</Text>
+                  </View>
+                  <Text style={styles.supportInfoText}>
+                    +253 77 70 20 36
+                  </Text>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      )}
     </View>
   );
 };
@@ -1032,6 +2147,325 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     overflow: 'hidden',
     marginRight: 4,
+  },
+  problemButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#2C2C2C",
+    padding: 15,
+    borderRadius: 12,
+    marginTop: 10,
+    borderWidth: 2,
+    borderColor: "#FF6F00",
+    alignSelf: "center",
+    width: "100%",
+    justifyContent: "center",
+  },
+  problemButtonText: {
+    color: "#FF6F00",
+    fontSize: 16,
+    fontWeight: "600",
+    marginLeft: 8,
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  modalContainer: {
+    backgroundColor: '#1E1E1E',
+    borderRadius: 20,
+    width: '90%',
+    maxWidth: 400,
+    padding: 25,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 15,
+  },
+  modalTitle: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: 'bold',
+  },
+  closeButton: {
+    padding: 5,
+  },
+  backButton: {
+    padding: 5,
+  },
+  modalSubtitle: {
+    color: '#b3b3b3',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  problemsList: {
+    width: '100%',
+    maxHeight: 250, // Limit height for scrolling
+  },
+  problemItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 10,
+    marginBottom: 8,
+    backgroundColor: '#2C2C2C',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  selectedProblemItem: {
+    borderColor: '#FF6F00',
+    borderWidth: 1,
+  },
+  problemContent: {
+    flex: 1,
+    marginRight: 10,
+  },
+  problemTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  problemDescription: {
+    color: '#b3b3b3',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  questionContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  questionNumber: {
+    color: '#FF6F00',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  questionText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  answerButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+  },
+  answerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 25,
+    borderRadius: 25,
+    minWidth: 120,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  yesButton: {
+    backgroundColor: '#FF6F00',
+    borderWidth: 1,
+    borderColor: '#FF6F00',
+  },
+  noButton: {
+    backgroundColor: '#2C2C2C',
+    borderWidth: 1,
+    borderColor: '#FF6F00',
+  },
+  answerButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  customButton: {
+    backgroundColor: '#2C2C2C',
+    borderWidth: 1,
+    borderColor: '#FF6F00',
+  },
+  customAnswerButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  supportContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  supportIconContainer: {
+    marginBottom: 20,
+  },
+  supportTitle: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  supportDescription: {
+    color: '#b3b3b3',
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 25,
+    lineHeight: 22,
+  },
+  supportButtonsContainer: {
+    width: '100%',
+    marginTop: 10,
+  },
+  whatsappButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#25D366',
+    paddingVertical: 16,
+    paddingHorizontal: 30,
+    borderRadius: 12,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  whatsappButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 10,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginTop: 20,
+  },
+  supportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF6F00',
+    paddingVertical: 12,
+    paddingHorizontal: 25,
+    borderRadius: 25,
+    minWidth: 150,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  supportButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  cancelRideButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    paddingVertical: 16,
+    paddingHorizontal: 30,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#FF3B30',
+  },
+  cancelRideButtonText: {
+    color: '#FF3B30',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  supportInfo: {
+    marginTop: 25,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+    width: '100%',
+    alignItems: 'center',
+  },
+  supportInfoText: {
+    color: '#b3b3b3',
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  supportInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  supportInfoTitle: {
+    color: '#FF6F00',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 5,
+  },
+  whatsappLogoContainer: {
+    backgroundColor: '#25D366',
+    borderRadius: 20,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#fff',
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  successIcon: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rippleEffect: {
+    position: 'absolute',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    opacity: 0,
+    transform: [{ scale: 0 }],
+  },
+  buttonGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 12,
+    backgroundColor: 'transparent',
+    zIndex: -1,
   },
 });
 

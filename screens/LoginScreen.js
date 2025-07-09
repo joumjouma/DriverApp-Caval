@@ -32,6 +32,7 @@ function LoginScreen() {
   const [authStateReady, setAuthStateReady] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [pendingUser, setPendingUser] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
   const navigation = useNavigation();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
@@ -67,7 +68,14 @@ function LoginScreen() {
     try {
       await AsyncStorage.setItem('privacyPolicyAccepted', 'true');
       setShowPrivacyPolicy(false);
-      navigation.navigate("HomeScreenWithMap");
+      
+      // Check approval status and navigate accordingly
+      const approvalStatus = await AsyncStorage.getItem('driverApprovalStatus');
+      if (approvalStatus === 'approved') {
+        navigation.navigate("HomeScreenWithMap");
+      } else {
+        navigation.navigate("ApprovalStatusScreen");
+      }
     } catch (error) {
       console.error("Error saving privacy policy acceptance:", error);
       Alert.alert("Error", "Failed to save privacy policy acceptance. Please try again.");
@@ -77,10 +85,17 @@ function LoginScreen() {
   const checkPrivacyPolicyAndProceed = async (user) => {
     try {
       const hasAccepted = await AsyncStorage.getItem('privacyPolicyAccepted');
+      const approvalStatus = await AsyncStorage.getItem('driverApprovalStatus');
       
       if (hasAccepted === 'true') {
-        // User has already accepted, proceed with navigation
-        navigation.navigate("HomeScreenWithMap");
+        // User has already accepted privacy policy
+        if (approvalStatus === 'approved') {
+          // User is approved, proceed to home screen
+          navigation.navigate("HomeScreenWithMap");
+        } else {
+          // User is not approved, show approval status screen
+          navigation.navigate("ApprovalStatusScreen");
+        }
       } else {
         // Show privacy policy modal and store pending user
         setPendingUser(user);
@@ -115,8 +130,13 @@ function LoginScreen() {
             // Store driver information in AsyncStorage
             const driverData = driverDoc.data();
             console.log("Driver data to store:", driverData);
+            
+            // Check if driver is approved - but allow access regardless
+            const isApproved = driverData.isApproved && driverData.approvalStatus === 'approved';
+            
             await AsyncStorage.setItem('driverInfo', JSON.stringify(driverData));
             await AsyncStorage.setItem('driverUID', user.uid);
+            await AsyncStorage.setItem('driverApprovalStatus', driverData.approvalStatus || 'pending');
             
             // Verify storage
             const storedData = await AsyncStorage.getItem('driverInfo');
@@ -144,7 +164,22 @@ function LoginScreen() {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (error) {
       console.log(error.message);
-      Alert.alert("Error", error.message);
+      let errorMessage = "Une erreur est survenue lors de la connexion.";
+      
+      // Check for specific Firebase auth errors and provide French messages
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        errorMessage = "Mot de passe incorrect, veuillez entrer le bon mot de passe.";
+      } else if (error.code === 'auth/user-not-found') {
+        errorMessage = "Aucun compte trouvé avec cet email.";
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = "Adresse email invalide.";
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = "Trop de tentatives de connexion. Veuillez réessayer plus tard.";
+      } else if (error.code === 'auth/user-disabled') {
+        errorMessage = "Ce compte a été désactivé.";
+      }
+      
+      Alert.alert("Erreur", errorMessage);
       setLoading(false);
     }
   };
@@ -215,18 +250,30 @@ function LoginScreen() {
               autoCapitalize="none"
             />
 
-            <TextInput
-              style={[styles.input, { 
-                backgroundColor: colors.input,
-                color: colors.inputText,
-                borderColor: colors.border,
-              }]}
-              placeholder="Mot de passe"
-              placeholderTextColor={colors.placeholder}
-              onChangeText={setPassword}
-              value={password}
-              secureTextEntry
-            />
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={[styles.input, { 
+                  backgroundColor: colors.input,
+                  color: colors.inputText,
+                  borderColor: colors.border,
+                }]}
+                placeholder="Mot de passe"
+                placeholderTextColor={colors.placeholder}
+                onChangeText={setPassword}
+                value={password}
+                secureTextEntry={!showPassword}
+              />
+              <TouchableOpacity
+                style={styles.passwordToggle}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Ionicons
+                  name={showPassword ? "eye-off" : "eye"}
+                  size={20}
+                  color={colors.textSecondary}
+                />
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity 
               style={[styles.button, { backgroundColor: colors.primary }]} 
@@ -356,5 +403,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     letterSpacing: 0.5,
+  },
+  passwordContainer: {
+    position: 'relative',
+    marginBottom: 12,
+  },
+  passwordToggle: {
+    position: 'absolute',
+    right: 15,
+    top: 8, // Moved higher from 12 to 8
+    padding: 8,
+    borderRadius: 20,
   },
 });

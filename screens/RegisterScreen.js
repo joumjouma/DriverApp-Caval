@@ -14,7 +14,7 @@ import {
   Image,
   Modal,
 } from "react-native";
-import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { useNavigation } from "@react-navigation/native";
@@ -28,6 +28,7 @@ import PrivacyPolicyModal from "../components/PrivacyPolicyModal";
 import * as ImagePicker from 'expo-image-picker';
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "../config/firebase";
+import { auth } from '../config/firebase';
 
 function RegisterScreen() {
   const [email, setEmail] = useState("");
@@ -42,13 +43,21 @@ function RegisterScreen() {
   const [pays, setPays] = useState("");
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [pendingUser, setPendingUser] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   // New state variables for documents and payment methods
   const [facePhoto, setFacePhoto] = useState(null);
+  const [carteGrisePhoto, setCarteGrisePhoto] = useState(null);
+  const [plaqueImmatriculation, setPlaqueImmatriculation] = useState("");
+  const [carMake, setCarMake] = useState("");
+  const [carModel, setCarModel] = useState("");
+  const [carColor, setCarColor] = useState("");
   const [paymentMethods, setPaymentMethods] = useState({
     dmoney: false,
     cacpay: false,
-    waafi: false
+    waafi: false,
+    sabapay: false
   });
 
   const navigation = useNavigation();
@@ -83,18 +92,20 @@ function RegisterScreen() {
     setTelephone(formatted);
   };
 
+  const handleLicensePlateChange = (text) => {
+    setPlaqueImmatriculation(text.toUpperCase());
+  };
+
   const handlePrivacyPolicyAccept = async () => {
     try {
       await AsyncStorage.setItem('privacyPolicyAccepted', 'true');
       setShowPrivacyPolicy(false);
       
-      // Add a small delay to ensure all data is properly saved
-      setTimeout(() => {
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'HomeScreenWithMap' }],
-        });
-      }, 500);
+      // Navigate to approval status screen since new users are pending approval
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'ApprovalStatusScreen' }],
+      });
     } catch (error) {
       console.error("Error saving privacy policy acceptance:", error);
       Alert.alert("Error", "Failed to save privacy policy acceptance. Please try again.");
@@ -127,6 +138,32 @@ function RegisterScreen() {
     }
   };
 
+  const takeCarteGrisePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Camera permission is required to take a photo of your carte-grise.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3], // Better aspect ratio for documents
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled) {
+        setCarteGrisePhoto(result.assets[0]);
+      }
+    } catch (error) {
+      console.error('Error taking carte-grise photo:', error);
+      Alert.alert('Error', 'Failed to take photo. Please try again.');
+    }
+  };
+
   const uploadImageToStorage = async (uri, path) => {
     try {
       const response = await fetch(uri);
@@ -144,10 +181,10 @@ function RegisterScreen() {
   };
 
   const handleRegister = async () => {
-    if (!email || !password || !confirmPassword || !prenom || !nom || !telephone || !facePhoto) {
+    if (!email || !password || !confirmPassword || !prenom || !nom || !telephone || !facePhoto || !carteGrisePhoto || !plaqueImmatriculation || !carMake || !carModel || !carColor) {
       Alert.alert(
         "Informations manquantes",
-        "Veuillez remplir tous les champs obligatoires et prendre une photo de votre visage",
+        "Veuillez remplir tous les champs obligatoires, prendre une photo de votre visage et de votre carte-grise, et entrer votre plaque d'immatriculation, marque, modèle et couleur du véhicule.",
         [{ text: "OK" }]
       );
       return;
@@ -160,10 +197,26 @@ function RegisterScreen() {
       );
       return;
     }
-    if (!paymentMethods.dmoney && !paymentMethods.cacpay && !paymentMethods.waafi) {
+    if (password.length < 6) {
+      Alert.alert(
+        "Mot de passe trop court",
+        "Le mot de passe doit contenir au moins 6 caractères.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+    if (!paymentMethods.dmoney && !paymentMethods.cacpay && !paymentMethods.waafi && !paymentMethods.sabapay) {
       Alert.alert(
         "Méthodes de paiement requises",
-        "Veuillez sélectionner au moins une méthode de paiement",
+        "Veuillez sélectionner au moins une méthode de paiement pour recevoir vos gains.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+    if (!telephone || telephone.replace(/\s/g, '').length < 8) {
+      Alert.alert(
+        "Numéro de téléphone invalide",
+        "Veuillez entrer un numéro de téléphone valide.",
         [{ text: "OK" }]
       );
       return;
@@ -171,12 +224,13 @@ function RegisterScreen() {
     setIsLoading(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(
-        getAuth(),
+        auth,
         email,
         password
       );
       const user = userCredential.user;
       const facePhotoURL = await uploadImageToStorage(facePhoto.uri, `drivers/${user.uid}/profile_photo`);
+      const carteGrisePhotoURL = await uploadImageToStorage(carteGrisePhoto.uri, `drivers/${user.uid}/carte_grise`);
       try {
         await AsyncStorage.setItem('driverUID', user.uid);
       } catch (e) {}
@@ -188,6 +242,10 @@ function RegisterScreen() {
         vehicleType: typeDeVehicule,
         city: ville,
         country: pays,
+        plaqueImmatriculation: plaqueImmatriculation,
+        carMake: carMake,
+        carModel: carModel,
+        carColor: carColor,
         rating: 0,
         rideCount: 0,
         onlineTime: 0,
@@ -202,12 +260,25 @@ function RegisterScreen() {
         isOnline: false,
         driverType: typeDeVehicule,
         photo: facePhotoURL,
+        carteGrisePhoto: carteGrisePhotoURL,
         paymentMethods: paymentMethods,
         documentsVerified: false,
+        isApproved: false,
+        approvalStatus: 'pending', // pending, approved, rejected
+        approvalDate: null,
+        approvedBy: null,
       };
       try {
         await setDoc(doc(db, "Drivers", user.uid), driverData);
         await AsyncStorage.setItem('driverInfo', JSON.stringify(driverData));
+        
+        // Show success message about approval process
+        Alert.alert(
+          "Inscription réussie !",
+          "Votre compte a été créé avec succès. Votre demande est maintenant en cours d'examen par notre équipe. Vous recevrez une notification dès que votre compte sera approuvé.",
+          [{ text: "OK" }]
+        );
+        
         setPendingUser(user);
         setShowPrivacyPolicy(true);
         setIsLoading(false);
@@ -217,9 +288,26 @@ function RegisterScreen() {
       }
     } catch (error) {
       setIsLoading(false);
+      let errorMessage = "Une erreur est survenue lors de l'inscription. Veuillez réessayer.";
+      
+      // Check for specific Firebase auth errors and provide French messages
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = "Cette adresse email est déjà utilisée. Veuillez utiliser une autre adresse email ou vous connecter avec votre compte existant.";
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = "Adresse email invalide. Veuillez entrer une adresse email valide.";
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = "Le mot de passe est trop faible. Veuillez choisir un mot de passe plus sécurisé.";
+      } else if (error.code === 'auth/operation-not-allowed') {
+        errorMessage = "L'inscription par email est temporairement désactivée. Veuillez réessayer plus tard.";
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = "Erreur de connexion réseau. Veuillez vérifier votre connexion internet et réessayer.";
+      } else if (error.message.includes('Failed to upload image')) {
+        errorMessage = "Erreur lors du téléchargement de la photo. Veuillez réessayer.";
+      }
+      
       Alert.alert(
         "Échec de l'inscription", 
-        error.message || "Une erreur est survenue lors de l'inscription. Veuillez réessayer.",
+        errorMessage,
         [{ text: "OK" }]
       );
     }
@@ -305,6 +393,86 @@ function RegisterScreen() {
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Documents requis</Text>
                 
+                {/* License Plate */}
+                <View style={styles.documentSection}>
+                  <Text style={styles.documentLabel}>Plaque d'immatriculation</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons
+                      name="car-outline"
+                      size={20}
+                      color="#a0a0a0"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder=" (Format Djibouti)"
+                      placeholderTextColor="#757575"
+                      onChangeText={handleLicensePlateChange}
+                      value={plaqueImmatriculation}
+                    />
+                  </View>
+                </View>
+
+                {/* Car Make */}
+                <View style={styles.documentSection}>
+                  <Text style={styles.documentLabel}>Marque du véhicule</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons
+                      name="car-sport-outline"
+                      size={20}
+                      color="#a0a0a0"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Ex: Toyota, Honda, Nissan..."
+                      placeholderTextColor="#757575"
+                      onChangeText={setCarMake}
+                      value={carMake}
+                    />
+                  </View>
+                </View>
+
+                {/* Car Model */}
+                <View style={styles.documentSection}>
+                  <Text style={styles.documentLabel}>Modèle du véhicule</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons
+                      name="car-outline"
+                      size={20}
+                      color="#a0a0a0"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Ex: Corolla, Civic, Sunny..."
+                      placeholderTextColor="#757575"
+                      onChangeText={setCarModel}
+                      value={carModel}
+                    />
+                  </View>
+                </View>
+
+                {/* Car Color */}
+                <View style={styles.documentSection}>
+                  <Text style={styles.documentLabel}>Couleur du véhicule</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons
+                      name="color-palette-outline"
+                      size={20}
+                      color="#a0a0a0"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Ex: Blanc, Noir, Rouge..."
+                      placeholderTextColor="#757575"
+                      onChangeText={setCarColor}
+                      value={carColor}
+                    />
+                  </View>
+                </View>
+                
                 {/* Face Photo */}
                 <View style={styles.documentSection}>
                   <Text style={styles.documentLabel}>Photo de votre visage</Text>
@@ -331,6 +499,33 @@ function RegisterScreen() {
                     )}
                   </TouchableOpacity>
                 </View>
+
+                {/* Carte Grise Photo */}
+                <View style={styles.documentSection}>
+                  <Text style={styles.documentLabel}>Photo de votre carte-grise</Text>
+                  <TouchableOpacity
+                    style={styles.documentUploadButton}
+                    onPress={takeCarteGrisePhoto}
+                  >
+                    {carteGrisePhoto ? (
+                      <View style={styles.photoPreviewContainer}>
+                        <Image source={{ uri: carteGrisePhoto.uri }} style={styles.carteGrisePhotoPreview} />
+                        <TouchableOpacity
+                          style={styles.retakeButton}
+                          onPress={takeCarteGrisePhoto}
+                        >
+                          <MaterialIcons name="camera-alt" size={20} color="#FFFFFF" />
+                          <Text style={styles.retakeText}>Reprendre</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <View style={styles.uploadPlaceholder}>
+                        <MaterialIcons name="credit-card" size={24} color="#FF8C00" />
+                        <Text style={styles.uploadText}>Prendre une photo</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
 
               {/* Payment Methods Section */}
@@ -340,7 +535,8 @@ function RegisterScreen() {
                   {[
                     { id: 'dmoney', label: 'D-money', icon: 'phone-android' },
                     { id: 'cacpay', label: 'Cac pay', icon: 'payment' },
-                    { id: 'waafi', label: 'Waafi', icon: 'smartphone' }
+                    { id: 'waafi', label: 'Waafi', icon: 'smartphone' },
+                    { id: 'sabapay', label: 'Saba Pay', icon: 'business' }
                   ].map((method) => (
                     <TouchableOpacity
                       key={method.id}
@@ -508,8 +704,18 @@ function RegisterScreen() {
                       placeholderTextColor="#757575"
                       onChangeText={setPassword}
                       value={password}
-                      secureTextEntry
+                      secureTextEntry={!showPassword}
                     />
+                    <TouchableOpacity
+                      style={styles.passwordToggle}
+                      onPress={() => setShowPassword(!showPassword)}
+                    >
+                      <Ionicons
+                        name={showPassword ? "eye-off" : "eye"}
+                        size={20}
+                        color="#a0a0a0"
+                      />
+                    </TouchableOpacity>
                   </View>
                 </View>
 
@@ -528,8 +734,18 @@ function RegisterScreen() {
                       placeholderTextColor="#757575"
                       onChangeText={setConfirmPassword}
                       value={confirmPassword}
-                      secureTextEntry
+                      secureTextEntry={!showConfirmPassword}
                     />
+                    <TouchableOpacity
+                      style={styles.passwordToggle}
+                      onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    >
+                      <Ionicons
+                        name={showConfirmPassword ? "eye-off" : "eye"}
+                        size={20}
+                        color="#a0a0a0"
+                      />
+                    </TouchableOpacity>
                   </View>
                 </View>
               </View>
@@ -809,15 +1025,17 @@ const styles = StyleSheet.create({
   },
   paymentMethodsContainer: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "space-between",
+    gap: 8,
   },
   paymentMethodButton: {
-    flex: 1,
+    width: "48%",
     paddingVertical: 12,
     paddingHorizontal: 15,
     borderRadius: 10,
     backgroundColor: "#333333",
-    marginHorizontal: 5,
+    marginBottom: 8,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.05)",
@@ -845,6 +1063,12 @@ const styles = StyleSheet.create({
     borderRadius: 60,
     marginBottom: 10,
   },
+  carteGrisePhotoPreview: {
+    width: 120,
+    height: 120,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
   retakeButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -858,5 +1082,10 @@ const styles = StyleSheet.create({
     marginLeft: 5,
     fontSize: 14,
     fontWeight: '600',
+  },
+  passwordToggle: {
+    position: 'absolute',
+    right: 15,
+    top: 15,
   },
 });

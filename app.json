@@ -5,11 +5,11 @@
     "owner": "zouhair123",
     "version": "1.00",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/Caval_courrier_logo-removebg-preview.png",
     "userInterfaceStyle": "light",
     "scheme": "com.googleusercontent.apps.1007561335979-uiduf2a3h59mjcdassp5hl3rgljr5tes",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/Caval_courrier_logo-removebg-preview.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -27,7 +27,8 @@
         "NSPhotoLibraryUsageDescription": "We need access to your photo library to allow you to select profile pictures and document your rides.",
         "UIBackgroundModes": [
           "location",
-          "fetch"
+          "fetch",
+          "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -36,7 +37,7 @@
       "package": "com.misscoding.ecoshare",
       "versionCode": 132,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/Caval_courrier_logo-removebg-preview.png",
         "backgroundColor": "#ffffff"
       },
       "config": {
@@ -47,7 +48,10 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION"
+        "ACCESS_BACKGROUND_LOCATION",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "WAKE_LOCK"
       ],
       "googleServicesFile": "./google-services.json"
     },
@@ -76,7 +80,21 @@
           "locationAlwaysPermission": "Allow Eco-share to use your location to show nearby rides and provide accurate navigation even when the app is in the background.",
           "locationWhenInUsePermission": "Allow Eco-share to use your location to show nearby rides and provide accurate navigation."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/Caval_courrier_logo-removebg-preview.png",
+          "color": "#ffffff"
+        }
       ]
-    ]
+    ],
+    "notification": {
+      "icon": "./assets/Caval_courrier_logo-removebg-preview.png",
+      "color": "#ffffff",
+      "iosDisplayInForeground": true,
+      "androidMode": "default",
+      "androidCollapsedTitle": "New Ride Request"
+    }
   }
 }

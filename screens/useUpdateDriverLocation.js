@@ -1,12 +1,12 @@
 import { useEffect, useCallback, useRef } from "react";
 import * as Location from "expo-location";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
-import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { db } from "../config/firebase";
+import { auth } from '../config/firebase';
+import { db } from '../config/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { useNavigation, useRoute } from "@react-navigation/native";
 
 const useUpdateDriverLocation = () => {
-  const auth = getAuth();
   const navigation = useNavigation();
   const route = useRoute();
   

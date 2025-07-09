@@ -17,22 +17,24 @@ import {
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { useTheme } from "../context/ThemeContext";
 import { useNavigation } from "@react-navigation/native";
-import { getAuth } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { deleteUser, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
+import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../config/firebase";
 import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { storage } from "../config/firebase";
+import notificationService from "../services/NotificationService";
+import { auth } from "../config/firebase";
 
 function SettingsScreen() {
   const { colors, toggleTheme, isDarkMode } = useTheme();
   const navigation = useNavigation();
-  const auth = getAuth();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [biometricsEnabled, setBiometricsEnabled] = useState(false);
   const [userDetails, setUserDetails] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [imageLoadError, setImageLoadError] = useState(false);
 
   // We still track these if you need them for any other purpose.
   // They are no longer displayed in a separate box.
@@ -121,6 +123,13 @@ function SettingsScreen() {
     fetchUserDetails();
   }, []);
 
+  // Reset image error state when user details change
+  useEffect(() => {
+    if (userDetails?.photo) {
+      setImageLoadError(false);
+    }
+  }, [userDetails?.photo]);
+
   const handleReferralPress = () => {
     Linking.openURL("https://www.caval.tech/contact");
   };
@@ -137,8 +146,8 @@ function SettingsScreen() {
     const user = auth.currentUser;
     if (!user) {
       Alert.alert(
-        "Error",
-        "You must be logged in to change your profile picture."
+        "Erreur",
+        "Vous devez être connecté pour changer votre photo de profil."
       );
       return;
     }
@@ -212,11 +221,11 @@ function SettingsScreen() {
         await AsyncStorage.setItem('driverInfo', JSON.stringify(updatedDetails));
         console.log("AsyncStorage updated");
         
-        Alert.alert("Success", "Profile picture updated successfully.");
+        Alert.alert("Succès", "Photo de profil mise à jour avec succès.");
       }
     } catch (error) {
       console.error("Error updating profile picture:", error);
-      Alert.alert("Error", "Unable to update profile picture. Please try again.");
+      Alert.alert("Erreur", "Impossible de mettre à jour la photo de profil. Veuillez réessayer.");
     } finally {
       setLoading(false);
     }
@@ -227,9 +236,136 @@ function SettingsScreen() {
       await auth.signOut();
       navigation.navigate("LoginScreen");
     } catch (error) {
-      Alert.alert("Error", error.message, [{ text: "OK" }]);
+      Alert.alert("Erreur", error.message, [{ text: "D'accord" }]);
     }
   }
+
+  async function handleAccountDeletion() {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert("Erreur", "Aucun utilisateur n'est actuellement connecté.");
+      return;
+    }
+
+    // First confirmation dialog
+    Alert.alert(
+      "Supprimer le compte",
+      "Êtes-vous sûr de vouloir supprimer votre compte ? Cette action ne peut pas être annulée et supprimera définitivement tous vos données.",
+      [
+        {
+          text: "Annuler",
+          style: "cancel",
+        },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: () => {
+            // Second confirmation dialog
+            Alert.alert(
+              "Confirmation finale",
+              "Cela supprimera définitivement votre compte et toutes les données associées. Êtes-vous absolument sûr ?",
+              [
+                {
+                  text: "Annuler",
+                  style: "cancel",
+                },
+                {
+                  text: "Oui, supprimer mon compte",
+                  style: "destructive",
+                  onPress: async () => {
+                    try {
+                      setLoading(true);
+                      
+                      // Delete user data from Firestore
+                      const userDocRef = doc(db, "Drivers", user.uid);
+                      const userDoc = await getDoc(userDocRef);
+                      
+                      if (userDoc.exists()) {
+                        const userData = userDoc.data();
+                        
+                        // Delete profile photo from storage if it exists
+                        if (userData.photo) {
+                          try {
+                            const photoRef = ref(storage, userData.photo);
+                            await deleteObject(photoRef);
+                          } catch (error) {
+                            console.log("Error deleting profile photo:", error);
+                          }
+                        }
+                        
+                        // Delete user document from Firestore
+                        await deleteDoc(userDocRef);
+                      }
+                      
+                      // Delete user stats from Firestore
+                      try {
+                        const statsDocRef = doc(db, "driverStats", user.uid);
+                        await deleteDoc(statsDocRef);
+                      } catch (error) {
+                        console.log("Error deleting stats:", error);
+                      }
+                      
+                      // Clear AsyncStorage
+                      await AsyncStorage.clear();
+                      
+                      // Delete the user account from Firebase Auth
+                      await deleteUser(user);
+                      
+                      Alert.alert(
+                        "Compte supprimé",
+                        "Votre compte a été supprimé avec succès.",
+                        [
+                          {
+                            text: "D'accord",
+                            onPress: () => {
+                              navigation.reset({
+                                index: 0,
+                                routes: [{ name: "LoginScreen" }],
+                              });
+                            },
+                          },
+                        ]
+                      );
+                    } catch (error) {
+                      console.error("Error deleting account:", error);
+                      setLoading(false);
+                      
+                      let errorMessage = "Une erreur est survenue lors de la suppression de votre compte.";
+                      
+                      if (error.code === "auth/requires-recent-login") {
+                        errorMessage = "Pour des raisons de sécurité, veuillez vous déconnecter et vous reconnecter avant de supprimer votre compte.";
+                      } else if (error.code === "auth/user-token-expired") {
+                        errorMessage = "Votre session a expiré. Veuillez vous déconnecter et vous reconnecter avant de supprimer votre compte.";
+                      } else if (error.code === "auth/network-request-failed") {
+                        errorMessage = "Erreur de réseau. Veuillez vérifier votre connexion internet et réessayer.";
+                      }
+                      
+                      Alert.alert("Erreur", errorMessage);
+                    }
+                  },
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
+  }
+
+  // Helper function to handle re-authentication if needed
+  const handleReAuthentication = async (email, password) => {
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error("No user logged in");
+      
+      const credential = EmailAuthProvider.credential(email, password);
+      await reauthenticateWithCredential(user, credential);
+      return true;
+    } catch (error) {
+      console.error("Re-authentication error:", error);
+      return false;
+    }
+  };
 
   // Renders the star rating beneath the driver's name
   const renderStars = () => {
@@ -263,6 +399,37 @@ function SettingsScreen() {
     );
   };
 
+  // Test notification function
+  const handleTestNotification = async () => {
+    try {
+      console.log('Sending test notification...');
+      
+      // First check if notifications are properly initialized
+      const hasPermission = await notificationService.requestPermissions();
+      if (!hasPermission) {
+        Alert.alert(
+          "Permission Requise", 
+          "Veuillez activer les notifications dans les paramètres de votre appareil pour recevoir les alertes de course."
+        );
+        return;
+      }
+      
+      // Send test notification with enhanced sound and vibration
+      await notificationService.sendTestRideNotification();
+      
+      Alert.alert(
+        "Notification de test envoyée !", 
+        "Vous devriez recevoir une notification avec le titre '🎯 Course assignée!' et entendre un son avec vibration. Si vous n'entendez rien, vérifiez les paramètres de notification de votre appareil et le volume."
+      );
+    } catch (error) {
+      console.error("Error sending test notification:", error);
+      Alert.alert(
+        "Erreur", 
+        "Impossible d'envoyer la notification de test. Assurez-vous d'utiliser une version de développement pour les notifications push."
+      );
+    }
+  };
+
   if (loading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
@@ -287,7 +454,7 @@ function SettingsScreen() {
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Paramètres</Text>
         <TouchableOpacity style={styles.helpButton}>
           <Ionicons name="help-circle-outline" size={24} color={colors.primary} />
         </TouchableOpacity>
@@ -296,16 +463,25 @@ function SettingsScreen() {
       {/* Profile section at the top */}
       <View style={[styles.profileSection, { backgroundColor: colors.card }]}>
         <View style={styles.profileImageContainer}>
-          {userDetails?.photo ? (
-            <>
-              {console.log("Attempting to display image with URL:", userDetails.photo)}
-              <Image 
-                source={{ uri: userDetails.photo }} 
-                style={styles.profileImage}
-                onError={(error) => console.error("Image loading error:", error.nativeEvent.error)}
-                onLoad={() => console.log("Image loaded successfully")}
-              />
-            </>
+          {userDetails?.photo && !imageLoadError ? (
+            <Image 
+              source={{ 
+                uri: userDetails.photo,
+                headers: {
+                  'Cache-Control': 'no-cache'
+                }
+              }} 
+              style={styles.profileImage}
+              onError={(error) => {
+                console.error("Image loading error:", error.nativeEvent.error);
+                setImageLoadError(true);
+              }}
+              onLoad={() => {
+                console.log("Image loaded successfully");
+                setImageLoadError(false);
+              }}
+              defaultSource={require('../assets/driver_placeholder.png')}
+            />
           ) : (
             <View style={[styles.placeholderPic, { backgroundColor: colors.primary }]}>
               <Ionicons name="person" size={30} color="#FFFFFF" />
@@ -351,7 +527,7 @@ function SettingsScreen() {
           {/* Account Section */}
           <View style={[styles.section, { backgroundColor: colors.card }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Account Settings
+              Paramètres du compte
             </Text>
 
             <TouchableOpacity 
@@ -362,10 +538,10 @@ function SettingsScreen() {
                 <Ionicons name="person-outline" size={24} color={colors.primary} />
                 <View>
                   <Text style={[styles.settingText, { color: colors.text }]}>
-                    Personal Information
+                    Informations personnelles
                   </Text>
                   <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
-                    Update your profile details
+                    Mettre à jour vos détails de profil
                   </Text>
                 </View>
               </View>
@@ -380,10 +556,10 @@ function SettingsScreen() {
                 <Ionicons name="wallet-outline" size={24} color={colors.primary} />
                 <View>
                   <Text style={[styles.settingText, { color: colors.text }]}>
-                    Payment Methods
+                    Méthodes de paiement
                   </Text>
                   <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
-                    Manage payment options
+                    Gérer les options de paiement
                   </Text>
                 </View>
               </View>
@@ -394,7 +570,7 @@ function SettingsScreen() {
           {/* Theme & Appearance Section */}
           <View style={[styles.section, { backgroundColor: colors.card }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Theme & Appearance
+              Thème et apparence
             </Text>
 
             <TouchableOpacity style={styles.settingItem} onPress={toggleTheme}>
@@ -406,10 +582,10 @@ function SettingsScreen() {
                 />
                 <View>
                   <Text style={[styles.settingText, { color: colors.text }]}>
-                    Dark Mode
+                    Mode sombre
                   </Text>
                   <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
-                    Toggle dark/light theme
+                    Basculer entre le thème sombre et clair
                   </Text>
                 </View>
               </View>
@@ -426,7 +602,7 @@ function SettingsScreen() {
           {/* Security Section */}
           <View style={[styles.section, { backgroundColor: colors.card }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Security
+              Sécurité
             </Text>
 
             <TouchableOpacity style={styles.settingItem}>
@@ -434,10 +610,10 @@ function SettingsScreen() {
                 <Ionicons name="finger-print" size={24} color={colors.primary} />
                 <View>
                   <Text style={[styles.settingText, { color: colors.text }]}>
-                    Biometric Authentication
+                    Authentification biométrique
                   </Text>
                   <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
-                    Use fingerprint or Face ID
+                    Utiliser le code biométrique ou Face ID
                   </Text>
                 </View>
               </View>
@@ -451,24 +627,85 @@ function SettingsScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* Notifications Section */}
+          <View style={[styles.section, { backgroundColor: colors.card }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Notifications
+            </Text>
+
+            <TouchableOpacity style={styles.settingItem}>
+              <View style={styles.settingItemLeft}>
+                <Ionicons name="notifications-outline" size={24} color={colors.primary} />
+                <View>
+                  <Text style={[styles.settingText, { color: colors.text }]}>
+                    Notifications push
+                  </Text>
+                  <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
+                    Recevoir les demandes de course et les mises à jour
+                  </Text>
+                </View>
+              </View>
+              <Switch
+                trackColor={{ false: "#767577", true: colors.primaryLight }}
+                thumbColor={notificationsEnabled ? colors.primary : "#f4f3f4"}
+                ios_backgroundColor="#3e3e3e"
+                onValueChange={() => setNotificationsEnabled((prev) => !prev)}
+                value={notificationsEnabled}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.settingItem}>
+              <View style={styles.settingItemLeft}>
+                <Ionicons name="car-outline" size={24} color={colors.primary} />
+                <View>
+                  <Text style={[styles.settingText, { color: colors.text }]}>
+                    Alertes de demande de course
+                  </Text>
+                  <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
+                    Recevoir les notifications des nouvelles demandes de course
+                  </Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color={colors.textSecondary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.settingItem}
+              onPress={handleTestNotification}
+            >
+              <View style={styles.settingItemLeft}>
+                <Ionicons name="flash-outline" size={24} color={colors.primary} />
+                <View>
+                  <Text style={[styles.settingText, { color: colors.text }]}>
+                    Test de notification
+                  </Text>
+                  <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
+                    Envoyer une notification de test
+                  </Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
           {/* Referral Section */}
           <View style={[styles.section, { backgroundColor: colors.card }]}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Rewards</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Récompenses</Text>
 
             <TouchableOpacity style={styles.settingItem} onPress={() => Linking.openURL('https://www.caval.tech/contact')}>
               <View style={styles.settingItemLeft}>
                 <Ionicons name="gift" size={24} color={colors.primary} />
                 <View>
                   <Text style={[styles.settingText, { color: colors.text }]}>
-                    Refer a Friend
+                    Inviter un ami
                   </Text>
                   <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
-                    Get 3500 FDJ for each referral
+                    Recevoir 3500 FDJ pour chaque référence
                   </Text>
                 </View>
               </View>
               <View style={[styles.badge, { backgroundColor: colors.primary }]}>
-                <Text style={styles.badgeText}>NEW</Text>
+                <Text style={styles.badgeText}>NOUVEAU</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -476,7 +713,7 @@ function SettingsScreen() {
           {/* Support Section */}
           <View style={[styles.section, { backgroundColor: colors.card }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Help & Support
+              Aide et support
             </Text>
 
             <TouchableOpacity style={styles.settingItem} onPress={() => Linking.openURL('https://www.caval.tech/contact')}>
@@ -484,10 +721,10 @@ function SettingsScreen() {
                 <Ionicons name="help-circle-outline" size={24} color={colors.primary} />
                 <View>
                   <Text style={[styles.settingText, { color: colors.text }]}>
-                    Help Center
+                    Centre d'aide
                   </Text>
                   <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
-                    Get help and support
+                    Obtenir de l'aide et du support
                   </Text>
                 </View>
               </View>
@@ -503,10 +740,10 @@ function SettingsScreen() {
                 />
                 <View>
                   <Text style={[styles.settingText, { color: colors.text }]}>
-                    Contact Us
+                    Nous contacter
                   </Text>
                   <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
-                    Get in touch with support
+                    Prendre contact avec le support
                   </Text>
                 </View>
               </View>
@@ -517,7 +754,7 @@ function SettingsScreen() {
           {/* Legal Section */}
           <View style={[styles.section, { backgroundColor: colors.card }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              About
+              À propos
             </Text>
 
             <TouchableOpacity style={styles.settingItem} onPress={() => Linking.openURL('https://www.caval.tech/contact')}>
@@ -529,10 +766,10 @@ function SettingsScreen() {
                 />
                 <View>
                   <Text style={[styles.settingText, { color: colors.text }]}>
-                    About Caval
+                    À propos de Caval
                   </Text>
                   <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
-                    Learn more about our app
+                    En savoir plus sur notre application
                   </Text>
                 </View>
               </View>
@@ -544,10 +781,10 @@ function SettingsScreen() {
                 <Ionicons name="document-text-outline" size={24} color={colors.primary} />
                 <View>
                   <Text style={[styles.settingText, { color: colors.text }]}>
-                    Terms of Service
+                    Conditions d'utilisation
                   </Text>
                   <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
-                    Read our terms of service
+                    Lire nos conditions d'utilisation
                   </Text>
                 </View>
               </View>
@@ -559,10 +796,10 @@ function SettingsScreen() {
                 <Ionicons name="shield-outline" size={24} color={colors.primary} />
                 <View>
                   <Text style={[styles.settingText, { color: colors.text }]}>
-                    Privacy Policy
+                    Politique de confidentialité
                   </Text>
                   <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
-                    Read our privacy policy
+                    Lire notre politique de confidentialité
                   </Text>
                 </View>
               </View>
@@ -573,7 +810,7 @@ function SettingsScreen() {
           {/* About/App info section */}
           <View style={[styles.section, { backgroundColor: colors.card }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              About
+              À propos
             </Text>
 
             <TouchableOpacity style={styles.settingItem}>
@@ -585,7 +822,7 @@ function SettingsScreen() {
                 />
                 <View>
                   <Text style={[styles.settingText, { color: colors.text }]}>
-                    App Info
+                    Informations sur l'application
                   </Text>
                   <Text style={[styles.settingSubtext, { color: colors.textSecondary }]}>
                     version 2.1.4
@@ -593,25 +830,35 @@ function SettingsScreen() {
                 </View>
               </View>
               <View style={[styles.updateBadge, { backgroundColor: colors.primary }]}>
-                <Text style={styles.updateBadgeText}>Update Available</Text>
+                <Text style={styles.updateBadgeText}>Mise à jour disponible</Text>
               </View>
             </TouchableOpacity>
           </View>
 
-          {/* Logout section */}
+          {/* Account deletion section */}
+          <View style={[styles.warningSection, { backgroundColor: colors.card }]}>
+            <View style={styles.warningContent}>
+              <Ionicons name="warning-outline" size={24} color="#FF6B35" />
+              <Text style={[styles.warningText, { color: colors.text }]}>
+                Cette action supprimera définitivement votre compte et toutes les données associées. Cette action ne peut pas être annulée.
+              </Text>
+            </View>
+          </View>
+
           <TouchableOpacity
             style={[
               styles.logoutButton,
               {
-                backgroundColor: colors.error,
-                borderColor: colors.error,
+                backgroundColor: "#DC3545",
+                borderColor: "#DC3545",
                 borderWidth: 1,
               }
             ]}
-            onPress={handleLogout}
+            onPress={handleAccountDeletion}
           >
+            <Ionicons name="trash-outline" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
             <Text style={[styles.logoutButtonText, { color: '#FFFFFF' }]}>
-              Se déconnecter
+              Supprimer le compte
             </Text>
           </TouchableOpacity>
 
@@ -828,5 +1075,25 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 16,
     fontSize: 12,
+  },
+  warningSection: {
+    borderRadius: 12,
+    marginBottom: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#FF6B35",
+    borderStyle: "dashed",
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+  },
+  warningContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  warningText: {
+    fontSize: 14,
+    marginLeft: 8,
+    flexShrink: 1,
   },
 });

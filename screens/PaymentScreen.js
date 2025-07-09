@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Tex
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 import { useNavigation } from "@react-navigation/native";
-import { getAuth } from "firebase/auth";
+import { auth } from '../config/firebase';
 import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { useStripe, CardField, useConfirmPayment } from '@stripe/stripe-react-native';
@@ -12,7 +12,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const STRIPE_PUBLISHABLE_KEY = 'pk_live_51R9ek8CmEzIPQVTO8V3wcapg87N24eNFOCaJ4dz2krvfKSBaNe5g0vYAW4XBHESTYpQBi6fdz7GA4fPGJh4BlGIW00L1KYPz6m';
 
 function PaymentScreen() {
-  const { colors } = useTheme(), navigation = useNavigation(), auth = getAuth();
+  const { colors } = useTheme(), navigation = useNavigation();
   const { createPaymentMethod, confirmPayment } = useStripe();
   const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false), [paymentMethods, setPaymentMethods] = useState([]);
   const [showAddCard, setShowAddCard] = useState(false), [selectedCardIndex, setSelectedCardIndex] = useState(null), [defaultCardId, setDefaultCardId] = useState(null);
@@ -364,6 +364,23 @@ function PaymentScreen() {
             </View>
             <Text style={[styles.stripeDescription, { color: colors.textSecondary }]}>Traitement sécurisé des paiements propulsé par Stripe. Vos informations sont cryptées et sécurisées.</Text>
           </View>
+          
+          <View style={[styles.paymentMethodsSection, { backgroundColor: colors.card }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Méthodes de paiement acceptées</Text>
+            <View style={styles.paymentMethodsGrid}>
+              {[
+                { name: 'D-money', icon: 'phone-android', color: '#4CAF50' },
+                { name: 'Cac pay', icon: 'payment', color: '#2196F3' },
+                { name: 'Waafi', icon: 'smartphone', color: '#FF9800' },
+                { name: 'Saba Pay', icon: 'business', color: '#9C27B0' }
+              ].map((method, index) => (
+                <View key={index} style={[styles.paymentMethodItem, { backgroundColor: colors.inputBackground }]}>
+                  <Ionicons name={method.icon} size={24} color={method.color} />
+                  <Text style={[styles.paymentMethodName, { color: colors.text }]}>{method.name}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Vos cartes</Text>
             <TouchableOpacity style={styles.addButton} onPress={() => setShowAddCard(true)}>
@@ -464,6 +481,10 @@ const styles = StyleSheet.create({
   stripeLogo: { width: 24, height: 24, marginRight: 8 },
   stripeTitle: { fontSize: 16, fontWeight: '600' },
   stripeDescription: { fontSize: 14, textAlign: 'center' },
+  paymentMethodsSection: { borderRadius: 12, padding: 16, marginBottom: 16, alignItems: 'center' },
+  paymentMethodsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', marginTop: 10 },
+  paymentMethodItem: { width: '45%', aspectRatio: 1.2, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginVertical: 8, padding: 10 },
+  paymentMethodName: { fontSize: 14, fontWeight: '600', marginTop: 8, textAlign: 'center' },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginVertical: 16 },
   sectionTitle: { fontSize: 18, fontWeight: "700" },
   addButton: { padding: 6 },

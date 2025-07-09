@@ -37,7 +37,6 @@ import {
   getDocs,
   serverTimestamp,
 } from "firebase/firestore";
-import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../config/firebase";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import * as Location from "expo-location";
@@ -50,6 +49,7 @@ import { distributeRideRequest, updateDriverStats, Driver } from '../utils/rideD
 import { GOOGLE_MAPS_APIKEY } from "@env";
 import CavalLogo from "../assets/Caval_courrier_logo-removebg-preview.png";
 import { useTheme } from "../context/ThemeContext";
+import { auth } from "../config/firebase";
 
 const { width, height } = Dimensions.get("window");
 
@@ -62,10 +62,6 @@ const HomeScreenWithMap = () => {
   const route = useRoute();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-
-  // Auth state
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const auth = getAuth();
 
   // Location updates hook - called at top level
   const locationUpdates = useUpdateDriverLocation();
@@ -136,29 +132,15 @@ const HomeScreenWithMap = () => {
   // -----------------------------------------------------------------
   // 2. Effects
   // -----------------------------------------------------------------
-  // Auth state effect
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setIsAuthenticated(!!user);
-      if (user) {
-        loadPersistedData();
-        fetchDriverDataFromFirestore();
-      } else {
-        navigation.replace('LoginScreen');
-      }
-    });
-    return () => unsubscribe();
-  }, [auth, navigation]);
-
   // Effect to handle location updates based on auth and route
   useEffect(() => {
-    if (!isAuthenticated || route.name !== 'Home') {
+    if (!auth.currentUser || route.name !== 'Home') {
       // Clean up location updates if not authenticated or not on home screen
       if (locationUpdates?.cleanup) {
         locationUpdates.cleanup();
       }
     }
-  }, [isAuthenticated, route.name, locationUpdates]);
+  }, [auth.currentUser, route.name, locationUpdates]);
 
   // Keep currentRideRequest ref updated
   useEffect(() => {
@@ -172,12 +154,20 @@ const HomeScreenWithMap = () => {
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (user) {
-        setIsAuthenticated(true);
+        setIsOnline(false); // User starts offline
+        // Set driver offline in Firestore
+        const driverRef = doc(db, "Drivers", user.uid);
+        updateDoc(driverRef, {
+          isOnline: false,
+          isAvailable: false,
+          rideInProgress: false,
+          currentRideId: null
+        });
         // Load persisted data and fetch driver info when authenticated
         loadPersistedData();
         fetchDriverDataFromFirestore();
       } else {
-        setIsAuthenticated(false);
+        setIsOnline(false);
         // Navigate to login if not authenticated
         navigation.replace('LoginScreen');
       }
@@ -190,7 +180,7 @@ const HomeScreenWithMap = () => {
   // 4. Reset rideInProgress if we come back from RideInProgressScreen
   // -----------------------------------------------------------------
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!auth.currentUser) return;
 
     if (route.params?.rideCompleted) {
       console.log('Resetting driver state after ride completion');
@@ -200,6 +190,7 @@ const HomeScreenWithMap = () => {
       setRideCooldown(false);
       setCurrentRideRequest(null);
       setIsModalVisible(false);
+      setTimeLeft(15); // Reset timer for next ride offer
       
       // Reset any timers
       if (timerRef.current) {
@@ -220,10 +211,10 @@ const HomeScreenWithMap = () => {
           const driverRef = doc(db, "Drivers", currentUser.uid);
           await updateDoc(driverRef, {
             isAvailable: true,
+            isOnline: false, // Stay offline after ride completion
+            rideInProgress: false,
             currentRideId: null,
-            lastRideCompletedAt: serverTimestamp(),
-            isOnline: true,
-            rideInProgress: false
+            lastRideCompletedAt: serverTimestamp()
           });
           
           // Clear any existing subscription
@@ -256,20 +247,20 @@ const HomeScreenWithMap = () => {
             console.error("Error getting location:", err);
           }
 
-          // Set online status to trigger ride request subscription
-          setIsOnline(true);
+          // Do NOT set isOnline true here
+          setIsOnline(false);
           
           // Double-check that rideInProgress is false
           setTimeout(() => {
             console.log('Double checking ride state:', {
               rideInProgress: false,
-              isOnline: true,
+              isOnline: false,
               rideCooldown: false
             });
             setRideInProgress(false);
           }, 500);
           
-          console.log('Driver is now available for new rides');
+          console.log('Driver is now available for new rides (but offline until toggled online)');
         } catch (error) {
           console.error("Error updating driver status:", error);
         }
@@ -280,13 +271,13 @@ const HomeScreenWithMap = () => {
       // Clear the rideCompleted param to prevent multiple resets
       navigation.setParams({ rideCompleted: undefined });
     }
-  }, [route.params?.rideCompleted, isAuthenticated]);
+  }, [route.params?.rideCompleted, auth.currentUser]);
 
   // -----------------------------------------------------------------
   // 5. Load persisted earnings, ride count, active time, and last reset week
   // -----------------------------------------------------------------
   const loadPersistedData = async () => {
-    if (!isAuthenticated) return;
+    if (!auth.currentUser) return;
 
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -366,7 +357,7 @@ const HomeScreenWithMap = () => {
   // 6. Fetch Driver's Info (Name, Type, Photo) from Firestore
   // -----------------------------------------------------------------
   const fetchDriverDataFromFirestore = async () => {
-    if (!isAuthenticated) return;
+    if (!auth.currentUser) return;
 
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -488,24 +479,32 @@ const HomeScreenWithMap = () => {
 
   // Add this new effect to monitor map state
   useEffect(() => {
-    console.log('Map state changed:', {
-      region,
-      fromLocation,
-      mapReady,
-      isAuthenticated
-    });
-  }, [region, fromLocation, mapReady, isAuthenticated]);
+    // Only log when region actually changes significantly
+    if (region && fromLocation) {
+      const distance = Math.sqrt(
+        Math.pow(region.latitude - fromLocation.latitude, 2) +
+        Math.pow(region.longitude - fromLocation.longitude, 2)
+      );
+      if (distance > 0.001) { // Only log if region changed significantly
+        console.log('Map region updated:', {
+          latitude: region.latitude,
+          longitude: region.longitude,
+          currentUser: auth.currentUser?.uid
+        });
+      }
+    }
+  }, [region?.latitude, region?.longitude, fromLocation, auth.currentUser]);
 
   // -----------------------------------------------------------------
   // 8. Subscribe to Ride Requests if driver is online, not in progress, etc.
   // -----------------------------------------------------------------
   useEffect(() => {
-    console.log('Ride request subscription check:', {
+    console.log('[SUBSCRIPTION EFFECT] Triggered with:', {
       isOnline,
       rideInProgress,
       rideCooldown,
       driverType,
-      hasUnsubscribe: !!onSnapshotUnsubscribe.current,
+      fromLocation,
       currentUser: auth.currentUser?.uid
     });
 
@@ -531,60 +530,183 @@ const HomeScreenWithMap = () => {
     // Get all available drivers with enhanced debugging
     const getAvailableDrivers = async () => {
       try {
-        const driversSnapshot = await getDocs(collection(db, "Drivers"));
-        const drivers = [];
-        const currentUserId = auth.currentUser?.uid;
+        console.log('[GET AVAILABLE DRIVERS] Starting to fetch drivers...');
         
-        console.log(`Total drivers in database: ${driversSnapshot.size}`);
-        
-        driversSnapshot.forEach(doc => {
-          const data = doc.data();
-          const isCurrentDriver = doc.id === currentUserId;
+        // Add timeout for the entire operation
+        const fetchPromise = (async () => {
+          const driversSnapshot = await getDocs(collection(db, "Drivers"));
+          console.log('[GET AVAILABLE DRIVERS] Drivers snapshot received, size:', driversSnapshot.size);
           
-          console.log(`Driver ${doc.id}${isCurrentDriver ? ' (CURRENT)' : ''} status:`, {
-            isOnline: data.isOnline,
-            isAvailable: data.isAvailable,
-            rideInProgress: data.rideInProgress,
-            lastOnlineUpdate: data.lastOnlineUpdate,
-            location: data.latitude && data.longitude ? 'has location' : 'no location',
-            driverType: data.driverType,
-            currentRideId: data.currentRideId
+          const drivers = [];
+          const currentUserId = auth.currentUser?.uid;
+          
+          console.log(`Total drivers in database: ${driversSnapshot.size}`);
+          
+          driversSnapshot.forEach(doc => {
+            const data = doc.data();
+            const isCurrentDriver = doc.id === currentUserId;
+            
+            console.log(`Driver ${doc.id}${isCurrentDriver ? ' (CURRENT)' : ''} status:`, {
+              isOnline: data.isOnline,
+              isAvailable: data.isAvailable,
+              rideInProgress: data.rideInProgress,
+              lastOnlineUpdate: data.lastOnlineUpdate,
+              location: data.latitude && data.longitude ? 'has location' : 'no location',
+              driverType: data.driverType,
+              currentRideId: data.currentRideId
+            });
+            
+            // Enhanced driver filtering - check multiple conditions
+            const hasValidLocation = data.latitude && data.longitude;
+            const isDriverOnline = data.isOnline === true;
+            const isDriverAvailable = data.isAvailable !== false; // Default to true if not set
+            const noRideInProgress = !data.rideInProgress;
+            const noCurrentRide = !data.currentRideId;
+            const matchesDriverType = data.driverType === driverType;
+            
+            if (isDriverOnline && hasValidLocation && isDriverAvailable && noRideInProgress && noCurrentRide && matchesDriverType) {
+              drivers.push(new Driver(
+                doc.id,
+                { latitude: data.latitude, longitude: data.longitude },
+                data.rideCount || 0,
+                data.lastRideTime ? new Date(data.lastRideTime) : null,
+                true
+              ));
+              console.log(`✓ Driver ${doc.id} added to available drivers`);
+              if (isCurrentDriver) {
+                console.log('[DRIVER FILTER] This driver is eligible:', doc.id, data);
+              }
+            } else {
+              console.log(`✗ Driver ${doc.id} excluded:`, {
+                isOnline: isDriverOnline,
+                hasLocation: hasValidLocation,
+                isAvailable: isDriverAvailable,
+                noRideInProgress,
+                noCurrentRide,
+                matchesType: matchesDriverType
+              });
+              if (isCurrentDriver) {
+                console.log('[DRIVER FILTER] This driver is NOT eligible:', doc.id, {
+                  isOnline: isDriverOnline,
+                  hasLocation: hasValidLocation,
+                  isAvailable: isDriverAvailable,
+                  noRideInProgress,
+                  noCurrentRide,
+                  matchesType: matchesDriverType,
+                  data
+                });
+              }
+            }
           });
           
-          // Enhanced driver filtering - check multiple conditions
-          const hasValidLocation = data.latitude && data.longitude;
-          const isDriverOnline = data.isOnline === true;
-          const isDriverAvailable = data.isAvailable !== false; // Default to true if not set
-          const noRideInProgress = !data.rideInProgress;
-          const noCurrentRide = !data.currentRideId;
-          const matchesDriverType = data.driverType === driverType;
-          
-          if (isDriverOnline && hasValidLocation && isDriverAvailable && noRideInProgress && noCurrentRide && matchesDriverType) {
-            drivers.push(new Driver(
-              doc.id,
-              { latitude: data.latitude, longitude: data.longitude },
-              data.rideCount || 0,
-              data.lastRideTime ? new Date(data.lastRideTime) : null,
-              true
-            ));
-            console.log(`✓ Driver ${doc.id} added to available drivers`);
-          } else {
-            console.log(`✗ Driver ${doc.id} excluded:`, {
-              isOnline: isDriverOnline,
-              hasLocation: hasValidLocation,
-              isAvailable: isDriverAvailable,
-              noRideInProgress,
-              noCurrentRide,
-              matchesType: matchesDriverType
-            });
-          }
-        });
+          console.log(`Found ${drivers.length} available drivers with valid locations and matching type: ${driverType}`);
+          console.log('[GET AVAILABLE DRIVERS] Function completed successfully');
+          return drivers;
+        })();
         
-        console.log(`Found ${drivers.length} available drivers with valid locations and matching type: ${driverType}`);
-        return drivers;
+        // Add a shorter timeout (5 seconds instead of 10)
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('getAvailableDrivers timeout after 5s')), 5000)
+        );
+        
+        return await Promise.race([fetchPromise, timeoutPromise]);
       } catch (error) {
-        console.error("Error fetching available drivers:", error);
+        console.error("[GET AVAILABLE DRIVERS] Error fetching available drivers:", error);
+        // Return empty array instead of throwing
         return [];
+      }
+    };
+
+    // Helper function to process ride offer
+    const processRideOffer = async (ride, selectedDriver) => {
+      // Check if driver is still available (double-check)
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        try {
+          const driverDoc = await getDoc(doc(db, "Drivers", currentUser.uid));
+          if (driverDoc.exists()) {
+            const driverData = driverDoc.data();
+            if (!driverData.isOnline || driverData.rideInProgress || driverData.currentRideId) {
+              console.log('Driver is no longer available:', {
+                isOnline: driverData.isOnline,
+                rideInProgress: driverData.rideInProgress,
+                currentRideId: driverData.currentRideId
+              });
+              return;
+            }
+          }
+        } catch (error) {
+          console.error('Error checking driver availability:', error);
+        }
+      }
+      
+      // Fetch customer information from rideRequestsDriver collection
+      try {
+        // First get the ride request driver document by querying with rideRequestId
+        const rideRequestDriverQuery = query(
+          collection(db, "rideRequestsDriver"),
+          where("rideRequestId", "==", ride.id)
+        );
+        const rideRequestDriverSnapshot = await getDocs(rideRequestDriverQuery);
+        
+        let customerInfo = null;
+        if (!rideRequestDriverSnapshot.empty) {
+          customerInfo = rideRequestDriverSnapshot.docs[0].data();
+        }
+        
+        const rideWithCustomerInfo = {
+          ...ride,
+          firstName: customerInfo?.firstName || "Customer",
+          lastName: customerInfo?.lastName || '',
+          number: customerInfo?.number || "",
+          photo: customerInfo?.photo || "",
+        };
+        
+        console.log('Customer info fetched:', customerInfo);
+        console.log('Ride with customer info:', rideWithCustomerInfo);
+        
+        setCurrentRideRequest(rideWithCustomerInfo);
+        setIsLoadingAddress(true);
+        try {
+          const pickupLocation = { latitude: ride.pickupLat, longitude: ride.pickupLng };
+          const destinationLocation = {
+            latitude: ride.destinationLat,
+            longitude: ride.destinationLng,
+          };
+          const distance = calculateDistance(pickupLocation, destinationLocation);
+          console.log('Calculated distance:', distance);
+          setRideDistance(distance);
+          const estimatedMinutes = Math.round((distance / 30) * 60);
+          setEstimatedTime(estimatedMinutes);
+          const pickupLoc = await Location.reverseGeocodeAsync(pickupLocation);
+          const pickupAddr =
+            pickupLoc.length > 0
+              ? `${pickupLoc[0].name || ""} ${pickupLoc[0].street || ""}`
+              : "Pickup Address Not Found";
+          setPickupAddress(pickupAddr);
+          const destLoc = await Location.reverseGeocodeAsync(destinationLocation);
+          const destAddr =
+            destLoc.length > 0
+              ? `${destLoc[0].name || ""} ${destLoc[0].street || ""}`
+              : "Destination Address Not Found";
+          setDestinationAddress(destAddr);
+        } catch (error) {
+          console.error("Error in reverse geocoding:", error);
+          setPickupAddress("Pickup Address Not Available");
+          setDestinationAddress("Destination Address Not Available");
+        } finally {
+          setIsLoadingAddress(false);
+          setIsModalVisible(true);
+          setTimeLeft(15);
+          startTimer();
+          Animated.timing(countdownAnim, {
+            toValue: 0,
+            duration: 15000,
+            useNativeDriver: false,
+          }).start();
+        }
+      } catch (error) {
+        console.error("Error fetching customer information:", error);
       }
     };
 
@@ -597,6 +719,14 @@ const HomeScreenWithMap = () => {
     console.log('Setting up ride request subscription with query:', {
       status: "waiting",
       rideType: driverType
+    });
+    
+    console.log('[SUBSCRIPTION DEBUG] Current state:', {
+      isOnline,
+      driverType,
+      rideInProgress,
+      rideCooldown,
+      currentUser: auth.currentUser?.uid
     });
 
     const unsubscribe = onSnapshot(q, async (snapshot) => {
@@ -625,12 +755,13 @@ const HomeScreenWithMap = () => {
       const docItem = snapshot.docs[0];
       const ride = { id: docItem.id, ...docItem.data() };
       
-      console.log('Processing ride request:', {
+      console.log('[RIDE OFFER] Processing ride request:', {
         rideId: ride.id,
         status: ride.status,
         rideType: ride.rideType,
         assignedDriver: ride.assignedDriver,
-        declinedDrivers: ride.declinedDrivers || []
+        declinedDrivers: ride.declinedDrivers || [],
+        currentUser: auth.currentUser?.uid
       });
       
       // Hide the offer if the ride status is declined
@@ -643,11 +774,85 @@ const HomeScreenWithMap = () => {
 
       try {
         // Get available drivers and distribute the ride
+        console.log('[RIDE OFFER] Starting distribution process...');
+        
         const availableDrivers = await getAvailableDrivers();
+        console.log('[RIDE OFFER] Available drivers fetched:', availableDrivers.length);
+        
+        // Log the number of online drivers (already logged in distributeRideRequest, but repeat here for clarity)
+        const onlineDriversCount = availableDrivers.filter(d => d.isOnline).length;
+        console.log(`[RIDE OFFER] Number of online drivers considered: ${onlineDriversCount}`);
+        
+        if (availableDrivers.length === 0) {
+          console.log('[RIDE OFFER] No available drivers found, checking if current driver is eligible...');
+          
+          // Fallback: Check if current driver is eligible for this ride
+          const currentUser = auth.currentUser;
+          if (currentUser) {
+            try {
+              const driverDoc = await getDoc(doc(db, "Drivers", currentUser.uid));
+              if (driverDoc.exists()) {
+                const driverData = driverDoc.data();
+                const isEligible = driverData.isOnline === true && 
+                                 driverData.isAvailable !== false &&
+                                 !driverData.rideInProgress &&
+                                 !driverData.currentRideId &&
+                                 driverData.driverType === driverType &&
+                                 driverData.latitude && driverData.longitude;
+                
+                console.log('[RIDE OFFER] Fallback check - Current driver eligible:', isEligible, {
+                  isOnline: driverData.isOnline,
+                  isAvailable: driverData.isAvailable,
+                  rideInProgress: driverData.rideInProgress,
+                  currentRideId: driverData.currentRideId,
+                  driverType: driverData.driverType,
+                  hasLocation: !!(driverData.latitude && driverData.longitude)
+                });
+                
+                // Add detailed breakdown of each condition
+                console.log('[RIDE OFFER] Fallback eligibility breakdown:', {
+                  isOnlineCheck: driverData.isOnline === true,
+                  isAvailableCheck: driverData.isAvailable !== false,
+                  noRideInProgressCheck: !driverData.rideInProgress,
+                  noCurrentRideCheck: !driverData.currentRideId,
+                  driverTypeMatchCheck: driverData.driverType === driverType,
+                  hasLocationCheck: !!(driverData.latitude && driverData.longitude),
+                  expectedDriverType: driverType,
+                  actualDriverType: driverData.driverType,
+                  location: driverData.latitude && driverData.longitude ? 
+                    `${driverData.latitude}, ${driverData.longitude}` : 'No location'
+                });
+                
+                if (isEligible) {
+                  console.log('[RIDE OFFER] Using fallback - current driver is eligible');
+                  // Create a simple driver object for the current driver
+                  const currentDriver = new Driver(
+                    currentUser.uid,
+                    { latitude: driverData.latitude, longitude: driverData.longitude },
+                    driverData.rideCount || 0,
+                    driverData.lastRideTime ? new Date(driverData.lastRideTime) : null,
+                    true
+                  );
+                  
+                  // Show the ride offer to the current driver
+                  await processRideOffer(ride, currentDriver);
+                  return;
+                }
+              }
+            } catch (error) {
+              console.error('[RIDE OFFER] Error in fallback check:', error);
+            }
+          }
+          
+          console.log('[RIDE OFFER] No eligible drivers found, skipping distribution');
+          return;
+        }
+        
         const selectedDriver = distributeRideRequest(ride, availableDrivers);
+        console.log('[RIDE OFFER] Distribution completed, selected driver:', selectedDriver?.id);
 
         // Debug logging
-        console.log('Ride distribution results:', {
+        console.log('[RIDE OFFER] Distribution results:', {
           availableDrivers: availableDrivers.length,
           selectedDriver: selectedDriver?.id,
           currentUser: auth.currentUser?.uid,
@@ -657,96 +862,7 @@ const HomeScreenWithMap = () => {
         // Only show the ride request to the selected driver
         if (selectedDriver && selectedDriver.id === auth.currentUser?.uid) {
           console.log('This driver was selected for the ride');
-          
-          // Check if driver is still available (double-check)
-          const currentUser = auth.currentUser;
-          if (currentUser) {
-            try {
-              const driverDoc = await getDoc(doc(db, "Drivers", currentUser.uid));
-              if (driverDoc.exists()) {
-                const driverData = driverDoc.data();
-                if (!driverData.isOnline || driverData.rideInProgress || driverData.currentRideId) {
-                  console.log('Driver is no longer available:', {
-                    isOnline: driverData.isOnline,
-                    rideInProgress: driverData.rideInProgress,
-                    currentRideId: driverData.currentRideId
-                  });
-                  return;
-                }
-              }
-            } catch (error) {
-              console.error('Error checking driver availability:', error);
-            }
-          }
-          
-          // Fetch customer information from rideRequestsDriver collection
-          try {
-            // First get the ride request driver document by querying with rideRequestId
-            const rideRequestDriverQuery = query(
-              collection(db, "rideRequestsDriver"),
-              where("rideRequestId", "==", ride.id)
-            );
-            const rideRequestDriverSnapshot = await getDocs(rideRequestDriverQuery);
-            
-            let customerInfo = null;
-            if (!rideRequestDriverSnapshot.empty) {
-              customerInfo = rideRequestDriverSnapshot.docs[0].data();
-            }
-            
-            const rideWithCustomerInfo = {
-              ...ride,
-              firstName: customerInfo?.firstName || "Customer",
-              lastName: customerInfo?.lastName || '',
-              number: customerInfo?.number || "",
-              photo: customerInfo?.photo || "",
-            };
-            
-            console.log('Customer info fetched:', customerInfo);
-            console.log('Ride with customer info:', rideWithCustomerInfo);
-            
-            setCurrentRideRequest(rideWithCustomerInfo);
-            setIsLoadingAddress(true);
-            try {
-              const pickupLocation = { latitude: ride.pickupLat, longitude: ride.pickupLng };
-              const destinationLocation = {
-                latitude: ride.destinationLat,
-                longitude: ride.destinationLng,
-              };
-              const distance = calculateDistance(pickupLocation, destinationLocation);
-              console.log('Calculated distance:', distance); // Add logging
-              setRideDistance(distance);
-              const estimatedMinutes = Math.round((distance / 30) * 60);
-              setEstimatedTime(estimatedMinutes);
-              const pickupLoc = await Location.reverseGeocodeAsync(pickupLocation);
-              const pickupAddr =
-                pickupLoc.length > 0
-                  ? `${pickupLoc[0].name || ""} ${pickupLoc[0].street || ""}`
-                  : "Pickup Address Not Found";
-              setPickupAddress(pickupAddr);
-              const destLoc = await Location.reverseGeocodeAsync(destinationLocation);
-              const destAddr =
-                destLoc.length > 0
-                  ? `${destLoc[0].name || ""} ${destLoc[0].street || ""}`
-                  : "Destination Address Not Found";
-              setDestinationAddress(destAddr);
-            } catch (error) {
-              console.error("Error in reverse geocoding:", error);
-              setPickupAddress("Pickup Address Not Available");
-              setDestinationAddress("Destination Address Not Available");
-            } finally {
-              setIsLoadingAddress(false);
-              setIsModalVisible(true);
-              setTimeLeft(15);
-              startTimer();
-              Animated.timing(countdownAnim, {
-                toValue: 0,
-                duration: 15000,
-                useNativeDriver: false,
-              }).start();
-            }
-          } catch (error) {
-            console.error("Error fetching customer information:", error);
-          }
+          await processRideOffer(ride, selectedDriver);
         } else {
           console.log('This driver was not selected for the ride');
         }
@@ -1117,6 +1233,7 @@ const HomeScreenWithMap = () => {
       ]).start();
 
       console.log(`Driver ${currentUser.uid} is now ${newStatus ? 'online' : 'offline'}`);
+      console.log('[TOGGLE ONLINE] Driver status updated in Firestore:', updateData);
     } catch (error) {
       console.error("Error updating online status:", error);
       // Revert the animation if there's an error
@@ -1374,7 +1491,6 @@ const HomeScreenWithMap = () => {
   // -----------------------------------------------------------------
   // 17. Render
   if (!region) {
-    console.log('No region available, showing loading screen');
     return (
       <View style={styles.loadingContainer}>
         <StatusBar barStyle="light-content" />
@@ -1389,121 +1505,6 @@ const HomeScreenWithMap = () => {
     );
   }
 
-  console.log('Rendering map with region:', region);
-  console.log('Google Maps API Key:', GOOGLE_MAPS_APIKEY);
-
-  // -----------------------------------------------------------------
-  // 16. Diagnostic Function for Driver Status Issues
-  // -----------------------------------------------------------------
-  const diagnoseDriverStatus = async () => {
-    try {
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        console.error("No authenticated user found");
-        return;
-      }
-
-      console.log('=== DRIVER STATUS DIAGNOSTIC ===');
-      
-      // Check current driver document
-      const driverDoc = await getDoc(doc(db, "Drivers", currentUser.uid));
-      if (driverDoc.exists()) {
-        const driverData = driverDoc.data();
-        console.log('Current driver data:', {
-          isOnline: driverData.isOnline,
-          isAvailable: driverData.isAvailable,
-          rideInProgress: driverData.rideInProgress,
-          currentRideId: driverData.currentRideId,
-          driverType: driverData.driverType,
-          latitude: driverData.latitude,
-          longitude: driverData.longitude,
-          lastOnlineUpdate: driverData.lastOnlineUpdate,
-          lastLocationUpdate: driverData.lastLocationUpdate
-        });
-        
-        // Check for issues
-        const issues = [];
-        if (!driverData.isOnline) issues.push('Driver is not online');
-        if (driverData.isAvailable === false) issues.push('Driver is marked as unavailable');
-        if (driverData.rideInProgress) issues.push('Driver has ride in progress');
-        if (driverData.currentRideId) issues.push('Driver has current ride ID');
-        if (!driverData.driverType) issues.push('Driver type not set');
-        if (!driverData.latitude || !driverData.longitude) issues.push('Driver location not set');
-        
-        if (issues.length > 0) {
-          console.log('Issues found:', issues);
-          
-          // Auto-fix common issues
-          const fixData = {};
-          if (!driverData.isOnline) fixData.isOnline = true;
-          if (driverData.isAvailable === false) fixData.isAvailable = true;
-          if (driverData.rideInProgress) fixData.rideInProgress = false;
-          if (driverData.currentRideId) fixData.currentRideId = null;
-          
-          if (Object.keys(fixData).length > 0) {
-            console.log('Auto-fixing issues:', fixData);
-            await updateDoc(doc(db, "Drivers", currentUser.uid), fixData);
-            console.log('Issues fixed successfully');
-            
-            // Update local state
-            setIsOnline(true);
-            setRideInProgress(false);
-          }
-        } else {
-          console.log('No issues found with driver status');
-        }
-      } else {
-        console.error('Driver document does not exist');
-      }
-      
-      // Check for waiting rides
-      const waitingRidesQuery = query(
-        collection(db, "rideRequests"),
-        where("status", "==", "waiting"),
-        where("rideType", "==", driverType)
-      );
-      const waitingRidesSnapshot = await getDocs(waitingRidesQuery);
-      console.log(`Found ${waitingRidesSnapshot.size} waiting rides for type: ${driverType}`);
-      
-      waitingRidesSnapshot.forEach(doc => {
-        const rideData = doc.data();
-        console.log(`Ride ${doc.id}:`, {
-          assignedDriver: rideData.assignedDriver,
-          declinedDrivers: rideData.declinedDrivers || [],
-          pickupLat: rideData.pickupLat,
-          pickupLng: rideData.pickupLng
-        });
-      });
-      
-      console.log('=== END DIAGNOSTIC ===');
-    } catch (error) {
-      console.error('Error in driver status diagnostic:', error);
-    }
-  };
-
-  // Add diagnostic button to the UI (temporary for debugging)
-  const renderDiagnosticButton = () => {
-    if (__DEV__) {
-      return (
-        <TouchableOpacity
-          style={{
-            position: 'absolute',
-            top: 100,
-            right: 20,
-            backgroundColor: '#FF6F00',
-            padding: 10,
-            borderRadius: 5,
-            zIndex: 1000
-          }}
-          onPress={diagnoseDriverStatus}
-        >
-          <Text style={{ color: 'white', fontSize: 12 }}>Diagnose</Text>
-        </TouchableOpacity>
-      );
-    }
-    return null;
-  };
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.mapContainer}>
@@ -1516,23 +1517,15 @@ const HomeScreenWithMap = () => {
             showsUserLocation
             showsMyLocationButton
             onMapReady={() => {
-              console.log('Map is ready');
-              console.log('Current region:', region);
-              console.log('Map provider:', PROVIDER_GOOGLE);
               setMapReady(true);
             }}
             onError={(error) => {
               console.error('Map error:', error);
-              console.error('Error details:', error.nativeEvent);
               Alert.alert(
                 'Map Error',
                 'There was an error loading the map. Please check your internet connection and try again.',
                 [{ text: 'OK' }]
               );
-            }}
-            onRegionChangeComplete={(newRegion) => {
-              console.log('Region changed:', newRegion);
-              setRegion(newRegion);
             }}
             customMapStyle={mapStyle}
             loadingEnabled={true}
@@ -2130,7 +2123,6 @@ const HomeScreenWithMap = () => {
           </Animated.View>
         </Animated.View>
       )}
-      {renderDiagnosticButton()}
     </SafeAreaView>
   );
 };

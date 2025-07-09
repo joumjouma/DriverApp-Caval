@@ -15,14 +15,14 @@ import {
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { useTheme } from "../context/ThemeContext";
 import { useNavigation } from "@react-navigation/native";
-import { getAuth, updateEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
+import { auth } from "../config/firebase";
+import { updateEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "../config/firebase";
 
 function ModifyInfo() {
   const { colors } = useTheme();
   const navigation = useNavigation();
-  const auth = getAuth();
   const user = auth.currentUser;
 
   // User information states
@@ -70,7 +70,7 @@ function ModifyInfo() {
         }
       } catch (error) {
         console.error("Error fetching user data:", error);
-        Alert.alert("Error", "Failed to load your information. Please try again.");
+        Alert.alert("Erreur", "Impossible de charger vos informations. Veuillez réessayer.");
       } finally {
         setInitialLoading(false);
       }
@@ -109,7 +109,7 @@ function ModifyInfo() {
   // Function to handle personal info update
   const handlePersonalInfoUpdate = async () => {
     if (!firstName.trim() || !lastName.trim()) {
-      Alert.alert("Error", "First name and last name cannot be empty.");
+      Alert.alert("Erreur", "Le prénom et le nom ne peuvent pas être vides.");
       return;
     }
 
@@ -120,11 +120,11 @@ function ModifyInfo() {
         lastName,
       });
       
-      Alert.alert("Success", "Personal information updated successfully.");
+      Alert.alert("Succès", "Les informations personnelles ont été mises à jour avec succès.");
       setEditMode((prev) => ({ ...prev, personalInfo: false }));
     } catch (error) {
       console.error("Error updating personal info:", error);
-      Alert.alert("Error", "Failed to update personal information. Please try again.");
+      Alert.alert("Erreur", "Impossible de mettre à jour les informations personnelles. Veuillez réessayer.");
     } finally {
       setLoading(false);
     }
@@ -133,12 +133,12 @@ function ModifyInfo() {
   // Function to handle contact info update
   const handleContactInfoUpdate = async () => {
     if (!isValidEmail(email)) {
-      Alert.alert("Error", "Please enter a valid email address.");
+      Alert.alert("Erreur", "Veuillez entrer une adresse email valide.");
       return;
     }
 
     if (!isValidPhone(phone)) {
-      Alert.alert("Error", "Please enter a valid phone number (10-15 digits).");
+      Alert.alert("Erreur", "Veuillez entrer un numéro de téléphone valide (10-15 chiffres).");
       return;
     }
 
@@ -147,15 +147,15 @@ function ModifyInfo() {
       // Update email requires re-authentication
       if (email !== user.email) {
         Alert.alert(
-          "Authentication Required",
-          "To update your email, please enter your current password:",
+          "Authentification requise",
+          "Pour mettre à jour votre email, veuillez entrer votre mot de passe actuel :",
           [
-            { text: "Cancel", style: "cancel" },
+            { text: "Annuler", style: "cancel" },
             {
-              text: "Confirm",
+              text: "Confirmer",
               onPress: async (password) => {
                 if (!password) {
-                  Alert.alert("Error", "Password is required to update email.");
+                  Alert.alert("Erreur", "Le mot de passe est requis pour mettre à jour l'email.");
                   setLoading(false);
                   return;
                 }
@@ -170,11 +170,11 @@ function ModifyInfo() {
                     phoneNumber: phone,
                   });
                   
-                  Alert.alert("Success", "Contact information updated successfully.");
+                  Alert.alert("Succès", "Les informations de contact ont été mises à jour avec succès.");
                   setEditMode((prev) => ({ ...prev, contactInfo: false }));
                 } catch (error) {
                   console.error("Error updating email:", error);
-                  Alert.alert("Error", "Failed to update email. Please check your password and try again.");
+                  Alert.alert("Erreur", "Impossible de mettre à jour l'email. Veuillez vérifier votre mot de passe et réessayer.");
                 } finally {
                   setLoading(false);
                 }
@@ -194,13 +194,13 @@ function ModifyInfo() {
           phoneNumber: phone,
         });
         
-        Alert.alert("Success", "Contact information updated successfully.");
+        Alert.alert("Succès", "Les informations de contact ont été mises à jour avec succès.");
         setEditMode((prev) => ({ ...prev, contactInfo: false }));
         setLoading(false);
       }
     } catch (error) {
       console.error("Error updating contact info:", error);
-      Alert.alert("Error", "Failed to update contact information. Please try again.");
+      Alert.alert("Erreur", "Impossible de mettre à jour les informations de contact. Veuillez réessayer.");
       setLoading(false);
     }
   };
@@ -208,17 +208,17 @@ function ModifyInfo() {
   // Function to handle password update
   const handlePasswordUpdate = async () => {
     if (!currentPassword) {
-      Alert.alert("Error", "Current password is required.");
+      Alert.alert("Erreur", "Le mot de passe actuel est requis.");
       return;
     }
 
     if (newPassword.length < 8) {
-      Alert.alert("Error", "New password must be at least 8 characters long.");
+      Alert.alert("Erreur", "Le nouveau mot de passe doit comporter au moins 8 caractères.");
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert("Error", "New passwords do not match.");
+      Alert.alert("Erreur", "Les nouveaux mots de passe ne correspondent pas.");
       return;
     }
 
@@ -231,14 +231,14 @@ function ModifyInfo() {
       // Update password
       await updatePassword(user, newPassword);
       
-      Alert.alert("Success", "Password updated successfully.");
+      Alert.alert("Succès", "Le mot de passe a été mis à jour avec succès.");
       setEditMode((prev) => ({ ...prev, password: false }));
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     } catch (error) {
       console.error("Error updating password:", error);
-      Alert.alert("Error", "Failed to update password. Please check your current password and try again.");
+      Alert.alert("Erreur", "Impossible de mettre à jour le mot de passe. Veuillez vérifier votre mot de passe actuel et réessayer.");
     } finally {
       setLoading(false);
     }
@@ -247,12 +247,12 @@ function ModifyInfo() {
   // Function to handle driving info update
   const handleDrivingInfoUpdate = async () => {
     if (!drivingLicense.trim()) {
-      Alert.alert("Error", "Driving license number cannot be empty.");
+      Alert.alert("Erreur", "Le numéro de permis de conduire ne peut pas être vide.");
       return;
     }
 
     if (!address.trim()) {
-      Alert.alert("Error", "Address cannot be empty.");
+      Alert.alert("Erreur", "L'adresse ne peut pas être vide.");
       return;
     }
 
@@ -263,11 +263,11 @@ function ModifyInfo() {
         address,
       });
       
-      Alert.alert("Success", "Driving information updated successfully.");
+      Alert.alert("Succès", "Les informations de conduite ont été mises à jour avec succès.");
       setEditMode((prev) => ({ ...prev, drivingInfo: false }));
     } catch (error) {
       console.error("Error updating driving info:", error);
-      Alert.alert("Error", "Failed to update driving information. Please try again.");
+      Alert.alert("Erreur", "Impossible de mettre à jour les informations de conduite. Veuillez réessayer.");
     } finally {
       setLoading(false);
     }
@@ -292,7 +292,7 @@ function ModifyInfo() {
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.text }]}>
-          Personal Information
+          Informations personnelles
         </Text>
         <View style={styles.placeholder} />
       </View>
@@ -306,21 +306,21 @@ function ModifyInfo() {
           <View style={[styles.section, { backgroundColor: colors.card }]}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                Personal Information
+                Informations personnelles
               </Text>
               <TouchableOpacity
                 onPress={() => toggleEditMode("personalInfo")}
                 style={styles.editButton}
               >
                 <Text style={[styles.editButtonText, { color: colors.primary }]}>
-                  {editMode.personalInfo ? "Cancel" : "Edit"}
+                  {editMode.personalInfo ? "Annuler" : "Modifier"}
                 </Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.infoContainer}>
               <Text style={[styles.label, { color: colors.textSecondary }]}>
-                First Name
+                Prénom
               </Text>
               <TextInput
                 style={[
@@ -338,14 +338,14 @@ function ModifyInfo() {
                 value={firstName}
                 onChangeText={setFirstName}
                 editable={editMode.personalInfo}
-                placeholder="Enter first name"
+                placeholder="Entrez le prénom"
                 placeholderTextColor={colors.textSecondary}
               />
             </View>
 
             <View style={styles.infoContainer}>
               <Text style={[styles.label, { color: colors.textSecondary }]}>
-                Last Name
+                Nom
               </Text>
               <TextInput
                 style={[
@@ -363,7 +363,7 @@ function ModifyInfo() {
                 value={lastName}
                 onChangeText={setLastName}
                 editable={editMode.personalInfo}
-                placeholder="Enter last name"
+                placeholder="Entrez le nom"
                 placeholderTextColor={colors.textSecondary}
               />
             </View>
@@ -377,7 +377,7 @@ function ModifyInfo() {
                 {loading ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.saveButtonText}>Save Changes</Text>
+                  <Text style={styles.saveButtonText}>Enregistrer les modifications</Text>
                 )}
               </TouchableOpacity>
             )}
@@ -387,14 +387,14 @@ function ModifyInfo() {
           <View style={[styles.section, { backgroundColor: colors.card }]}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                Contact Information
+                Informations de contact
               </Text>
               <TouchableOpacity
                 onPress={() => toggleEditMode("contactInfo")}
                 style={styles.editButton}
               >
                 <Text style={[styles.editButtonText, { color: colors.primary }]}>
-                  {editMode.contactInfo ? "Cancel" : "Edit"}
+                  {editMode.contactInfo ? "Annuler" : "Modifier"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -419,7 +419,7 @@ function ModifyInfo() {
                 value={email}
                 onChangeText={setEmail}
                 editable={editMode.contactInfo}
-                placeholder="Enter email"
+                placeholder="Entrez l'email"
                 placeholderTextColor={colors.textSecondary}
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -428,7 +428,7 @@ function ModifyInfo() {
 
             <View style={styles.infoContainer}>
               <Text style={[styles.label, { color: colors.textSecondary }]}>
-                Phone Number
+                Numéro de téléphone
               </Text>
               <TextInput
                 style={[
@@ -446,7 +446,7 @@ function ModifyInfo() {
                 value={phone}
                 onChangeText={setPhone}
                 editable={editMode.contactInfo}
-                placeholder="Enter phone number"
+                placeholder="Entrez le numéro de téléphone"
                 placeholderTextColor={colors.textSecondary}
                 keyboardType="phone-pad"
               />
@@ -461,7 +461,7 @@ function ModifyInfo() {
                 {loading ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.saveButtonText}>Save Changes</Text>
+                  <Text style={styles.saveButtonText}>Enregistrer les modifications</Text>
                 )}
               </TouchableOpacity>
             )}
@@ -471,14 +471,14 @@ function ModifyInfo() {
           <View style={[styles.section, { backgroundColor: colors.card }]}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                Password
+                Mot de passe
               </Text>
               <TouchableOpacity
                 onPress={() => toggleEditMode("password")}
                 style={styles.editButton}
               >
                 <Text style={[styles.editButtonText, { color: colors.primary }]}>
-                  {editMode.password ? "Cancel" : "Change"}
+                  {editMode.password ? "Annuler" : "Changer"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -487,7 +487,7 @@ function ModifyInfo() {
               <>
                 <View style={styles.infoContainer}>
                   <Text style={[styles.label, { color: colors.textSecondary }]}>
-                    Current Password
+                    Mot de passe actuel
                   </Text>
                   <View style={styles.passwordContainer}>
                     <TextInput
@@ -500,7 +500,7 @@ function ModifyInfo() {
                       ]}
                       value={currentPassword}
                       onChangeText={setCurrentPassword}
-                      placeholder="Enter current password"
+                      placeholder="Entrez le mot de passe actuel"
                       placeholderTextColor={colors.textSecondary}
                       secureTextEntry={secureEntry}
                     />
@@ -519,7 +519,7 @@ function ModifyInfo() {
 
                 <View style={styles.infoContainer}>
                   <Text style={[styles.label, { color: colors.textSecondary }]}>
-                    New Password
+                    Nouveau mot de passe
                   </Text>
                   <View style={styles.passwordContainer}>
                     <TextInput
@@ -532,7 +532,7 @@ function ModifyInfo() {
                       ]}
                       value={newPassword}
                       onChangeText={setNewPassword}
-                      placeholder="Enter new password"
+                      placeholder="Entrez le nouveau mot de passe"
                       placeholderTextColor={colors.textSecondary}
                       secureTextEntry={secureEntryNew}
                     />
@@ -551,7 +551,7 @@ function ModifyInfo() {
 
                 <View style={styles.infoContainer}>
                   <Text style={[styles.label, { color: colors.textSecondary }]}>
-                    Confirm New Password
+                    Confirmer le nouveau mot de passe
                   </Text>
                   <View style={styles.passwordContainer}>
                     <TextInput
@@ -564,7 +564,7 @@ function ModifyInfo() {
                       ]}
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
-                      placeholder="Confirm new password"
+                      placeholder="Confirmez le nouveau mot de passe"
                       placeholderTextColor={colors.textSecondary}
                       secureTextEntry={secureEntryConfirm}
                     />
@@ -582,7 +582,7 @@ function ModifyInfo() {
                 </View>
 
                 <Text style={[styles.passwordRequirements, { color: colors.textSecondary }]}>
-                  Password must be at least 8 characters long and include a mix of letters, numbers, and special characters.
+                  Le mot de passe doit comporter au moins 8 caractères et inclure une combinaison de lettres, de chiffres et de caractères spéciaux.
                 </Text>
 
                 <TouchableOpacity
@@ -593,7 +593,7 @@ function ModifyInfo() {
                   {loading ? (
                     <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
-                    <Text style={styles.saveButtonText}>Update Password</Text>
+                    <Text style={styles.saveButtonText}>Mettre à jour le mot de passe</Text>
                   )}
                 </TouchableOpacity>
               </>
@@ -603,7 +603,7 @@ function ModifyInfo() {
                   ••••••••••
                 </Text>
                 <Text style={[styles.passwordLastChanged, { color: colors.textSecondary }]}>
-                  For security reasons, password is hidden
+                  Pour des raisons de sécurité, le mot de passe est masqué
                 </Text>
               </View>
             )}
@@ -613,21 +613,21 @@ function ModifyInfo() {
           <View style={[styles.section, { backgroundColor: colors.card }]}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                Driver Information
+                Informations de conduite
               </Text>
               <TouchableOpacity
                 onPress={() => toggleEditMode("drivingInfo")}
                 style={styles.editButton}
               >
                 <Text style={[styles.editButtonText, { color: colors.primary }]}>
-                  {editMode.drivingInfo ? "Cancel" : "Edit"}
+                  {editMode.drivingInfo ? "Annuler" : "Modifier"}
                 </Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.infoContainer}>
               <Text style={[styles.label, { color: colors.textSecondary }]}>
-                Driving License Number
+                Numéro de permis de conduire
               </Text>
               <TextInput
                 style={[
@@ -645,14 +645,14 @@ function ModifyInfo() {
                 value={drivingLicense}
                 onChangeText={setDrivingLicense}
                 editable={editMode.drivingInfo}
-                placeholder="Enter driving license number"
+                placeholder="Entrez le numéro de permis de conduire"
                 placeholderTextColor={colors.textSecondary}
               />
             </View>
 
             <View style={styles.infoContainer}>
               <Text style={[styles.label, { color: colors.textSecondary }]}>
-                Address
+                Adresse
               </Text>
               <TextInput
                 style={[
@@ -671,7 +671,7 @@ function ModifyInfo() {
                 value={address}
                 onChangeText={setAddress}
                 editable={editMode.drivingInfo}
-                placeholder="Enter address"
+                placeholder="Entrez l'adresse"
                 placeholderTextColor={colors.textSecondary}
                 multiline={true}
               />
@@ -686,7 +686,7 @@ function ModifyInfo() {
                 {loading ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.saveButtonText}>Save Changes</Text>
+                  <Text style={styles.saveButtonText}>Enregistrer les modifications</Text>
                 )}
               </TouchableOpacity>
             )}
@@ -696,7 +696,7 @@ function ModifyInfo() {
           <View style={[styles.securityNotice, { backgroundColor: colors.cardSecondary }]}>
             <Ionicons name="shield-checkmark" size={24} color={colors.primary} />
             <Text style={[styles.securityText, { color: colors.textSecondary }]}>
-              Your personal information is encrypted and protected. We never share your details with third parties.
+              Vos informations personnelles sont chiffrées et protégées. Nous ne partageons jamais vos détails avec des tiers.
             </Text>
           </View>
 

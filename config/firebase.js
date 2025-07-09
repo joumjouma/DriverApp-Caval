@@ -1,5 +1,5 @@
 // Import the functions you need from the SDKs you need
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth, initializeAuth, getReactNativePersistence } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
@@ -27,8 +27,8 @@ console.log("Firebase config:", {
   measurementId: firebaseConfig.measurementId ? "present" : "missing"
 });
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Prevent re-initialization
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
 // Initialize Auth with persistence
 const auth = initializeAuth(app, {

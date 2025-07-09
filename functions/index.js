@@ -1,112 +1,412 @@
-const functions = require('firebase-functions');
-const admin = require('firebase-admin');
-admin.initializeApp();
+/**
+ * Import function triggers from their respective submodules:
+ *
+ * const {onCall} = require("firebase-functions/v2/https");
+ * const {onDocumentWritten} = require("firebase-functions/v2/firestore");
+ *
+ * See a full list of supported triggers at https://firebase.google.com/docs/functions
+ */
 
-function haversineDistance(lat1, lon1, lat2, lon2) {
-  const toRad = (x) => (x * Math.PI) / 180;
-  const R = 6371; // km
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
+const {setGlobalOptions} = require("firebase-functions");
+const {onDocumentUpdated} = require("firebase-functions/v2/firestore");
+const {initializeApp} = require("firebase-admin/app");
+const {getFirestore} = require("firebase-admin/firestore");
+const {getMessaging} = require("firebase-admin/messaging");
 
-exports.assignClosestDriver = functions.firestore
-  .document('rideRequests/{rideId}')
-  .onWrite(async (change, context) => {
-    const ride = change.after.exists ? change.after.data() : null;
-    if (!ride || ride.status !== 'waiting') return;
+// Initialize Firebase Admin
+initializeApp();
 
-    const pickupLat = ride.pickupLat;
-    const pickupLng = ride.pickupLng;
-    const declinedDrivers = ride.declinedDrivers || [];
-    const rideType = ride.rideType;
+// For cost control, you can set the maximum number of containers that can be
+// running at the same time. This helps mitigate the impact of unexpected
+// traffic spikes by instead downgrading performance. This limit is a
+// per-function limit. You can override the limit for each function using the
+// `maxInstances` option in the function's options, e.g.
+// `onRequest({ maxInstances: 5 }, (req, res) => { ... })`.
+// NOTE: setGlobalOptions does not apply to functions using the v1 API. V1
+// functions should each use functions.runWith({ maxInstances: 10 }) instead.
+// In the v1 API, each function can only serve one request per container, so
+// this will be the maximum concurrent request count.
+setGlobalOptions({maxInstances: 10});
 
-    console.log(`Processing ride request ${context.params.rideId}:`, {
-      rideType,
-      pickupLat,
-      pickupLng,
-      declinedDrivers
-    });
-
-    // Fetch all available drivers with enhanced filtering
-    const driversSnapshot = await admin.firestore().collection('Drivers')
-      .where('isOnline', '==', true)
-      .get();
+// Cloud Function to send push notification when a driver is assigned a ride
+exports.sendRideAssignmentNotification = onDocumentUpdated('rideRequests/{rideId}', async (event) => {
+  const db = getFirestore();
+  const messaging = getMessaging();
+  
+  try {
+    const beforeData = event.data?.before?.data();
+    const afterData = event.data?.after?.data();
     
-    let drivers = [];
-    driversSnapshot.forEach(doc => {
-      const data = doc.data();
+    // Check if ride status changed to "assigned" and has a driverId
+    if (beforeData?.status !== 'assigned' && 
+        afterData?.status === 'assigned' && 
+        afterData?.driverId) {
       
-      // Enhanced driver filtering
-      const hasValidLocation = data.latitude && data.longitude;
-      const isAvailable = data.isAvailable !== false; // Default to true if not set
-      const noRideInProgress = !data.rideInProgress;
-      const noCurrentRide = !data.currentRideId;
-      const matchesRideType = data.driverType === rideType;
-      const notDeclined = !declinedDrivers.includes(doc.id);
+      console.log('Ride assigned to driver:', afterData.driverId);
       
-      console.log(`Driver ${doc.id} check:`, {
-        isOnline: data.isOnline,
-        isAvailable,
-        hasLocation: hasValidLocation,
-        noRideInProgress,
-        noCurrentRide,
-        matchesType: matchesRideType,
-        notDeclined,
-        driverType: data.driverType,
-        rideType
-      });
-      
-      if (hasValidLocation && isAvailable && noRideInProgress && noCurrentRide && matchesRideType && notDeclined) {
-        const distance = haversineDistance(pickupLat, pickupLng, data.latitude, data.longitude);
-        drivers.push({ 
-          id: doc.id, 
-          distance,
-          rideCount: data.rideCount || 0,
-          lastRideTime: data.lastRideTime
-        });
-        console.log(`✓ Driver ${doc.id} added (distance: ${distance.toFixed(2)}km)`);
-      } else {
-        console.log(`✗ Driver ${doc.id} excluded`);
+      // Get driver's push token
+      const driverDoc = await db.collection('Drivers').doc(afterData.driverId).get();
+      if (!driverDoc.exists) {
+        console.log('Driver document not found');
+        return;
       }
-    });
-
-    console.log(`Found ${drivers.length} eligible drivers for ride type: ${rideType}`);
-
-    // Sort drivers by distance
-    drivers.sort((a, b) => a.distance - b.distance);
-
-    if (drivers.length > 0) {
-      const selectedDriver = drivers[0];
-      console.log(`Assigning ride to driver ${selectedDriver.id} (distance: ${selectedDriver.distance.toFixed(2)}km)`);
       
-      // Assign to the closest driver
-      await admin.firestore().collection('rideRequests').doc(context.params.rideId).update({
-        assignedDriver: selectedDriver.id,
-        status: 'waiting',
-        assignedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-    } else {
-      console.log('No available drivers found, will retry in 10 seconds');
-      // No available drivers, reset after delay
-      setTimeout(async () => {
-        try {
-          await admin.firestore().collection('rideRequests').doc(context.params.rideId).update({
-            assignedDriver: null,
-            status: 'waiting',
-            declinedDrivers: []
+      const driverData = driverDoc.data();
+      const pushToken = driverData.pushToken;
+      
+      if (!pushToken) {
+        console.log('Driver has no push token');
+        return;
+      }
+      
+      // Prepare notification message
+      const message = {
+        token: pushToken,
+        notification: {
+          title: '🎯 Course assignée!',
+          body: 'Vous avez été sélectionné pour une nouvelle course. Ouvrez l\'app pour voir les détails.',
+        },
+        data: {
+          type: 'ride_request',
+          rideId: event.params.rideId,
+          driverId: afterData.driverId,
+          fare: afterData.fare?.toString() || '0',
+          pickupAddress: afterData.pickupAddress || '',
+          destinationAddress: afterData.destinationAddress || '',
+        },
+        android: {
+          notification: {
+            sound: 'default',
+            channelId: 'ride-requests',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            vibrateTimings: [0, 250, 250, 250],
+            icon: 'ic_launcher',
+            color: '#FF8C00',
+            largeIcon: 'ic_launcher',
+            style: {
+              type: 'bigtext',
+              text: 'Vous avez été sélectionné pour une nouvelle course. Ouvrez l\'app pour voir les détails.',
+              summary: 'Nouvelle course disponible'
+            }
+          },
+          data: {
+            type: 'ride_request',
+            rideId: event.params.rideId,
+            driverId: afterData.driverId,
+            fare: afterData.fare?.toString() || '0',
+            pickupAddress: afterData.pickupAddress || '',
+            destinationAddress: afterData.destinationAddress || '',
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+              badge: 1,
+              alert: {
+                title: '🎯 Course assignée!',
+                body: 'Vous avez été sélectionné pour une nouvelle course. Ouvrez l\'app pour voir les détails.',
+              },
+              category: 'RIDE_REQUEST',
+              'mutable-content': 1,
+            },
+          },
+          data: {
+            type: 'ride_request',
+            rideId: event.params.rideId,
+            driverId: afterData.driverId,
+            fare: afterData.fare?.toString() || '0',
+            pickupAddress: afterData.pickupAddress || '',
+            destinationAddress: afterData.destinationAddress || '',
+          },
+        },
+      };
+      
+      // Send the notification
+      const response = await messaging.send(message);
+      console.log('Push notification sent successfully:', response);
+      
+    } else if (beforeData?.status !== 'waiting' && 
+               afterData?.status === 'waiting') {
+      // Send notification to all online drivers of the same type
+      console.log('New ride request created, notifying eligible drivers');
+      
+      const rideType = afterData.rideType;
+      if (!rideType) {
+        console.log('No ride type specified');
+        return;
+      }
+      
+      // Get all online drivers of the same type
+      const driversSnapshot = await db.collection('Drivers')
+        .where('isOnline', '==', true)
+        .where('isAvailable', '!=', false)
+        .where('driverType', '==', rideType)
+        .where('rideInProgress', '==', false)
+        .get();
+      
+      const eligibleDrivers = [];
+      driversSnapshot.forEach(doc => {
+        const driverData = doc.data();
+        if (driverData.pushToken && 
+            driverData.latitude && 
+            driverData.longitude && 
+            !driverData.currentRideId) {
+          eligibleDrivers.push({
+            id: doc.id,
+            pushToken: driverData.pushToken,
+            latitude: driverData.latitude,
+            longitude: driverData.longitude,
           });
-          console.log(`Reset ride ${context.params.rideId} for retry`);
-        } catch (error) {
-          console.error('Error resetting ride for retry:', error);
         }
-      }, 10000); // 10 seconds
+      });
+      
+      console.log(`Found ${eligibleDrivers.length} eligible drivers`);
+      
+      // Send notification to the closest driver (simplified selection)
+      if (eligibleDrivers.length > 0) {
+        const selectedDriver = eligibleDrivers[0]; // For now, just pick the first one
+        
+        const message = {
+          token: selectedDriver.pushToken,
+          notification: {
+            title: '🚗 Nouvelle course disponible!',
+            body: 'Une nouvelle demande de course correspond à votre profil. Ouvrez l\'app pour voir les détails.',
+          },
+          data: {
+            type: 'ride_request',
+            rideId: event.params.rideId,
+            driverId: selectedDriver.id,
+            fare: afterData.fare?.toString() || '0',
+            pickupAddress: afterData.pickupAddress || '',
+            destinationAddress: afterData.destinationAddress || '',
+          },
+          android: {
+            notification: {
+              sound: 'default',
+              channelId: 'ride-requests',
+              priority: 'high',
+              defaultSound: true,
+              defaultVibrateTimings: true,
+              vibrateTimings: [0, 250, 250, 250],
+              icon: 'ic_launcher',
+              color: '#FF8C00',
+              largeIcon: 'ic_launcher',
+              style: {
+                type: 'bigtext',
+                text: 'Une nouvelle demande de course correspond à votre profil. Ouvrez l\'app pour voir les détails.',
+                summary: 'Nouvelle course disponible'
+              }
+            },
+            data: {
+              type: 'ride_request',
+              rideId: event.params.rideId,
+              driverId: selectedDriver.id,
+              fare: afterData.fare?.toString() || '0',
+              pickupAddress: afterData.pickupAddress || '',
+              destinationAddress: afterData.destinationAddress || '',
+            },
+          },
+          apns: {
+            payload: {
+              aps: {
+                sound: 'default',
+                badge: 1,
+                alert: {
+                  title: '🚗 Nouvelle course disponible!',
+                  body: 'Une nouvelle demande de course correspond à votre profil. Ouvrez l\'app pour voir les détails.',
+                },
+                category: 'RIDE_REQUEST',
+                'mutable-content': 1,
+              },
+            },
+            data: {
+              type: 'ride_request',
+              rideId: event.params.rideId,
+              driverId: selectedDriver.id,
+              fare: afterData.fare?.toString() || '0',
+              pickupAddress: afterData.pickupAddress || '',
+              destinationAddress: afterData.destinationAddress || '',
+            },
+          },
+        };
+        
+        const response = await messaging.send(message);
+        console.log('Push notification sent to selected driver:', response);
+      }
     }
-  }); 
+    
+  } catch (error) {
+    console.error('Error sending push notification:', error);
+  }
+});
+
+// Cloud Function to send approval notification when driver status is updated
+exports.sendDriverApprovalNotification = onDocumentUpdated('Drivers/{driverId}', async (event) => {
+  const db = getFirestore();
+  const messaging = getMessaging();
+  
+  try {
+    const beforeData = event.data?.before?.data();
+    const afterData = event.data?.after?.data();
+    
+    // Check if approval status changed
+    if (beforeData?.approvalStatus !== 'approved' && 
+        afterData?.approvalStatus === 'approved') {
+      
+      console.log('Driver approved:', event.params.driverId);
+      
+      const pushToken = afterData.pushToken;
+      
+      if (!pushToken) {
+        console.log('Driver has no push token');
+        return;
+      }
+      
+      // Prepare approval notification message
+      const message = {
+        token: pushToken,
+        notification: {
+          title: '✅ Compte approuvé!',
+          body: 'Félicitations! Votre compte chauffeur a été approuvé. Vous pouvez maintenant commencer à travailler.',
+        },
+        data: {
+          type: 'driver_approval',
+          driverId: event.params.driverId,
+          status: 'approved',
+        },
+        android: {
+          notification: {
+            sound: 'default',
+            channelId: 'driver-approval',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            vibrateTimings: [0, 250, 250, 250],
+            icon: 'ic_launcher',
+            color: '#4CAF50',
+            largeIcon: 'ic_launcher',
+            style: {
+              type: 'bigtext',
+              text: 'Félicitations! Votre compte chauffeur a été approuvé. Vous pouvez maintenant commencer à travailler.',
+              summary: 'Compte approuvé'
+            }
+          },
+          data: {
+            type: 'driver_approval',
+            driverId: event.params.driverId,
+            status: 'approved',
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+              badge: 1,
+              alert: {
+                title: '✅ Compte approuvé!',
+                body: 'Félicitations! Votre compte chauffeur a été approuvé. Vous pouvez maintenant commencer à travailler.',
+              },
+              category: 'DRIVER_APPROVAL',
+              'mutable-content': 1,
+            },
+          },
+          data: {
+            type: 'driver_approval',
+            driverId: event.params.driverId,
+            status: 'approved',
+          },
+        },
+      };
+      
+      // Send the notification
+      const response = await messaging.send(message);
+      console.log('Approval notification sent successfully:', response);
+      
+    } else if (beforeData?.approvalStatus !== 'rejected' && 
+               afterData?.approvalStatus === 'rejected') {
+      
+      console.log('Driver rejected:', event.params.driverId);
+      
+      const pushToken = afterData.pushToken;
+      
+      if (!pushToken) {
+        console.log('Driver has no push token');
+        return;
+      }
+      
+      // Prepare rejection notification message
+      const message = {
+        token: pushToken,
+        notification: {
+          title: '❌ Compte non approuvé',
+          body: 'Votre demande de compte chauffeur n\'a pas été approuvée. Contactez le support pour plus d\'informations.',
+        },
+        data: {
+          type: 'driver_approval',
+          driverId: event.params.driverId,
+          status: 'rejected',
+        },
+        android: {
+          notification: {
+            sound: 'default',
+            channelId: 'driver-approval',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            vibrateTimings: [0, 250, 250, 250],
+            icon: 'ic_launcher',
+            color: '#F44336',
+            largeIcon: 'ic_launcher',
+            style: {
+              type: 'bigtext',
+              text: 'Votre demande de compte chauffeur n\'a pas été approuvée. Contactez le support pour plus d\'informations.',
+              summary: 'Compte non approuvé'
+            }
+          },
+          data: {
+            type: 'driver_approval',
+            driverId: event.params.driverId,
+            status: 'rejected',
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+              badge: 1,
+              alert: {
+                title: '❌ Compte non approuvé',
+                body: 'Votre demande de compte chauffeur n\'a pas été approuvée. Contactez le support pour plus d\'informations.',
+              },
+              category: 'DRIVER_APPROVAL',
+              'mutable-content': 1,
+            },
+          },
+          data: {
+            type: 'driver_approval',
+            driverId: event.params.driverId,
+            status: 'rejected',
+          },
+        },
+      };
+      
+      // Send the notification
+      const response = await messaging.send(message);
+      console.log('Rejection notification sent successfully:', response);
+    }
+    
+  } catch (error) {
+    console.error('Error sending approval notification:', error);
+  }
+});
+
+// Example function (uncomment and edit as needed)
+// const { onRequest } = require("firebase-functions/https");
+// const logger = require("firebase-functions/logger");
+// exports.helloWorld = onRequest((request, response) => {
+//   logger.info("Hello logs!", { structuredData: true });
+//   response.send("Hello from Firebase!");
+// });

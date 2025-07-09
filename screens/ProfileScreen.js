@@ -17,7 +17,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../context/ThemeContext";
-import { getAuth } from "firebase/auth";
+import { auth } from "../config/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage, db } from "../config/firebase";
@@ -35,7 +35,6 @@ function Profile() {
   const [showPhotoPrompt, setShowPhotoPrompt] = useState(false);
   const navigation = useNavigation();
   const { colors } = useTheme();
-  const auth = getAuth();
 
   useEffect(() => {
     const checkFirstVisit = async () => {
@@ -294,7 +293,7 @@ async function handleLogout() {
           />
           <MenuItem
             icon="help-circle-outline"
-            title="Support"
+            title="Aide"
             onPress={handleHelpPress}
           />
         </View>

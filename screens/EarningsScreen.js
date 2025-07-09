@@ -15,7 +15,7 @@ import { BarChart } from "react-native-chart-kit";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { useTheme } from "../context/ThemeContext";
-import { getAuth } from "firebase/auth";
+import { auth } from "../config/firebase";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../config/firebase";
 
@@ -31,8 +31,6 @@ export default function EarningsScreen() {
   const [selectedDay, setSelectedDay] = useState(null);
   const [tooltipVisible, setTooltipVisible] = useState(false);
   const [loading, setLoading] = useState(true);
-  const auth = getAuth();
-  const screenWidth = Dimensions.get("window").width - 40;
   
   // Animation values
   const fadeAnim = new Animated.Value(0);

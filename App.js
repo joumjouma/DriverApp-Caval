@@ -8,6 +8,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { auth, db } from './config/firebase';
+import notificationService from './services/NotificationService';
 
 // Import Screens
 import LoginScreen from "./screens/LoginScreen";
@@ -21,6 +22,7 @@ import EarningsScreen from "./screens/EarningsScreen";
 import ModifyInfo from "./screens/ModifyInfo";
 import PaymentScreen from "./screens/PaymentScreen";
 import DriverInboxScreen from "./screens/DriverInboxScreen";
+import ApprovalStatusScreen from "./screens/ApprovalStatusScreen";
 import "react-native-get-random-values";
 
 const Stack = createStackNavigator();
@@ -85,6 +87,41 @@ function HomeTabs() {
 // Create a wrapper component to use the auth context
 const AppContent = () => {
   const { user, loading } = useAuth();
+  const [notificationListeners, setNotificationListeners] = useState(null);
+  
+  // Initialize notifications when user logs in
+  useEffect(() => {
+    if (user) {
+      const initializeNotifications = async () => {
+        try {
+          const result = await notificationService.initialize();
+          if (result.success) {
+            setNotificationListeners(result.listeners);
+            console.log('Notifications initialized successfully');
+          } else {
+            console.log('Failed to initialize notifications:', result.error);
+          }
+        } catch (error) {
+          console.error('Error initializing notifications:', error);
+        }
+      };
+
+      initializeNotifications();
+    } else {
+      // Clean up notification listeners when user logs out
+      if (notificationListeners) {
+        notificationService.removeNotificationListeners(notificationListeners);
+        setNotificationListeners(null);
+      }
+    }
+
+    // Cleanup function
+    return () => {
+      if (notificationListeners) {
+        notificationService.removeNotificationListeners(notificationListeners);
+      }
+    };
+  }, [user]);
   
   if (loading) {
     return (
@@ -178,6 +215,11 @@ const AppContent = () => {
         <Stack.Screen 
           name="Profile" 
           component={ProfileScreen} 
+        />
+        <Stack.Screen
+          name="ApprovalStatusScreen"
+          component={ApprovalStatusScreen}
+          options={{ headerShown: false }}
         />
       </Stack.Navigator>
     </NavigationContainer>
