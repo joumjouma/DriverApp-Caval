@@ -5,12 +5,22 @@
     "requireCommit": true
   },
   "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "resourceClass": "m-medium"
+      }
+    },
     "preview": {
       "android": {
         "buildType": "apk"
       },
       "distribution": "internal",
-      "developmentClient": false
+      "developmentClient": false,
+      "ios": {
+        "resourceClass": "m-medium"
+      }
     },
     "production": {
       "android": {
@@ -20,6 +30,13 @@
         "resourceClass": "m-medium"
       },
       "distribution": "store",
+      "developmentClient": false
+    },
+    "minimal": {
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "distribution": "internal",
       "developmentClient": false
     }
   }

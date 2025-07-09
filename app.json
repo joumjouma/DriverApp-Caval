@@ -31,6 +31,9 @@
           "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "config": {
+        "usesNonExemptEncryption": false
       }
     },
     "android": {
@@ -87,7 +90,9 @@
           "icon": "./assets/Caval_courrier_logo-removebg-preview.png",
           "color": "#ffffff"
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-font"
     ],
     "notification": {
       "icon": "./assets/Caval_courrier_logo-removebg-preview.png",
