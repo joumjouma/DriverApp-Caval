@@ -38,6 +38,16 @@
       },
       "distribution": "internal",
       "developmentClient": false
+    },
+    "test": {
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "distribution": "internal",
+      "developmentClient": false,
+      "env": {
+        "EXPO_PUBLIC_TEST_MODE": "true"
+      }
     }
   }
 }
