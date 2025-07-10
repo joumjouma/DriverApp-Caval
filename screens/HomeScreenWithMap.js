@@ -76,6 +76,7 @@ const HomeScreenWithMap = () => {
   const [driverType, setDriverType] = useState("");
   const [driverPhoto, setDriverPhoto] = useState("");
   const [isOnline, setIsOnline] = useState(false);
+  const [driverRating, setDriverRating] = useState(4.0); // Start at 4 stars
 
   // Ride state
   const [earnings, setEarnings] = useState(0.0);
@@ -115,6 +116,7 @@ const HomeScreenWithMap = () => {
   const expandingRing1 = useRef(new Animated.Value(0)).current;
   const expandingRing2 = useRef(new Animated.Value(0)).current;
   const expandingRing3 = useRef(new Animated.Value(0)).current;
+  const tierBadgeAnim = useRef(new Animated.Value(1)).current;
 
   // Other refs
   const intervalRef = useRef(null);
@@ -304,6 +306,14 @@ const HomeScreenWithMap = () => {
       // Check for existing ride
       if (storedRide) {
         const rideState = JSON.parse(storedRide);
+        console.log('🔍 Found stored ride state:', rideState);
+        
+        // Check if ride is completed - if so, clean up and don't navigate
+        if (rideState.hasDroppedOffCustomer) {
+          console.log('✅ Ride already completed, cleaning up stored data');
+          await AsyncStorage.removeItem('currentRide');
+          return;
+        }
         
         // If rideId exists but customerId doesn't, try to fetch it from Firestore
         if (rideState.rideId && !rideState.customerId) {
@@ -325,6 +335,8 @@ const HomeScreenWithMap = () => {
           }
         }
         
+        // Navigate to the appropriate screen based on currentStep
+        console.log('🚀 Navigating to RideInProgressScreen with step:', rideState.currentStep);
         navigation.navigate("RideInProgressScreen", rideState);
         return;
       }
@@ -376,6 +388,7 @@ const HomeScreenWithMap = () => {
         console.log("Cached photo URL:", parsedData.photo);
         setUserName(parsedData.firstName || "Driver");
         setDriverType(parsedData.driverType || "");
+        setDriverRating(parsedData.rating || 4.0); // Get rating from Firebase, default to 4.0
         if (parsedData.photo || parsedData.facePhoto) {
           const photoUrl = parsedData.photo || parsedData.facePhoto;
           console.log("Setting photo from cache:", photoUrl);
@@ -396,6 +409,7 @@ const HomeScreenWithMap = () => {
         const userData = docSnap.data();
         setUserName(userData.firstName || "Driver");
         setDriverType(userData.driverType || "");
+        setDriverRating(userData.rating || 4.0); // Get rating from Firebase, default to 4.0
         if (userData.photo || userData.facePhoto) {
           const photoUrl = userData.photo || userData.facePhoto;
           console.log("Setting photo from Firestore:", photoUrl);
@@ -414,6 +428,45 @@ const HomeScreenWithMap = () => {
       console.error("Error fetching driver data:", error);
     }
   };
+
+  // -----------------------------------------------------------------
+  // 6.5. Real-time Driver Data Listener (including rating)
+  // -----------------------------------------------------------------
+  useEffect(() => {
+    if (!auth.currentUser) return;
+
+    const currentUser = auth.currentUser;
+    console.log("Setting up real-time driver data listener for:", currentUser.uid);
+
+    const driverRef = doc(db, "Drivers", currentUser.uid);
+    const unsubscribe = onSnapshot(driverRef, (doc) => {
+      if (doc.exists()) {
+        const userData = doc.data();
+        console.log("Real-time driver data update:", userData);
+        
+        // Update all driver data in real-time
+        setUserName(userData.firstName || "Driver");
+        setDriverType(userData.driverType || "");
+        setDriverRating(userData.rating || 4.0); // Real-time rating updates
+        
+        if (userData.photo || userData.facePhoto) {
+          const photoUrl = userData.photo || userData.facePhoto;
+          setDriverPhoto(photoUrl);
+        }
+        
+        // Update AsyncStorage with latest data
+        AsyncStorage.setItem('driverInfo', JSON.stringify(userData));
+        console.log("Real-time driver data updated, including rating:", userData.rating);
+      }
+    }, (error) => {
+      console.error("Error in real-time driver data listener:", error);
+    });
+
+    return () => {
+      console.log("Cleaning up real-time driver data listener");
+      unsubscribe();
+    };
+  }, [auth.currentUser]);
 
   // -----------------------------------------------------------------
   // 7. Get Current Location
@@ -1320,6 +1373,131 @@ const HomeScreenWithMap = () => {
   };
 
   // -----------------------------------------------------------------
+  // 13.5. Render Star Rating with Tier System
+  // -----------------------------------------------------------------
+  const getDriverTier = (rating) => {
+    if (rating >= 5.0) return { tier: 'Platinum', color: '#E5E4E2', icon: 'diamond' };
+    if (rating >= 4.5) return { tier: 'Diamond', color: '#B9F2FF', icon: 'diamond' };
+    if (rating >= 4.0) return { tier: 'Gold', color: '#FFD700', icon: 'star' };
+    if (rating >= 3.0) return { tier: 'Silver', color: '#C0C0C0', icon: 'star' };
+    if (rating >= 2.0) return { tier: 'Bronze', color: '#CD7F32', icon: 'star' };
+    return { tier: 'Rookie', color: '#8B8B8B', icon: 'star' };
+  };
+
+  // Animate tier badge with pulsing effect
+  const animateTierBadge = () => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(tierBadgeAnim, {
+          toValue: 1.1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(tierBadgeAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  };
+
+  // Start tier badge animation when component mounts
+  useEffect(() => {
+    animateTierBadge();
+  }, []);
+
+  const renderStarRating = (rating) => {
+    const stars = [];
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 !== 0;
+    const tier = getDriverTier(rating);
+    
+    // Add full stars
+    for (let i = 0; i < fullStars; i++) {
+      stars.push(
+        <Ionicons
+          key={`star-${i}`}
+          name="star"
+          size={14}
+          color="#FFD700"
+          style={{ marginRight: 1 }}
+        />
+      );
+    }
+    
+    // Add half star if needed
+    if (hasHalfStar) {
+      stars.push(
+        <Ionicons
+          key="star-half"
+          name="star-half"
+          size={14}
+          color="#FFD700"
+          style={{ marginRight: 1 }}
+        />
+      );
+    }
+    
+    // Add empty stars to complete 5 stars
+    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+    for (let i = 0; i < emptyStars; i++) {
+      stars.push(
+        <Ionicons
+          key={`star-empty-${i}`}
+          name="star-outline"
+          size={14}
+          color="#FFD700"
+          style={{ marginRight: 1 }}
+        />
+      );
+    }
+    
+    return (
+      <View style={styles.ratingContainer}>
+        {stars}
+        <Text style={styles.ratingText}>{rating.toFixed(1)}</Text>
+        <Animated.View 
+          style={[
+            styles.tierBadge, 
+            { 
+              backgroundColor: tier.color,
+              transform: [{ scale: tierBadgeAnim }]
+            }
+          ]}
+        >
+          <Ionicons name={tier.icon} size={10} color="#000" />
+          <Text style={styles.tierText}>{tier.tier}</Text>
+        </Animated.View>
+      </View>
+    );
+  };
+
+  // -----------------------------------------------------------------
+  // 13.6. Update Driver Rating in Firebase
+  // -----------------------------------------------------------------
+  const updateDriverRating = async (newRating) => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error("No authenticated user found");
+        return;
+      }
+
+      const driverRef = doc(db, "Drivers", currentUser.uid);
+      await updateDoc(driverRef, {
+        rating: newRating,
+        lastRatingUpdate: serverTimestamp()
+      });
+
+      setDriverRating(newRating);
+      console.log(`Driver rating updated to ${newRating} in Firebase`);
+    } catch (error) {
+      console.error("Error updating driver rating:", error);
+    }
+  };
+
+  // -----------------------------------------------------------------
   // 14. Accept Ride (Immediate unsubscribe + set rideInProgress)
   // -----------------------------------------------------------------
   const acceptRide = async () => {
@@ -1485,6 +1663,32 @@ const HomeScreenWithMap = () => {
       console.error("Error refreshing data:", error);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  // -----------------------------------------------------------------
+  // 16.5. Manual Rating Refresh Function
+  // -----------------------------------------------------------------
+  const refreshDriverRating = async () => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error("No authenticated user found");
+        return;
+      }
+
+      console.log("Manually refreshing driver rating...");
+      const driverRef = doc(db, "Drivers", currentUser.uid);
+      const driverDoc = await getDoc(driverRef);
+      
+      if (driverDoc.exists()) {
+        const userData = driverDoc.data();
+        const newRating = userData.rating || 4.0;
+        setDriverRating(newRating);
+        console.log("Driver rating manually refreshed to:", newRating);
+      }
+    } catch (error) {
+      console.error("Error manually refreshing driver rating:", error);
     }
   };
 
@@ -1840,6 +2044,7 @@ const HomeScreenWithMap = () => {
               <View style={styles.driverDetails}>
                 <Text style={styles.driverName}>{userName}</Text>
                 <Text style={styles.driverType}>{driverType || "Chauffeur"}</Text>
+                {renderStarRating(driverRating)}
               </View>
             </View>
           </BlurView>
@@ -2466,7 +2671,7 @@ const styles = StyleSheet.create({
   },
   onlineButtonContainer: {
     position: "absolute",
-    bottom: 140,
+    bottom: 120,
     left: 0,
     right: 0,
     alignItems: "center",
@@ -2999,6 +3204,29 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginTop: 10,
     fontSize: 16,
+  },
+  ratingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  ratingText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 5,
+  },
+  tierBadge: {
+    backgroundColor: '#FFD700',
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    marginLeft: 5,
+  },
+  tierText: {
+    color: '#000',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
 

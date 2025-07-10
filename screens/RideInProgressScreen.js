@@ -34,6 +34,9 @@ const RideInProgressScreen = () => {
   const mapRef = useRef(null);
   const GOOGLE_MAPS_APIKEY = "AIzaSyBnVN-ACYzcA0Sy8BcPLpXG50Y9T8jhJGE";
 
+  // Driver data state for real-time updates
+  const [driverRating, setDriverRating] = useState(4.0);
+
   // Configure navigation options to prevent swiping back
   useEffect(() => {
     navigation.setOptions({
@@ -41,6 +44,38 @@ const RideInProgressScreen = () => {
       headerLeft: () => null, // Remove back button
     });
   }, [navigation]);
+
+  // -----------------------------------------------------------------
+  // Real-time Driver Data Listener (including rating)
+  // -----------------------------------------------------------------
+  useEffect(() => {
+    if (!auth.currentUser) return;
+
+    const currentUser = auth.currentUser;
+    console.log("Setting up real-time driver data listener for RideInProgressScreen:", currentUser.uid);
+
+    const driverRef = doc(db, "Drivers", currentUser.uid);
+    const unsubscribe = onSnapshot(driverRef, (doc) => {
+      if (doc.exists()) {
+        const userData = doc.data();
+        console.log("Real-time driver data update in RideInProgressScreen:", userData);
+        
+        // Update driver data in real-time
+        setDriverRating(userData.rating || 4.0); // Real-time rating updates
+        
+        // Update AsyncStorage with latest data
+        AsyncStorage.setItem('driverInfo', JSON.stringify(userData));
+        console.log("Real-time driver data updated in RideInProgressScreen, including rating:", userData.rating);
+      }
+    }, (error) => {
+      console.error("Error in real-time driver data listener in RideInProgressScreen:", error);
+    });
+
+    return () => {
+      console.log("Cleaning up real-time driver data listener in RideInProgressScreen");
+      unsubscribe();
+    };
+  }, [auth.currentUser]);
 
   // Initialize customer info from route params
   const [customerInfo, setCustomerInfo] = useState({
@@ -100,6 +135,13 @@ const RideInProgressScreen = () => {
     console.log('No destination coordinates available');
     return null;
   });
+
+  // New step-based state management
+  const [currentStep, setCurrentStep] = useState(1); // 1: Arrivé, 2: Client pris, 3: Client déposé
+  const [isLoadingState, setIsLoadingState] = useState(true);
+  const stateInitializedRef = useRef(false);
+
+  // Legacy state variables (kept for compatibility)
   const [hasPickedUpCustomer, setHasPickedUpCustomer] = useState(false);
   const [hasArrivedAtPickup, setHasArrivedAtPickup] = useState(false);
   const [hasDroppedOffCustomer, setHasDroppedOffCustomer] = useState(false);
@@ -120,12 +162,10 @@ const RideInProgressScreen = () => {
   const [currentRideId, setCurrentRideId] = useState(rideId);
   const [showProblemModal, setShowProblemModal] = useState(false);
   const [selectedProblem, setSelectedProblem] = useState(null);
-  const [currentStep, setCurrentStep] = useState(1); // 1: select problem, 2: answer questions, 3: contact support
+  const [problemModalStep, setProblemModalStep] = useState(1); // 1: select problem, 2: answer questions, 3: contact support
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [customAnswers, setCustomAnswers] = useState({});
-  const [isLoadingState, setIsLoadingState] = useState(true);
-  const stateInitializedRef = useRef(false);
 
   // Questions that need custom answer options
   const customAnswerQuestions = {
@@ -202,12 +242,12 @@ const RideInProgressScreen = () => {
     {
       id: 3,
       title: "Client annule la course",
-      description: "Le client souhaite annuler la course"
+      description: "Le client a annulé la course"
     },
     {
       id: 4,
       title: "Problème de paiement",
-      description: "Difficulté avec le paiement ou le tarif"
+      description: "Problème avec le paiement de la course"
     },
     {
       id: 5,
@@ -220,6 +260,169 @@ const RideInProgressScreen = () => {
       description: "Autre problème non listé ci-dessus"
     }
   ];
+
+  // Helper function to sync legacy state with current step
+  const syncLegacyState = () => {
+    if (currentStep >= 2) {
+      setHasArrivedAtPickup(true);
+    }
+    if (currentStep >= 3) {
+      setHasPickedUpCustomer(true);
+    }
+    if (currentStep >= 4) {
+      setHasDroppedOffCustomer(true);
+    }
+  };
+
+  // Save current step to AsyncStorage
+  const saveCurrentStep = async (step) => {
+    try {
+      console.log('💾 Saving current step:', step);
+      
+      const rideState = {
+        currentStep: step,
+        rideId: currentRideId,
+        customerInfo: customerInfo,
+        pickupLat,
+        pickupLng,
+        destinationLat,
+        destinationLng,
+        pickupAddress,
+        destinationAddress,
+        driverLat,
+        driverLng,
+        ridePrice: customerInfo.price,
+        firstName: customerInfo.firstName,
+        number: customerInfo.number,
+        photo: customerInfo.photo,
+        hasArrivedAtPickup,
+        hasPickedUpCustomer,
+        hasDroppedOffCustomer,
+        timestamp: new Date().toISOString()
+      };
+      
+      await AsyncStorage.setItem('currentRide', JSON.stringify(rideState));
+      console.log('✅ Saved current step:', step, 'with complete state');
+    } catch (error) {
+      console.error('❌ Error saving current step:', error);
+    }
+  };
+
+  // Restore state from AsyncStorage on mount - SINGLE SOURCE OF TRUTH
+  useEffect(() => {
+    const restoreState = async () => {
+      setIsLoadingState(true);
+      try {
+        console.log('🔄 Starting state restoration...');
+        const storedRide = await AsyncStorage.getItem('currentRide');
+        
+        if (storedRide) {
+          const rideState = JSON.parse(storedRide);
+          console.log('🔍 Found stored ride state:', rideState);
+          
+          // Check if ride is completed - if so, navigate away immediately
+          if (rideState.hasDroppedOffCustomer) {
+            console.log('✅ Ride already completed, navigating to HomeScreenWithMap');
+            await AsyncStorage.removeItem('currentRide');
+            navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+            return;
+          }
+          
+          // Restore currentStep first - this is the most important
+          if (rideState.currentStep) {
+            console.log('🔄 Restoring currentStep to:', rideState.currentStep);
+            setCurrentStep(rideState.currentStep);
+          }
+          
+          // Restore customer info
+          if (rideState.customerInfo) {
+            setCustomerInfo(rideState.customerInfo);
+          }
+          
+          // Restore legacy state variables
+          if (rideState.hasArrivedAtPickup !== undefined) {
+            setHasArrivedAtPickup(!!rideState.hasArrivedAtPickup);
+          }
+          if (rideState.hasPickedUpCustomer !== undefined) {
+            setHasPickedUpCustomer(!!rideState.hasPickedUpCustomer);
+          }
+          if (rideState.hasDroppedOffCustomer !== undefined) {
+            setHasDroppedOffCustomer(!!rideState.hasDroppedOffCustomer);
+          }
+          
+          // Restore ride ID
+          if (rideState.rideId) {
+            setCurrentRideId(rideState.rideId);
+          }
+          
+          console.log('✅ State restoration completed successfully');
+        } else {
+          console.log('❌ No stored ride found in AsyncStorage');
+        }
+      } catch (error) {
+        console.error('❌ Error restoring state:', error);
+      } finally {
+        setIsLoadingState(false);
+      }
+    };
+    restoreState();
+  }, []);
+
+  // Sync legacy state whenever currentStep changes
+  useEffect(() => {
+    syncLegacyState();
+  }, [currentStep]);
+
+  // Save step whenever it changes
+  useEffect(() => {
+    if (!isLoadingState) {
+      saveCurrentStep(currentStep);
+    }
+  }, [currentStep, isLoadingState]);
+
+  // Handle ride completion (step 4)
+  useEffect(() => {
+    if (currentStep === 4) {
+      console.log("🎉 Ride completed! Clearing state and navigating...");
+      // Clear ride state and navigate back to home screen
+      clearRideState();
+      AsyncStorage.removeItem('currentRide');
+      navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+    }
+  }, [currentStep]);
+
+  // Monitor currentStep changes for debugging
+  useEffect(() => {
+    console.log('🔄 currentStep changed to:', currentStep);
+  }, [currentStep]);
+
+  // Function to advance to next step
+  const advanceToNextStep = async () => {
+    const nextStep = currentStep + 1;
+    console.log(`🔄 Advancing from step ${currentStep} to step ${nextStep}`);
+    setCurrentStep(nextStep);
+    await saveCurrentStep(nextStep);
+    
+    // Haptic feedback
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    
+    console.log(`✅ Successfully advanced to step ${nextStep}`);
+  };
+
+  // Function to check if step is completed
+  const isStepCompleted = (step) => {
+    return currentStep > step;
+  };
+
+  // Function to check if step is current
+  const isCurrentStep = (step) => {
+    return currentStep === step;
+  };
+
+  // Function to check if step is accessible
+  const isStepAccessible = (step) => {
+    return currentStep >= step;
+  };
 
   // Add listener for ride status changes
   useEffect(() => {
@@ -257,6 +460,7 @@ const RideInProgressScreen = () => {
         });
         
         const rideState = {
+          currentStep: currentStep, // Include currentStep in initial state
           pickupLat,
           pickupLng,
           destinationLat,
@@ -287,7 +491,7 @@ const RideInProgressScreen = () => {
       storeRideState();
     }
   }, [pickupLat, pickupLng, destinationLat, destinationLng, pickupAddress, destinationAddress, 
-      driverLat, driverLng, customerInfo, hasArrivedAtPickup, hasPickedUpCustomer, hasDroppedOffCustomer, currentRideId]);
+      driverLat, driverLng, customerInfo, hasArrivedAtPickup, hasPickedUpCustomer, hasDroppedOffCustomer, currentRideId, currentStep]);
 
   // Log state changes for debugging
   useEffect(() => {
@@ -296,9 +500,10 @@ const RideInProgressScreen = () => {
       hasPickedUpCustomer,
       hasDroppedOffCustomer,
       currentRideId,
+      currentStep,
       customerInfo
     });
-  }, [hasArrivedAtPickup, hasPickedUpCustomer, hasDroppedOffCustomer, currentRideId, customerInfo]);
+  }, [hasArrivedAtPickup, hasPickedUpCustomer, hasDroppedOffCustomer, currentRideId, currentStep, customerInfo]);
 
   // Track component mount/unmount
   useEffect(() => {
@@ -322,6 +527,7 @@ const RideInProgressScreen = () => {
   const saveCurrentStateToStorage = async () => {
     try {
       const rideState = {
+        currentStep: currentStep, // Include currentStep in auto-save
         pickupLat,
         pickupLng,
         destinationLat,
@@ -353,127 +559,7 @@ const RideInProgressScreen = () => {
     if (currentRideId && !isLoadingState) {
       saveCurrentStateToStorage();
     }
-  }, [hasArrivedAtPickup, hasPickedUpCustomer, hasDroppedOffCustomer, currentRideId]);
-
-  // Check for existing ride state on mount - IMMEDIATE RESTORATION
-  useEffect(() => {
-    const restoreStateImmediately = async () => {
-      try {
-        console.log('🚀 IMMEDIATE STATE RESTORATION STARTING...');
-        setIsLoadingState(true);
-        
-        const storedRide = await AsyncStorage.getItem('currentRide');
-        console.log('🔍 Raw stored ride data:', storedRide);
-        
-        if (storedRide) {
-          const rideState = JSON.parse(storedRide);
-          console.log('📦 Parsed stored ride state:', rideState);
-          
-          // Check if ride is completed - if so, navigate away immediately
-          const hasDroppedOff = Boolean(rideState.hasDroppedOffCustomer);
-          if (hasDroppedOff) {
-            console.log('✅ Ride already completed, navigating to HomeScreenWithMap');
-            await AsyncStorage.removeItem('currentRide'); // Clean up any remaining data
-            navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
-            return;
-          }
-          
-          // IMMEDIATELY restore all states
-          const hasArrived = Boolean(rideState.hasArrivedAtPickup);
-          const hasPickedUp = Boolean(rideState.hasPickedUpCustomer);
-          
-          console.log('🔄 IMMEDIATELY restoring ride progress:', {
-            hasArrived,
-            hasPickedUp,
-            hasDroppedOff,
-            rideId: rideState.rideId
-          });
-          
-          // Set all states IMMEDIATELY
-          setHasArrivedAtPickup(hasArrived);
-          setHasPickedUpCustomer(hasPickedUp);
-          setHasDroppedOffCustomer(hasDroppedOff);
-          setCurrentRideId(rideState.rideId);
-          
-          // Set customer info from stored state
-          if (rideState.firstName) {
-            setCustomerInfo({
-              firstName: rideState.firstName || "",
-              number: rideState.number || "",
-              photo: rideState.photo || "",
-              price: rideState.ridePrice || 0
-            });
-          }
-          
-          console.log('✅ IMMEDIATE state restoration completed');
-        } else {
-          console.log('❌ No stored ride found in AsyncStorage');
-        }
-      } catch (error) {
-        console.error('❌ Error in immediate state restoration:', error);
-      } finally {
-        setIsLoadingState(false);
-      }
-    };
-
-    // Call immediately on mount
-    restoreStateImmediately();
-  }, []); // Empty dependency array - only run once on mount
-
-  // Sync state when route params change
-  useEffect(() => {
-    console.log('🔄 Route params changed:', route.params);
-    
-    if (route.params) {
-      // If we have route params, make sure we also check AsyncStorage for the latest state
-      const syncState = async () => {
-        try {
-          const storedRide = await AsyncStorage.getItem('currentRide');
-          console.log('🔄 Syncing state with stored ride:', storedRide);
-          
-          if (storedRide) {
-            const rideState = JSON.parse(storedRide);
-            console.log('🔄 Found stored state for sync:', rideState);
-            
-            // Only update the ride progress states, keep route params for other data
-            const hasArrived = rideState.hasArrivedAtPickup || false;
-            const hasPickedUp = rideState.hasPickedUpCustomer || false;
-            const hasDroppedOff = rideState.hasDroppedOffCustomer || false;
-            
-            console.log('🔄 Syncing ride progress:', {
-              hasArrived,
-              hasPickedUp,
-              hasDroppedOff
-            });
-            
-            // Only update if the stored state is different from current state
-            if (hasArrived !== hasArrivedAtPickup) {
-              console.log('🔄 Updating hasArrivedAtPickup from', hasArrivedAtPickup, 'to', hasArrived);
-              setHasArrivedAtPickup(hasArrived);
-            }
-            
-            if (hasPickedUp !== hasPickedUpCustomer) {
-              console.log('🔄 Updating hasPickedUpCustomer from', hasPickedUpCustomer, 'to', hasPickedUp);
-              setHasPickedUpCustomer(hasPickedUp);
-            }
-            
-            if (hasDroppedOff !== hasDroppedOffCustomer) {
-              console.log('🔄 Updating hasDroppedOffCustomer from', hasDroppedOffCustomer, 'to', hasDroppedOff);
-              setHasDroppedOffCustomer(hasDroppedOff);
-            }
-            
-            if (rideState.rideId !== currentRideId) {
-              console.log('🔄 Updating currentRideId from', currentRideId, 'to', rideState.rideId);
-              setCurrentRideId(rideState.rideId);
-            }
-          }
-        } catch (error) {
-          console.error('❌ Error syncing state:', error);
-        }
-      };
-      syncState();
-    }
-  }, [route.params]);
+  }, [hasArrivedAtPickup, hasPickedUpCustomer, hasDroppedOffCustomer, currentRideId, currentStep]);
 
   // Update ride status in Firebase when component mounts
   useEffect(() => {
@@ -512,6 +598,12 @@ const RideInProgressScreen = () => {
 
     updateRideStatus();
   }, [rideId, currentRideId]);
+
+  // Check for existing ride state on mount - IMMEDIATE RESTORATION
+  // REMOVED: This conflicts with the main state restoration logic above
+
+  // Sync state when route params change
+  // REMOVED: This conflicts with the main state restoration logic above
 
   // Clear ride state and update Firebase when ride is completed
   const clearRideState = async () => {
@@ -883,54 +975,6 @@ const RideInProgressScreen = () => {
     }, 100);
   };
 
-  // Update ride status when customer is picked up
-  const handleCustomerPickup = async () => {
-    try {
-      console.log("✅ Customer pickup confirmed - updating state");
-      
-      // Update local state first
-      setHasPickedUpCustomer(true);
-      
-      // Update ride status in Firebase
-      if (currentRideId) {
-        const rideRef = doc(db, "rideRequests", currentRideId);
-        await updateDoc(rideRef, {
-          status: "picked_up",
-          pickedUpAt: serverTimestamp(),
-        });
-        console.log("✅ Ride status updated to picked_up in Firebase");
-      }
-      
-      // Update local storage immediately
-      const rideState = {
-        pickupLat,
-        pickupLng,
-        destinationLat,
-        destinationLng,
-        pickupAddress,
-        destinationAddress,
-        driverLat,
-        driverLng,
-        ridePrice: customerInfo.price,
-        firstName: customerInfo.firstName,
-        number: customerInfo.number,
-        photo: customerInfo.photo,
-        hasArrivedAtPickup,
-        hasPickedUpCustomer: true,
-        hasDroppedOffCustomer,
-        rideId: currentRideId,
-      };
-      
-      console.log("💾 Saving ride state to AsyncStorage:", rideState);
-      await AsyncStorage.setItem('currentRide', JSON.stringify(rideState));
-      console.log("✅ Ride state saved to AsyncStorage");
-      
-      await updateProgress({ hasArrivedAtPickup, hasPickedUpCustomer: true, hasDroppedOffCustomer });
-    } catch (error) {
-      console.error("❌ Error updating pickup status:", error);
-    }
-  };
-
   // Handle arrival at pickup location
   const handleArrivedAtPickup = async () => {
     try {
@@ -949,8 +993,12 @@ const RideInProgressScreen = () => {
         console.log("✅ Ride status updated to driver_arrived in Firebase");
       }
       
-      // Update local storage immediately
+      // Advance to next step
+      await advanceToNextStep();
+      
+      // Update local storage immediately with currentStep
       const rideState = {
+        currentStep: 2, // Step 2: Client pris en charge
         pickupLat,
         pickupLng,
         destinationLat,
@@ -979,6 +1027,58 @@ const RideInProgressScreen = () => {
     }
   };
 
+  // Handle customer pickup
+  const handleCustomerPickup = async () => {
+    try {
+      console.log("✅ Customer pickup confirmed - updating state");
+      
+      // Update local state first
+      setHasPickedUpCustomer(true);
+      
+      // Update ride status in Firebase
+      if (currentRideId) {
+        const rideRef = doc(db, "rideRequests", currentRideId);
+        await updateDoc(rideRef, {
+          status: "picked_up",
+          pickedUpAt: serverTimestamp(),
+        });
+        console.log("✅ Ride status updated to picked_up in Firebase");
+      }
+      
+      // Advance to next step
+      await advanceToNextStep();
+      
+      // Update local storage immediately with currentStep
+      const rideState = {
+        currentStep: 3, // Step 3: Client déposé
+        pickupLat,
+        pickupLng,
+        destinationLat,
+        destinationLng,
+        pickupAddress,
+        destinationAddress,
+        driverLat,
+        driverLng,
+        ridePrice: customerInfo.price,
+        firstName: customerInfo.firstName,
+        number: customerInfo.number,
+        photo: customerInfo.photo,
+        hasArrivedAtPickup,
+        hasPickedUpCustomer: true,
+        hasDroppedOffCustomer,
+        rideId: currentRideId,
+      };
+      
+      console.log("💾 Saving ride state to AsyncStorage:", rideState);
+      await AsyncStorage.setItem('currentRide', JSON.stringify(rideState));
+      console.log("✅ Ride state saved to AsyncStorage");
+      
+      await updateProgress({ hasArrivedAtPickup, hasPickedUpCustomer: true, hasDroppedOffCustomer });
+    } catch (error) {
+      console.error("❌ Error updating pickup status:", error);
+    }
+  };
+
   // Handle customer drop off
   const handleCustomerDropOff = async () => {
     try {
@@ -995,14 +1095,33 @@ const RideInProgressScreen = () => {
         console.log("Ride status updated to completed");
       }
       
-      // Clear ride state and navigate back to home screen
-      await clearRideState();
+      // Advance to next step (step 4 - completed)
+      await advanceToNextStep();
       
-      // Ensure AsyncStorage is cleared
-      await AsyncStorage.removeItem('currentRide');
+      // Update local storage immediately with currentStep
+      const rideState = {
+        currentStep: 4, // Step 4: Completed
+        pickupLat,
+        pickupLng,
+        destinationLat,
+        destinationLng,
+        pickupAddress,
+        destinationAddress,
+        driverLat,
+        driverLng,
+        ridePrice: customerInfo.price,
+        firstName: customerInfo.firstName,
+        number: customerInfo.number,
+        photo: customerInfo.photo,
+        hasArrivedAtPickup,
+        hasPickedUpCustomer,
+        hasDroppedOffCustomer: true,
+        rideId: currentRideId,
+      };
       
-      // Navigate to home screen
-      navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+      console.log("💾 Saving completed ride state to AsyncStorage:", rideState);
+      await AsyncStorage.setItem('currentRide', JSON.stringify(rideState));
+      console.log("✅ Completed ride state saved to AsyncStorage");
       
       await updateProgress({ hasArrivedAtPickup, hasPickedUpCustomer, hasDroppedOffCustomer: true });
     } catch (error) {
@@ -1016,7 +1135,7 @@ const RideInProgressScreen = () => {
   // Problem handling functions
   const handleProblemButton = () => {
     setShowProblemModal(true);
-    setCurrentStep(1);
+    setProblemModalStep(1);
     setSelectedProblem(null);
     setCurrentQuestionIndex(0);
     setAnswers({});
@@ -1025,7 +1144,7 @@ const RideInProgressScreen = () => {
 
   const handleProblemSelection = (problem) => {
     setSelectedProblem(problem);
-    setCurrentStep(2);
+    setProblemModalStep(2);
     setCurrentQuestionIndex(0);
     setAnswers({});
     setCustomAnswers({});
@@ -1041,7 +1160,7 @@ const RideInProgressScreen = () => {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
     } else {
       // All questions answered, move to support contact
-      setCurrentStep(3);
+      setProblemModalStep(3);
     }
   };
 
@@ -1055,7 +1174,7 @@ const RideInProgressScreen = () => {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
     } else {
       // All questions answered, move to support contact
-      setCurrentStep(3);
+      setProblemModalStep(3);
     }
   };
 
@@ -1130,14 +1249,14 @@ const RideInProgressScreen = () => {
   const closeProblemModal = () => {
     setShowProblemModal(false);
     setSelectedProblem(null);
-    setCurrentStep(1);
+    setProblemModalStep(1);
     setCurrentQuestionIndex(0);
     setAnswers({});
     setCustomAnswers({});
   };
 
   const goBackToProblemSelection = () => {
-    setCurrentStep(1);
+    setProblemModalStep(1);
     setSelectedProblem(null);
     setCurrentQuestionIndex(0);
     setAnswers({});
@@ -1145,30 +1264,12 @@ const RideInProgressScreen = () => {
   };
 
   const goBackToQuestions = () => {
-    setCurrentStep(2);
+    setProblemModalStep(2);
     setCurrentQuestionIndex(0);
   };
 
   // Restore progress from AsyncStorage on mount
-  useEffect(() => {
-    const restoreProgress = async () => {
-      setIsLoadingState(true);
-      try {
-        const storedRide = await AsyncStorage.getItem('currentRide');
-        if (storedRide) {
-          const rideState = JSON.parse(storedRide);
-          setHasArrivedAtPickup(!!rideState.hasArrivedAtPickup);
-          setHasPickedUpCustomer(!!rideState.hasPickedUpCustomer);
-          setHasDroppedOffCustomer(!!rideState.hasDroppedOffCustomer);
-          // Optionally restore other info (customer, etc.)
-        }
-      } catch (e) {
-        console.error('Error restoring progress from AsyncStorage', e);
-      }
-      setIsLoadingState(false);
-    };
-    restoreProgress();
-  }, []);
+  // REMOVED: This conflicts with the main state restoration logic above
 
   // Helper to update progress and AsyncStorage
   const updateProgress = async (progress) => {
@@ -1178,12 +1279,97 @@ const RideInProgressScreen = () => {
     try {
       const storedRide = await AsyncStorage.getItem('currentRide');
       let rideState = storedRide ? JSON.parse(storedRide) : {};
-      rideState = { ...rideState, ...progress };
+      rideState = { ...rideState, ...progress, currentStep: currentStep }; // Include currentStep
       await AsyncStorage.setItem('currentRide', JSON.stringify(rideState));
     } catch (e) {
       console.error('Error updating progress in AsyncStorage', e);
     }
   };
+
+  // Add state for banner expansion
+  const [isBannerExpanded, setIsBannerExpanded] = useState(false);
+
+  // ... existing code ...
+
+      {/* Retractable Customer Info Banner */}
+      <View style={styles.retractableBannerContainer}>
+        <TouchableOpacity 
+          style={styles.retractableBanner}
+          onPress={() => setIsBannerExpanded(!isBannerExpanded)}
+          activeOpacity={0.8}
+        >
+          <View style={styles.bannerHeader}>
+            <View style={styles.bannerAvatarContainer}>
+              {customerInfo.photo ? (
+                <Image 
+                  source={{ uri: customerInfo.photo }} 
+                  style={styles.bannerAvatarImage} 
+                  resizeMode="cover"
+                />
+              ) : (
+                <Ionicons name="person" size={20} color="#fff" />
+              )}
+            </View>
+            <View style={styles.bannerCustomerInfo}>
+              <Text style={styles.bannerCustomerName}>
+                {customerInfo.firstName || "Client"}
+              </Text>
+              <Text style={styles.bannerCustomerPhone}>
+                {customerInfo.number || "Téléphone non disponible"}
+              </Text>
+              <Text style={styles.bannerRidePrice}>
+                {customerInfo.price ? `${customerInfo.price.toFixed(2)} Fdj` : "Prix non disponible"}
+              </Text>
+            </View>
+            <View style={styles.bannerExpandButton}>
+              <Ionicons 
+                name={isBannerExpanded ? "chevron-up" : "chevron-down"} 
+                size={20} 
+                color="#FF6F00" 
+              />
+            </View>
+          </View>
+          
+          {isBannerExpanded && (
+            <View style={styles.bannerExpandedContent}>
+              <View style={styles.bannerActionButtons}>
+                <TouchableOpacity 
+                  style={styles.bannerActionButton} 
+                  onPress={handlePhoneCall}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="call" size={20} color="#fff" />
+                  <Text style={styles.bannerButtonText}>Appeler</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={styles.bannerActionButton} 
+                  onPress={messageCustomer}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="chatbubble" size={20} color="#fff" />
+                  <Text style={styles.bannerButtonText}>Message</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.bannerRideDetails}>
+                <View style={styles.bannerRideDetail}>
+                  <Ionicons name="location" size={16} color="#FF6F00" />
+                  <Text style={styles.bannerRideDetailText}>
+                    {pickupAddress || "Point de départ"}
+                  </Text>
+                </View>
+                <View style={styles.bannerRideDetail}>
+                  <Ionicons name="location" size={16} color="#FF6F00" />
+                  <Text style={styles.bannerRideDetailText}>
+                    {destinationAddress || "Destination"}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
 
   // Loading state
   if (!pickupLocation || !driverLocation || isLoadingState) {
@@ -1212,7 +1398,7 @@ const RideInProgressScreen = () => {
         showsMyLocationButton
       >
         {/* Route: Driver → Pickup */}
-        {!hasPickedUpCustomer && (
+        {currentStep === 1 && (
           <MapViewDirections
             origin={driverLocation}
             destination={pickupLocation}
@@ -1224,9 +1410,9 @@ const RideInProgressScreen = () => {
         )}
 
         {/* Route: Pickup → Drop-off */}
-        {dropOffLocation && (
+        {dropOffLocation && currentStep >= 2 && (
           <MapViewDirections
-            origin={hasPickedUpCustomer ? driverLocation : pickupLocation}
+            origin={currentStep === 2 ? pickupLocation : driverLocation}
             destination={dropOffLocation}
             apikey={GOOGLE_MAPS_APIKEY}
             strokeWidth={4}
@@ -1236,7 +1422,7 @@ const RideInProgressScreen = () => {
         )}
 
         {/* Pickup Marker - Only show if not picked up yet */}
-        {!hasPickedUpCustomer && (
+        {currentStep <= 2 && (
           <Marker coordinate={pickupLocation}>
             <View style={styles.markerContainer}>
               <Image source={CustomPin} style={styles.pin} resizeMode="contain" />
@@ -1248,7 +1434,7 @@ const RideInProgressScreen = () => {
         )}
 
         {/* Drop-off Marker */}
-        {dropOffLocation && (
+        {dropOffLocation && currentStep >= 2 && (
           <Marker coordinate={dropOffLocation}>
             <View style={styles.markerContainer}>
               <Image source={CustomPin} style={styles.pin} resizeMode="contain" />
@@ -1274,60 +1460,138 @@ const RideInProgressScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Customer Info Banner */}
-      <View style={styles.newCustomerBanner}>
-        <View style={styles.newBannerHeader}>
-          <View style={styles.newAvatarContainer}>
-            {customerInfo.photo ? (
-              <Image 
-                source={{ uri: customerInfo.photo }} 
-                style={styles.newAvatarImage} 
-                resizeMode="cover"
-              />
+      {/* Vertical Step Indicator */}
+      <View style={styles.verticalStepIndicator}>
+        <View style={styles.stepItem}>
+          <View style={[styles.stepCircle, currentStep >= 1 && styles.stepCompleted]}>
+            {currentStep > 1 ? (
+              <Ionicons name="checkmark" size={8} color="#fff" />
             ) : (
-              <Ionicons name="person" size={24} color="#fff" />
+              <Text style={styles.stepNumber}>1</Text>
             )}
           </View>
-          <View style={styles.newCustomerInfo}>
-            <Text style={styles.newCustomerFirstName}>
-              {customerInfo.firstName || "Client"}
-            </Text>
-            <Text style={styles.newCustomerPhone}>
-              {customerInfo.number || "Téléphone non disponible"}
-            </Text>
-            <Text style={styles.newRidePrice}>
-              {customerInfo.price ? `${customerInfo.price.toFixed(2)} Fdj` : "Prix non disponible"}
-            </Text>
-          </View>
+          <Text style={[styles.stepLabel, currentStep >= 1 && styles.stepLabelCompleted]}>
+            A
+          </Text>
         </View>
         
-        <View style={styles.newActionButtons}>
-          <TouchableOpacity 
-            style={styles.newActionButton} 
-            onPress={handlePhoneCall}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="call" size={24} color="#fff" />
-            <Text style={styles.newButtonText}>Appeler</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.newActionButton} 
-            onPress={messageCustomer}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="chatbubble" size={24} color="#fff" />
-            <Text style={styles.newButtonText}>Message</Text>
-          </TouchableOpacity>
+        <View style={[styles.stepLine, currentStep >= 2 && styles.stepLineCompleted]} />
+        
+        <View style={styles.stepItem}>
+          <View style={[styles.stepCircle, currentStep >= 2 && styles.stepCompleted]}>
+            {currentStep > 2 ? (
+              <Ionicons name="checkmark" size={8} color="#fff" />
+            ) : (
+              <Text style={styles.stepNumber}>2</Text>
+            )}
+          </View>
+          <Text style={[styles.stepLabel, currentStep >= 2 && styles.stepLabelCompleted]}>
+            C
+          </Text>
         </View>
+        
+        <View style={[styles.stepLine, currentStep >= 3 && styles.stepLineCompleted]} />
+        
+        <View style={styles.stepItem}>
+          <View style={[styles.stepCircle, currentStep >= 3 && styles.stepCompleted]}>
+            {currentStep > 3 ? (
+              <Ionicons name="checkmark" size={8} color="#fff" />
+            ) : (
+              <Text style={styles.stepNumber}>3</Text>
+            )}
+          </View>
+          <Text style={[styles.stepLabel, currentStep >= 3 && styles.stepLabelCompleted]}>
+            D
+          </Text>
+        </View>
+      </View>
+
+      {/* Retractable Customer Info Banner */}
+      <View style={styles.retractableBannerContainer}>
+        <TouchableOpacity 
+          style={styles.retractableBanner}
+          onPress={() => setIsBannerExpanded(!isBannerExpanded)}
+          activeOpacity={0.8}
+        >
+          <View style={styles.bannerHeader}>
+            <View style={styles.bannerAvatarContainer}>
+              {customerInfo.photo ? (
+                <Image 
+                  source={{ uri: customerInfo.photo }} 
+                  style={styles.bannerAvatarImage} 
+                  resizeMode="cover"
+                />
+              ) : (
+                <Ionicons name="person" size={20} color="#fff" />
+              )}
+            </View>
+            <View style={styles.bannerCustomerInfo}>
+              <Text style={styles.bannerCustomerName}>
+                {customerInfo.firstName || "Client"}
+              </Text>
+              <Text style={styles.bannerCustomerPhone}>
+                {customerInfo.number || "Téléphone non disponible"}
+              </Text>
+              <Text style={styles.bannerRidePrice}>
+                {customerInfo.price ? `${customerInfo.price.toFixed(2)} Fdj` : "Prix non disponible"}
+              </Text>
+            </View>
+            <View style={styles.bannerExpandButton}>
+              <Ionicons 
+                name={isBannerExpanded ? "chevron-up" : "chevron-down"} 
+                size={20} 
+                color="#FF6F00" 
+              />
+            </View>
+          </View>
+          
+          {isBannerExpanded && (
+            <View style={styles.bannerExpandedContent}>
+              <View style={styles.bannerActionButtons}>
+                <TouchableOpacity 
+                  style={styles.bannerActionButton} 
+                  onPress={handlePhoneCall}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="call" size={20} color="#fff" />
+                  <Text style={styles.bannerButtonText}>Appeler</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={styles.bannerActionButton} 
+                  onPress={messageCustomer}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="chatbubble" size={20} color="#fff" />
+                  <Text style={styles.bannerButtonText}>Message</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.bannerRideDetails}>
+                <View style={styles.bannerRideDetail}>
+                  <Ionicons name="location" size={16} color="#FF6F00" />
+                  <Text style={styles.bannerRideDetailText}>
+                    {pickupAddress || "Point de départ"}
+                  </Text>
+                </View>
+                <View style={styles.bannerRideDetail}>
+                  <Ionicons name="location" size={16} color="#FF6F00" />
+                  <Text style={styles.bannerRideDetailText}>
+                    {destinationAddress || "Destination"}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       {/* Ride Details */}
       <View style={styles.bottomSheet}>
         <Text style={styles.headerText}>
-          {!hasArrivedAtPickup 
+          {currentStep === 1 
             ? "En route vers le client" 
-            : !hasPickedUpCustomer 
+            : currentStep === 2
               ? "Client notifié de votre arrivée" 
               : "En route vers la destination"
           }
@@ -1356,17 +1620,17 @@ const RideInProgressScreen = () => {
           <Ionicons name="location" size={24} color="#FF6F00" />
           <View style={styles.destinationTextContainer}>
             <Text style={styles.destinationText} numberOfLines={2}>
-              {!hasArrivedAtPickup 
+              {currentStep === 1 
                 ? pickupAddress || "Point de départ"
-                : !hasPickedUpCustomer 
+                : currentStep === 2
                   ? "En attente du client"
                   : destinationAddress || "Destination"
               }
             </Text>
             <Text style={styles.arrivalTime}>
-              {!hasArrivedAtPickup 
+              {currentStep === 1 
                 ? `Arrivée vers ${getFormattedArrivalTime(duration / 2)}`
-                : !hasPickedUpCustomer 
+                : currentStep === 2
                   ? "Client notifié"
                   : `Arrivée vers ${getFormattedArrivalTime(duration)}`
               }
@@ -1383,8 +1647,8 @@ const RideInProgressScreen = () => {
           <Text style={styles.problemButtonText}>J'ai un problème</Text>
         </TouchableOpacity>
 
-        {/* Ride Buttons */}
-        {!hasArrivedAtPickup ? (
+        {/* Step-based Ride Buttons */}
+        {currentStep === 1 ? (
           // Step 1: Navigate to pickup and mark arrival
           <>
             <TouchableOpacity 
@@ -1493,7 +1757,7 @@ const RideInProgressScreen = () => {
               </Animated.View>
             </TouchableOpacity>
           </>
-        ) : !hasPickedUpCustomer ? (
+        ) : currentStep === 2 ? (
           // Step 2: Mark customer as picked up
           <>
             <TouchableOpacity 
@@ -1602,7 +1866,7 @@ const RideInProgressScreen = () => {
               </Animated.View>
             </TouchableOpacity>
           </>
-        ) : (
+        ) : currentStep === 3 ? (
           // Step 3: Mark customer as dropped off
           <>
             <TouchableOpacity 
@@ -1718,7 +1982,7 @@ const RideInProgressScreen = () => {
               </Animated.View>
             </TouchableOpacity>
           </>
-        )}
+        ) : null}
       </View>
 
       {/* Problem Modal */}
@@ -1726,7 +1990,7 @@ const RideInProgressScreen = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             {/* Step 1: Problem Selection */}
-            {currentStep === 1 && (
+            {problemModalStep === 1 && (
               <>
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Problème rencontré</Text>
@@ -1758,7 +2022,7 @@ const RideInProgressScreen = () => {
             )}
 
             {/* Step 2: Answer Questions */}
-            {currentStep === 2 && selectedProblem && (
+            {problemModalStep === 2 && selectedProblem && (
               <>
                 <View style={styles.modalHeader}>
                   <TouchableOpacity onPress={goBackToProblemSelection} style={styles.backButton}>
@@ -1804,15 +2068,12 @@ const RideInProgressScreen = () => {
                               style={[styles.answerButton, styles.yesButton]}
                               onPress={() => handleAnswerQuestion(true)}
                             >
-                              <Ionicons name="checkmark" size={24} color="#fff" />
                               <Text style={styles.answerButtonText}>Oui</Text>
                             </TouchableOpacity>
-
                             <TouchableOpacity
                               style={[styles.answerButton, styles.noButton]}
                               onPress={() => handleAnswerQuestion(false)}
                             >
-                              <Ionicons name="close" size={24} color="#fff" />
                               <Text style={styles.answerButtonText}>Non</Text>
                             </TouchableOpacity>
                           </>
@@ -1825,42 +2086,34 @@ const RideInProgressScreen = () => {
             )}
 
             {/* Step 3: Contact Support */}
-            {currentStep === 3 && selectedProblem && (
+            {problemModalStep === 3 && (
               <>
                 <View style={styles.modalHeader}>
                   <TouchableOpacity onPress={goBackToQuestions} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color="#FF6F00" />
                   </TouchableOpacity>
-                  <Text style={styles.modalTitle}>Contacter le support</Text>
+                  <Text style={styles.modalTitle}>Contact Support</Text>
                   <TouchableOpacity onPress={closeProblemModal} style={styles.closeButton}>
                     <Ionicons name="close" size={24} color="#fff" />
                   </TouchableOpacity>
                 </View>
 
                 <View style={styles.supportContainer}>
-                  <View style={styles.supportIconContainer}>
-                    <View style={styles.whatsappLogoContainer}>
-                      <Ionicons name="logo-whatsapp" size={32} color="#fff" />
-                    </View>
-                  </View>
-                  
-                  <Text style={styles.supportTitle}>
-                    Contacter le support
+                  <Text style={styles.supportText}>
+                    Nous avons enregistré votre problème. Notre équipe de support va vous contacter dans les plus brefs délais.
                   </Text>
                   
-                  <Text style={styles.supportDescription}>
-                    Nous avons préparé un message détaillé avec votre problème et vos réponses. Cliquez ci-dessous pour ouvrir WhatsApp et contacter notre équipe de support.
-                  </Text>
-
                   <View style={styles.supportButtonsContainer}>
                     <TouchableOpacity
                       style={styles.whatsappButton}
                       onPress={handleContactSupport}
                     >
-                      <Ionicons name="logo-whatsapp" size={24} color="#fff" />
-                      <Text style={styles.whatsappButtonText}>Ouvrir WhatsApp</Text>
+                      <View style={styles.whatsappLogoContainer}>
+                        <Ionicons name="logo-whatsapp" size={24} color="#fff" />
+                      </View>
+                      <Text style={styles.whatsappButtonText}>Contacter le support WhatsApp</Text>
                     </TouchableOpacity>
-
+                    
                     <TouchableOpacity
                       style={styles.cancelRideButton}
                       onPress={handleCancelRide}
@@ -1869,16 +2122,16 @@ const RideInProgressScreen = () => {
                       <Text style={styles.cancelRideButtonText}>Annuler la course</Text>
                     </TouchableOpacity>
                   </View>
-                </View>
-
-                <View style={styles.supportInfo}>
-                  <View style={styles.supportInfoHeader}>
-                    <Ionicons name="information-circle" size={16} color="#FF6F00" />
-                    <Text style={styles.supportInfoTitle}>Support disponible 24h/24</Text>
+                  
+                  <View style={styles.supportInfo}>
+                    <View style={styles.supportInfoHeader}>
+                      <Ionicons name="information-circle" size={16} color="#FF6F00" />
+                      <Text style={styles.supportInfoTitle}>Support disponible 24/7</Text>
+                    </View>
+                    <Text style={styles.supportInfoText}>
+                      Notre équipe est disponible pour vous aider à résoudre ce problème rapidement.
+                    </Text>
                   </View>
-                  <Text style={styles.supportInfoText}>
-                    +253 77 70 20 36
-                  </Text>
                 </View>
               </>
             )}
@@ -2466,6 +2719,250 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: 'transparent',
     zIndex: -1,
+  },
+  stepIndicatorContainer: {
+    position: 'absolute',
+    top: 70,
+    left: '8%',
+    right: '8%',
+    zIndex: 200,
+    backgroundColor: "rgba(30, 30, 30, 0.98)",
+    borderRadius: 14,
+    padding: 15,
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: "#FF6F00",
+  },
+  stepIndicator: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    width: '100%',
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 8,
+  },
+  stepCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#2C2C2C',
+    borderWidth: 2,
+    borderColor: '#FF6F00',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  stepCompleted: {
+    backgroundColor: '#FF6F00',
+  },
+  stepText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  stepTextCompleted: {
+    color: '#b3b3b3',
+  },
+  stepLine: {
+    width: 2,
+    height: 20,
+    backgroundColor: '#FF6F00',
+    marginLeft: 13,
+    marginBottom: 8,
+  },
+  stepLineCompleted: {
+    backgroundColor: '#FF6F00',
+  },
+  stepNumber: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  retractableBannerContainer: {
+    position: 'absolute',
+    top: 70,
+    left: '8%',
+    right: '8%',
+    zIndex: 200,
+  },
+  retractableBanner: {
+    width: '100%',
+    backgroundColor: "rgba(30, 30, 30, 0.98)",
+    borderRadius: 14,
+    padding: 15,
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: "#FF6F00",
+  },
+  bannerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  bannerAvatarContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FF6F00",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: '#fff',
+  },
+  bannerAvatarImage: {
+    width: "100%",
+    height: "100%",
+  },
+  bannerCustomerInfo: {
+    flex: 1,
+  },
+  bannerCustomerName: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+  bannerCustomerPhone: {
+    color: "#b3b3b3",
+    fontSize: 13,
+    marginBottom: 2,
+  },
+  bannerRidePrice: {
+    color: "#FF6F00",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  bannerExpandButton: {
+    padding: 5,
+  },
+  bannerExpandedContent: {
+    padding: 10,
+    backgroundColor: '#1E1E1E',
+    borderRadius: 10,
+    marginTop: 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: "#FF6F00",
+    alignItems: 'center',
+  },
+  bannerActionButtons: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginBottom: 10,
+  },
+  bannerActionButton: {
+    backgroundColor: "#FF6F00",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    minWidth: 120,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  bannerButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    marginLeft: 8,
+  },
+  bannerRideDetails: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: '100%',
+  },
+  bannerRideDetail: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 5,
+  },
+  bannerRideDetailText: {
+    color: "#b3b3b3",
+    fontSize: 14,
+    marginLeft: 5,
+  },
+  recenterButtonContainer: {
+    position: 'absolute',
+    top: 200,
+    right: 20,
+    zIndex: 100,
+  },
+  verticalStepIndicator: {
+    position: 'absolute',
+    left: 15,
+    top: 250,
+    zIndex: 150,
+    backgroundColor: "rgba(30, 30, 30, 0.8)",
+    borderRadius: 8,
+    padding: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: "#FF6F00",
+  },
+  stepItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  stepCircle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#2C2C2C',
+    borderWidth: 1,
+    borderColor: '#FF6F00',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  stepCompleted: {
+    backgroundColor: '#FF6F00',
+  },
+  stepNumber: {
+    color: '#fff',
+    fontSize: 8,
+    fontWeight: '600',
+  },
+  stepLabel: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  stepLabelCompleted: {
+    color: '#b3b3b3',
+  },
+  stepLine: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#FF6F00',
+    marginLeft: 8,
+    marginBottom: 12,
+  },
+  stepLineCompleted: {
+    backgroundColor: '#FF6F00',
   },
 });
 

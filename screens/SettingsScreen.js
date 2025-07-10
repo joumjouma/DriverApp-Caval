@@ -18,7 +18,7 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import { useTheme } from "../context/ThemeContext";
 import { useNavigation } from "@react-navigation/native";
 import { deleteUser, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
-import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, deleteDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../config/firebase";
 import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -39,7 +39,7 @@ function SettingsScreen() {
   // We still track these if you need them for any other purpose.
   // They are no longer displayed in a separate box.
   const [todayOnlineTime, setTodayOnlineTime] = useState("0h 0m");
-  const [rating, setRating] = useState(80);
+  const [rating, setRating] = useState(4.0); // Changed to match new format
   const [rideCount, setRideCount] = useState(0);
 
   // Animation for header
@@ -49,6 +49,9 @@ function SettingsScreen() {
     outputRange: [1, 0.9],
     extrapolate: "clamp",
   });
+
+  // Animation refs for tier badge
+  const tierBadgeAnim = useRef(new Animated.Value(1)).current;
 
   const handleScroll = Animated.event(
     [{ nativeEvent: { contentOffset: { y: scrollY } } }],
@@ -75,7 +78,7 @@ function SettingsScreen() {
           console.log("Found cached data in AsyncStorage");
           const parsedData = JSON.parse(cachedData);
           setUserDetails(parsedData);
-          setRating(Math.min(parsedData.rating || 80, 100));
+          setRating(parsedData.rating || 4.0); // Get rating from stored data
           setRideCount(parsedData.rideCount || 0);
         }
 
@@ -106,7 +109,7 @@ function SettingsScreen() {
           console.log("Firestore data:", docSnapDriver.data());
           const firestoreData = docSnapDriver.data();
           setUserDetails(firestoreData);
-          setRating(Math.min(firestoreData.rating || 80, 100));
+          setRating(firestoreData.rating || 4.0); // Get rating from Firebase
           setRideCount(firestoreData.rideCount || 0);
           
           // Update AsyncStorage with latest data
@@ -122,6 +125,40 @@ function SettingsScreen() {
 
     fetchUserDetails();
   }, []);
+
+  // -----------------------------------------------------------------
+  // Real-time Driver Data Listener (including rating)
+  // -----------------------------------------------------------------
+  useEffect(() => {
+    if (!auth.currentUser) return;
+
+    const currentUser = auth.currentUser;
+    console.log("Setting up real-time driver data listener for SettingsScreen:", currentUser.uid);
+
+    const driverRef = doc(db, "Drivers", currentUser.uid);
+    const unsubscribe = onSnapshot(driverRef, (doc) => {
+      if (doc.exists()) {
+        const userData = doc.data();
+        console.log("Real-time driver data update in SettingsScreen:", userData);
+        
+        // Update all driver data in real-time
+        setUserDetails(userData);
+        setRating(userData.rating || 4.0); // Real-time rating updates
+        setRideCount(userData.rideCount || 0);
+        
+        // Update AsyncStorage with latest data
+        AsyncStorage.setItem('driverInfo', JSON.stringify(userData));
+        console.log("Real-time driver data updated in SettingsScreen, including rating:", userData.rating);
+      }
+    }, (error) => {
+      console.error("Error in real-time driver data listener in SettingsScreen:", error);
+    });
+
+    return () => {
+      console.log("Cleaning up real-time driver data listener in SettingsScreen");
+      unsubscribe();
+    };
+  }, [auth.currentUser]);
 
   // Reset image error state when user details change
   useEffect(() => {
@@ -367,34 +404,102 @@ function SettingsScreen() {
     }
   };
 
+  // Get driver tier based on rating
+  const getDriverTier = (rating) => {
+    if (rating >= 5.0) return { tier: 'Platinum', color: '#E5E4E2', icon: 'diamond' };
+    if (rating >= 4.5) return { tier: 'Diamond', color: '#B9F2FF', icon: 'diamond' };
+    if (rating >= 4.0) return { tier: 'Gold', color: '#FFD700', icon: 'star' };
+    if (rating >= 3.0) return { tier: 'Silver', color: '#C0C0C0', icon: 'star' };
+    if (rating >= 2.0) return { tier: 'Bronze', color: '#CD7F32', icon: 'star' };
+    return { tier: 'Rookie', color: '#8B8B8B', icon: 'star' };
+  };
+
+  // Animate tier badge with pulsing effect
+  const animateTierBadge = () => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(tierBadgeAnim, {
+          toValue: 1.1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(tierBadgeAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  };
+
+  // Start tier badge animation when component mounts
+  useEffect(() => {
+    animateTierBadge();
+  }, []);
+
   // Renders the star rating beneath the driver's name
   const renderStars = () => {
+    const stars = [];
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 !== 0;
+    const tier = getDriverTier(rating);
+    
+    // Add full stars
+    for (let i = 0; i < fullStars; i++) {
+      stars.push(
+        <Ionicons
+          key={`star-${i}`}
+          name="star"
+          size={20}
+          color="#FFC107"
+          style={styles.starIcon}
+        />
+      );
+    }
+    
+    // Add half star if needed
+    if (hasHalfStar) {
+      stars.push(
+        <Ionicons
+          key="star-half"
+          name="star-half"
+          size={20}
+          color="#FFC107"
+          style={styles.starIcon}
+        />
+      );
+    }
+    
+    // Add empty stars to complete 5 stars
+    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+    for (let i = 0; i < emptyStars; i++) {
+      stars.push(
+        <Ionicons
+          key={`star-empty-${i}`}
+          name="star-outline"
+          size={20}
+          color="#FFC107"
+          style={styles.starIcon}
+        />
+      );
+    }
+    
     return (
       <View style={styles.starsContainer}>
-        {[...Array(5)].map((_, index) => {
-          const starValue = (index + 1) * 20;
-          const isHalfStar = rating >= starValue - 10 && rating < starValue;
-          const isFullStar = rating >= starValue;
-          return (
-            <Ionicons
-              key={index}
-              name={
-                isHalfStar
-                  ? "star-half"
-                  : isFullStar
-                  ? "star"
-                  : "star-outline"
-              }
-              size={20}
-              color="#FFC107"
-              style={styles.starIcon}
-            />
-          );
-        })}
-        <Text style={styles.ratingText}>
-          {Math.floor(rating / 20)}
-          {rating % 20 >= 10 ? ".5" : ""}
-        </Text>
+        {stars}
+        <Text style={styles.ratingText}>{rating.toFixed(1)}</Text>
+        <Animated.View 
+          style={[
+            styles.tierBadge, 
+            { 
+              backgroundColor: tier.color,
+              transform: [{ scale: tierBadgeAnim }]
+            }
+          ]}
+        >
+          <Ionicons name={tier.icon} size={12} color="#000" />
+          <Text style={styles.tierText}>{tier.tier}</Text>
+        </Animated.View>
       </View>
     );
   };
@@ -1095,5 +1200,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 8,
     flexShrink: 1,
+  },
+  tierBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+  },
+  tierText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#000',
+    marginLeft: 4,
   },
 });

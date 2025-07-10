@@ -19,6 +19,8 @@ import { auth } from "../config/firebase";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../config/firebase";
 
+const { width: screenWidth } = Dimensions.get('window');
+
 export default function EarningsScreen() {
   const navigation = useNavigation();
   const route = useRoute();

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -13,12 +13,13 @@ import {
   StatusBar,
   Modal,
   Platform,
+  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "../context/ThemeContext";
 import { auth } from "../config/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, onSnapshot } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage, db } from "../config/firebase";
 import * as ImagePicker from "expo-image-picker";
@@ -31,10 +32,31 @@ const { width } = Dimensions.get("window");
 function Profile() {
   const [userDetails, setUserDetails] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [rating, setRating] = useState(80);
+  const [rating, setRating] = useState(4.0); // Changed to match HomeScreenWithMap format
   const [showPhotoPrompt, setShowPhotoPrompt] = useState(false);
   const navigation = useNavigation();
   const { colors } = useTheme();
+
+  // Animation refs
+  const tierBadgeAnim = useRef(new Animated.Value(1)).current;
+
+  // Animate tier badge with pulsing effect
+  const animateTierBadge = () => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(tierBadgeAnim, {
+          toValue: 1.1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(tierBadgeAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  };
 
   useEffect(() => {
     const checkFirstVisit = async () => {
@@ -59,6 +81,7 @@ function Profile() {
           const parsedData = JSON.parse(storedData);
           console.log("Photo URL from AsyncStorage:", parsedData.photo);
           setUserDetails(parsedData);
+          setRating(parsedData.rating || 4.0); // Get rating from stored data
           
           // Check if user already has a photo
           if (!parsedData.photo) {
@@ -82,13 +105,10 @@ function Profile() {
           console.log("Fetched driver data from Firestore:", data);
           console.log("Photo URL from Firestore:", data.photo);
           setUserDetails(data);
+          setRating(data.rating || 4.0); // Get rating from Firebase
           
           // Store in AsyncStorage for future use
           await AsyncStorage.setItem('driverInfo', JSON.stringify(data));
-          
-          // Arbitrary rating logic
-          const calculatedRating = Math.min(80, 100);
-          setRating(calculatedRating);
           
           // Check if user already has a photo
           if (!data.photo) {
@@ -106,6 +126,44 @@ function Profile() {
     };
 
     fetchUserDetails();
+  }, []);
+
+  // -----------------------------------------------------------------
+  // Real-time Driver Data Listener (including rating)
+  // -----------------------------------------------------------------
+  useEffect(() => {
+    if (!auth.currentUser) return;
+
+    const currentUser = auth.currentUser;
+    console.log("Setting up real-time driver data listener for ProfileScreen:", currentUser.uid);
+
+    const driverRef = doc(db, "Drivers", currentUser.uid);
+    const unsubscribe = onSnapshot(driverRef, (doc) => {
+      if (doc.exists()) {
+        const userData = doc.data();
+        console.log("Real-time driver data update in ProfileScreen:", userData);
+        
+        // Update all driver data in real-time
+        setUserDetails(userData);
+        setRating(userData.rating || 4.0); // Real-time rating updates
+        
+        // Update AsyncStorage with latest data
+        AsyncStorage.setItem('driverInfo', JSON.stringify(userData));
+        console.log("Real-time driver data updated in ProfileScreen, including rating:", userData.rating);
+      }
+    }, (error) => {
+      console.error("Error in real-time driver data listener in ProfileScreen:", error);
+    });
+
+    return () => {
+      console.log("Cleaning up real-time driver data listener in ProfileScreen");
+      unsubscribe();
+    };
+  }, [auth.currentUser]);
+
+  // Start tier badge animation when component mounts
+  useEffect(() => {
+    animateTierBadge();
   }, []);
 
   const handleLogin = async () => {
@@ -149,27 +207,77 @@ async function handleLogout() {
     );
   }
 
+  const getDriverTier = (rating) => {
+    if (rating >= 5.0) return { tier: 'Platinum', color: '#E5E4E2', icon: 'diamond' };
+    if (rating >= 4.5) return { tier: 'Diamond', color: '#B9F2FF', icon: 'diamond' };
+    if (rating >= 4.0) return { tier: 'Gold', color: '#FFD700', icon: 'star' };
+    if (rating >= 3.0) return { tier: 'Silver', color: '#C0C0C0', icon: 'star' };
+    if (rating >= 2.0) return { tier: 'Bronze', color: '#CD7F32', icon: 'star' };
+    return { tier: 'Rookie', color: '#8B8B8B', icon: 'star' };
+  };
+
   const renderStars = () => {
+    const stars = [];
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 !== 0;
+    const tier = getDriverTier(rating);
+    
+    // Add full stars
+    for (let i = 0; i < fullStars; i++) {
+      stars.push(
+        <Ionicons
+          key={`star-${i}`}
+          name="star"
+          size={20}
+          color="#FFC107"
+          style={styles.starIcon}
+        />
+      );
+    }
+    
+    // Add half star if needed
+    if (hasHalfStar) {
+      stars.push(
+        <Ionicons
+          key="star-half"
+          name="star-half"
+          size={20}
+          color="#FFC107"
+          style={styles.starIcon}
+        />
+      );
+    }
+    
+    // Add empty stars to complete 5 stars
+    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+    for (let i = 0; i < emptyStars; i++) {
+      stars.push(
+        <Ionicons
+          key={`star-empty-${i}`}
+          name="star-outline"
+          size={20}
+          color="#FFC107"
+          style={styles.starIcon}
+        />
+      );
+    }
+    
     return (
       <View style={styles.starsContainer}>
-        {[...Array(5)].map((_, index) => {
-          const starValue = (index + 1) * 20;
-          const isHalfStar = rating >= starValue - 10 && rating < starValue;
-          const isFullStar = rating >= starValue;
-          return (
-            <Ionicons
-              key={index}
-              name={isHalfStar ? "star-half" : isFullStar ? "star" : "star-outline"}
-              size={20}
-              color="#FFC107"
-              style={styles.starIcon}
-            />
-          );
-        })}
-        <Text style={styles.ratingText}>
-          {Math.floor(rating / 20)}
-          {rating % 20 >= 10 ? ".5" : ""}
-        </Text>
+        {stars}
+        <Text style={styles.ratingText}>{rating.toFixed(1)}</Text>
+        <Animated.View 
+          style={[
+            styles.tierBadge, 
+            { 
+              backgroundColor: tier.color,
+              transform: [{ scale: tierBadgeAnim }]
+            }
+          ]}
+        >
+          <Ionicons name={tier.icon} size={12} color="#000" />
+          <Text style={styles.tierText}>{tier.tier}</Text>
+        </Animated.View>
       </View>
     );
   };
@@ -567,6 +675,22 @@ const styles = StyleSheet.create({
   section: {
     marginHorizontal: 20,
     marginBottom: 20,
+  },
+  tierBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    marginTop: 8,
+    marginLeft: 12,
+    alignSelf: 'center',
+  },
+  tierText: {
+    color: '#000',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 4,
   },
 });
 
