@@ -54,7 +54,9 @@
         "ACCESS_BACKGROUND_LOCATION",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "WAKE_LOCK"
+        "WAKE_LOCK",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
       "googleServicesFile": "./google-services.json"
     },
@@ -68,7 +70,10 @@
       "firebaseStorageBucket": "eco-share-92ef1.firebasestorage.app",
       "firebaseMessagingSenderId": "747419763478",
       "firebaseAppId": "1:747419763478:android:32f44f9a3306b9c32c8637",
-      "firebaseMeasurementId": "G-XXXXXXXXXX"
+      "firebaseMeasurementId": "G-XXXXXXXXXX",
+      "eas": {
+        "projectId": "14b90510-8ecb-46b6-9f35-2537774896a1"
+      }
     },
     "plugins": [
       "expo-secure-store",
