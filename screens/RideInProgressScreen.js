@@ -624,7 +624,7 @@ const RideInProgressScreen = () => {
           const driverRef = doc(db, "Drivers", auth.currentUser.uid);
           await updateDoc(driverRef, {
             isAvailable: true,
-            isOnline: true,
+            isOnline: false, // Stay offline after ride completion - driver must manually go online
             rideInProgress: false,
             currentRideId: null,
             lastRideCompletedAt: serverTimestamp()

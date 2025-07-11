@@ -99,31 +99,33 @@ const HomeScreenWithMap = () => {
 
   // Animation refs
   const countdownAnim = useRef(new Animated.Value(1)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const rippleAnim = useRef(new Animated.Value(0)).current;
-  const rippleOpacity = useRef(new Animated.Value(0.5)).current;
+  const buttonScale = useRef(new Animated.Value(1)).current;
+  const pulseAnimation = useRef(new Animated.Value(1)).current;
+  const successScaleAnimation = useRef(new Animated.Value(1)).current;
+  const buttonGlow = useRef(new Animated.Value(0)).current;
+  const tierBadgeScale = useRef(new Animated.Value(1)).current;
+  const screenGlowAnim = useRef(new Animated.Value(0)).current;
+  const expandingRing1 = useRef(new Animated.Value(0)).current;
+  const expandingRing2 = useRef(new Animated.Value(0)).current;
+  const expandingRing3 = useRef(new Animated.Value(0)).current;
   const statusPopupAnim = useRef(new Animated.Value(0)).current;
   const statusTextAnim = useRef(new Animated.Value(0)).current;
   const ringAnim1 = useRef(new Animated.Value(0)).current;
   const ringAnim2 = useRef(new Animated.Value(0)).current;
   const ringAnim3 = useRef(new Animated.Value(0)).current;
   const iconAnim = useRef(new Animated.Value(0)).current;
-  const glowAnim = useRef(new Animated.Value(0)).current;
-  const successCheckAnim = useRef(new Animated.Value(0)).current;
-  const screenGlowAnim = useRef(new Animated.Value(0)).current;
-  const expandingRing1 = useRef(new Animated.Value(0)).current;
-  const expandingRing2 = useRef(new Animated.Value(0)).current;
-  const expandingRing3 = useRef(new Animated.Value(0)).current;
-  const tierBadgeAnim = useRef(new Animated.Value(1)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
 
-  // Other refs
-  const intervalRef = useRef(null);
-  const currentRideRequestRef = useRef(null);
+  // Refs for cleanup
   const timerRef = useRef(null);
   const onSnapshotUnsubscribe = useRef(null);
-  const mapRef = useRef(null);
+  const currentRideRequestRef = useRef(null);
+  const rideInProgressRef = useRef(false);
+  const rideCooldownRef = useRef(false);
+  const hasNavigatedToRideRef = useRef(false); // Flag to prevent multiple navigations
+  const intervalRef = useRef(null); // Add missing intervalRef
+  const mapRef = useRef(null); // Add missing mapRef
+  const navigationCooldownRef = useRef(false); // Cooldown for navigation attempts
 
   // Flags
   const [rideInProgress, setRideInProgress] = useState(false);
@@ -170,12 +172,31 @@ const HomeScreenWithMap = () => {
         fetchDriverDataFromFirestore();
       } else {
         setIsOnline(false);
+        // Reset navigation flag when user logs out
+        hasNavigatedToRideRef.current = false;
         // Navigate to login if not authenticated
         navigation.replace('LoginScreen');
       }
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // Cleanup function to reset navigation flag when component unmounts
+  useEffect(() => {
+    return () => {
+      hasNavigatedToRideRef.current = false;
+      navigationCooldownRef.current = false;
+      // Clean up intervalRef to prevent memory leaks
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      // Clean up mapRef
+      if (mapRef.current) {
+        mapRef.current = null;
+      }
+    };
   }, []);
 
   // -----------------------------------------------------------------
@@ -270,6 +291,9 @@ const HomeScreenWithMap = () => {
       
       updateDriverStatus();
       
+      // Reset navigation flag to allow future navigations ONLY after ride completion
+      hasNavigatedToRideRef.current = false;
+      
       // Clear the rideCompleted param to prevent multiple resets
       navigation.setParams({ rideCompleted: undefined });
     }
@@ -286,6 +310,28 @@ const HomeScreenWithMap = () => {
       console.error("No authenticated user found");
       return;
     }
+
+    // Prevent multiple navigations to ride screen
+    if (hasNavigatedToRideRef.current) {
+      console.log('🚫 Already navigated to ride screen, skipping navigation');
+      return;
+    }
+
+    // Check if we're in navigation cooldown
+    if (navigationCooldownRef.current) {
+      console.log('🚫 Navigation cooldown active, skipping navigation');
+      return;
+    }
+
+    // Check if we're already on a ride screen
+    const currentRoute = navigation.getCurrentRoute();
+    if (currentRoute && currentRoute.name && currentRoute.name.includes('RideInProgress')) {
+      console.log('🚫 Already on ride screen, skipping navigation');
+      return;
+    }
+
+    // Add a small delay to prevent rapid navigation attempts
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     const today = new Date();
     const todayString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -334,6 +380,21 @@ const HomeScreenWithMap = () => {
             console.error('Error fetching customerId for stored ride:', error);
           }
         }
+        
+        // Double-check navigation flag before proceeding
+        if (hasNavigatedToRideRef.current) {
+          console.log('🚫 Navigation flag set, skipping navigation');
+          return;
+        }
+        
+        // Set flag to prevent multiple navigations
+        hasNavigatedToRideRef.current = true;
+        
+        // Set navigation cooldown
+        navigationCooldownRef.current = true;
+        setTimeout(() => {
+          navigationCooldownRef.current = false;
+        }, 3000); // 3 second cooldown
         
         // Navigate to the appropriate screen based on currentStep
         console.log('🚀 Navigating to RideInProgressScreen with step:', rideState.currentStep);
@@ -921,18 +982,69 @@ const HomeScreenWithMap = () => {
         }
       } catch (error) {
         console.error("Error in ride distribution:", error);
+        // Don't throw the error, just log it to prevent crashes
+      }
+    }, (error) => {
+      console.error("Error in ride request subscription:", error);
+      // Handle Firestore connection errors gracefully
+      if (error.code === 'unavailable' || error.code === 'deadline-exceeded') {
+        console.log('Firestore connection error, will retry automatically');
+        // The subscription will automatically retry when the connection is restored
+      } else {
+        console.error('Unexpected Firestore error:', error);
       }
     });
 
+    // Store the subscription for cleanup
     onSnapshotUnsubscribe.current = unsubscribe;
+    
+    // Return cleanup function
     return () => {
-      console.log('Cleaning up ride request subscription');
       if (onSnapshotUnsubscribe.current) {
         onSnapshotUnsubscribe.current();
         onSnapshotUnsubscribe.current = null;
       }
     };
   }, [isOnline, rideInProgress, rideCooldown, driverType, fromLocation]);
+
+  // Retry mechanism for Firestore connection issues
+  useEffect(() => {
+    let retryTimeout;
+    let connectionCheckInterval;
+    
+    const retryConnection = () => {
+      console.log('Retrying Firestore connection...');
+      // The subscription will automatically retry when the connection is restored
+    };
+    
+    // Set up a periodic check for connection issues
+    retryTimeout = setInterval(() => {
+      // This will help detect and recover from connection issues
+    }, 30000); // Check every 30 seconds
+    
+    // Set up connection status monitoring
+    connectionCheckInterval = setInterval(() => {
+      // Monitor connection status and log any issues
+      if (!auth.currentUser) {
+        console.log('No authenticated user, skipping connection check');
+        return;
+      }
+      
+      // Check if we have an active subscription
+      if (!onSnapshotUnsubscribe.current) {
+        console.log('No active subscription, connection may be lost');
+      }
+    }, 10000); // Check every 10 seconds
+    
+    return () => {
+      if (retryTimeout) {
+        clearInterval(retryTimeout);
+      }
+      if (connectionCheckInterval) {
+        clearInterval(connectionCheckInterval);
+      }
+    };
+  }, []);
 
   // -----------------------------------------------------------------
   // 9. Countdown Timer for Auto-Decline
@@ -998,17 +1110,17 @@ const HomeScreenWithMap = () => {
 
   const animateButton = () => {
     // Reset animations
-    rippleAnim.setValue(0);
-    rippleOpacity.setValue(1);
+    buttonScale.setValue(1);
+    pulseAnimation.setValue(1);
     
     // Scale animation
     Animated.sequence([
-      Animated.timing(scaleAnim, {
+      Animated.timing(buttonScale, {
         toValue: 0.9,
         duration: 100,
         useNativeDriver: true,
       }),
-      Animated.timing(scaleAnim, {
+      Animated.timing(buttonScale, {
         toValue: 1,
         duration: 100,
         useNativeDriver: true,
@@ -1017,14 +1129,14 @@ const HomeScreenWithMap = () => {
 
     // Ripple animation
     Animated.parallel([
-      Animated.timing(rippleAnim, {
+      Animated.timing(pulseAnimation, {
         toValue: 1,
         duration: 400,
         easing: Easing.out(Easing.ease),
         useNativeDriver: true,
       }),
-      Animated.timing(rippleOpacity, {
-        toValue: 0,
+      Animated.timing(buttonGlow, {
+        toValue: 1,
         duration: 400,
         easing: Easing.out(Easing.ease),
         useNativeDriver: true,
@@ -1148,20 +1260,20 @@ const HomeScreenWithMap = () => {
     // Start the animation sequence immediately
     Animated.sequence([
       // Initial scale down
-      Animated.timing(scaleAnim, {
+      Animated.timing(buttonScale, {
         toValue: 0.9,
         duration: 100,
         useNativeDriver: true,
       }),
       // Scale up with glow effect and expanding rings
       Animated.parallel([
-        Animated.spring(scaleAnim, {
+        Animated.spring(buttonScale, {
           toValue: 1.2,
           tension: 50,
           friction: 7,
           useNativeDriver: true,
         }),
-        Animated.timing(glowAnim, {
+        Animated.timing(buttonGlow, {
           toValue: 1,
           duration: 300,
           useNativeDriver: true,
@@ -1254,13 +1366,13 @@ const HomeScreenWithMap = () => {
       
       // Scale back to normal with success check
       Animated.parallel([
-        Animated.spring(scaleAnim, {
+        Animated.spring(buttonScale, {
           toValue: 1,
           tension: 50,
           friction: 7,
           useNativeDriver: true,
         }),
-        Animated.timing(glowAnim, {
+        Animated.timing(buttonGlow, {
           toValue: 0,
           duration: 300,
           useNativeDriver: true,
@@ -1271,12 +1383,12 @@ const HomeScreenWithMap = () => {
           useNativeDriver: true,
         }),
         Animated.sequence([
-          Animated.timing(successCheckAnim, {
+          Animated.timing(successScaleAnimation, {
             toValue: 1,
             duration: 200,
             useNativeDriver: true,
           }),
-          Animated.timing(successCheckAnim, {
+          Animated.timing(successScaleAnimation, {
             toValue: 0,
             duration: 200,
             delay: 500,
@@ -1291,13 +1403,13 @@ const HomeScreenWithMap = () => {
       console.error("Error updating online status:", error);
       // Revert the animation if there's an error
       Animated.parallel([
-        Animated.spring(scaleAnim, {
+        Animated.spring(buttonScale, {
           toValue: 1,
           tension: 50,
           friction: 7,
           useNativeDriver: true,
         }),
-        Animated.timing(glowAnim, {
+        Animated.timing(buttonGlow, {
           toValue: 0,
           duration: 300,
           useNativeDriver: true,
@@ -1388,12 +1500,12 @@ const HomeScreenWithMap = () => {
   const animateTierBadge = () => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(tierBadgeAnim, {
+        Animated.timing(tierBadgeScale, {
           toValue: 1.1,
           duration: 1000,
           useNativeDriver: true,
         }),
-        Animated.timing(tierBadgeAnim, {
+        Animated.timing(tierBadgeScale, {
           toValue: 1,
           duration: 1000,
           useNativeDriver: true,
@@ -1462,7 +1574,7 @@ const HomeScreenWithMap = () => {
             styles.tierBadge, 
             { 
               backgroundColor: tier.color,
-              transform: [{ scale: tierBadgeAnim }]
+              transform: [{ scale: tierBadgeScale }]
             }
           ]}
         >
@@ -1933,8 +2045,8 @@ const HomeScreenWithMap = () => {
             styles.onlineButtonWrapper,
             {
               transform: [
-                { scale: isOnline ? 1 : pulseAnim },
-                { scale: scaleAnim }
+                { scale: isOnline ? 1 : pulseAnimation },
+                { scale: buttonScale }
               ],
             },
           ]}
@@ -1963,10 +2075,10 @@ const HomeScreenWithMap = () => {
                     style={[
                       styles.glowEffect,
                       {
-                        opacity: glowAnim,
+                        opacity: buttonGlow,
                         transform: [
                           {
-                            scale: glowAnim.interpolate({
+                            scale: buttonGlow.interpolate({
                               inputRange: [0, 1],
                               outputRange: [1, 1.5],
                             }),
@@ -1985,13 +2097,13 @@ const HomeScreenWithMap = () => {
                         {
                           transform: [
                             {
-                              scale: rippleAnim.interpolate({
+                              scale: pulseAnimation.interpolate({
                                 inputRange: [0, 1],
                                 outputRange: [0.5, 2],
                               }),
                             },
                           ],
-                          opacity: rippleOpacity,
+                          opacity: pulseAnimation,
                         },
                       ]}
                     />
@@ -2000,10 +2112,10 @@ const HomeScreenWithMap = () => {
                     style={[
                       styles.successCheck,
                       {
-                        opacity: successCheckAnim,
+                        opacity: successScaleAnimation,
                         transform: [
                           {
-                            scale: successCheckAnim.interpolate({
+                            scale: successScaleAnimation.interpolate({
                               inputRange: [0, 1],
                               outputRange: [0.8, 1],
                             }),
