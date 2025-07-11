@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "Eco-share",
-    "slug": "Eco-share",
-    "owner": "zouhair123",
+    "slug": "Eco-share-new",
+    "owner": "zouhair1234",
     "version": "1.00",
     "orientation": "portrait",
     "icon": "./assets/Caval_courrier_logo-removebg-preview.png",
@@ -62,9 +62,6 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "eas": {
-        "projectId": "97f35a2b-2bbf-4893-9f43-cd2df775196a"
-      },
       "firebaseApiKey": "AIzaSyBMQW59pFle0vVp0xotmnpVTYqAlTbdbQQ",
       "firebaseAuthDomain": "eco-share-92ef1.firebaseapp.com",
       "firebaseProjectId": "eco-share-92ef1",
