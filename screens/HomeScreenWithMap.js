@@ -233,7 +233,7 @@ const HomeScreenWithMap = () => {
           console.log('Updating driver status in Firestore...');
           const driverRef = doc(db, "Drivers", currentUser.uid);
           await updateDoc(driverRef, {
-            isAvailable: true,
+            isAvailable: false, // Set to false when offline to prevent ride assignment
             isOnline: false, // Stay offline after ride completion
             rideInProgress: false,
             currentRideId: null,
@@ -283,7 +283,7 @@ const HomeScreenWithMap = () => {
             setRideInProgress(false);
           }, 500);
           
-          console.log('Driver is now available for new rides (but offline until toggled online)');
+          console.log('Driver is now offline and unavailable for new rides until manually going online');
         } catch (error) {
           console.error("Error updating driver status:", error);
         }
@@ -324,8 +324,9 @@ const HomeScreenWithMap = () => {
     }
 
     // Check if we're already on a ride screen
-    const currentRoute = navigation.getCurrentRoute();
-    if (currentRoute && currentRoute.name && currentRoute.name.includes('RideInProgress')) {
+    // Use a safer approach to check current route since getCurrentRoute() may not be available
+    const currentRouteName = navigation.getState()?.routes?.[navigation.getState()?.index]?.name;
+    if (currentRouteName && currentRouteName.includes('RideInProgress')) {
       console.log('🚫 Already on ride screen, skipping navigation');
       return;
     }

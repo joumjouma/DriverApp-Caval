@@ -258,6 +258,7 @@ function RegisterScreen() {
         dailyEarnings: 0,
         lastOnline: new Date(),
         isOnline: false,
+        isAvailable: false, // New drivers start as unavailable until they go online
         driverType: typeDeVehicule,
         photo: facePhotoURL,
         carteGrisePhoto: carteGrisePhotoURL,

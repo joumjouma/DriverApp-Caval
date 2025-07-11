@@ -1894,18 +1894,6 @@
   resolved "https://registry.npmjs.org/@react-native-community/viewpager/-/viewpager-5.0.11.tgz"
   integrity sha512-eboJwbDQjP1qJP3LFzVspgh88IGNF07S2qpU296j+4kL0inVuL+HXs81SuczMGtJmDZ4u19RNEBVq79of/h+jQ==
 
-"@react-native-firebase/app@22.3.0":
-  version "22.3.0"
-  resolved "https://registry.npmjs.org/@react-native-firebase/app/-/app-22.3.0.tgz"
-  integrity sha512-rT2vrY3jwDRk37WPKetQQLXqgxihOPQN40qj39nyhx00Q9KbHmPxUV93joTG27ngLVydDyrLEr21QgZTD0Wv4Q==
-  dependencies:
-    firebase "11.10.0"
-
-"@react-native-firebase/messaging@^22.3.0":
-  version "22.3.0"
-  resolved "https://registry.npmjs.org/@react-native-firebase/messaging/-/messaging-22.3.0.tgz"
-  integrity sha512-NZZkFE0q8431rP2ObgH4hy7IHudb3jfOS2aAm4BDY8IQI5yPWs9pAzyfVXnLENQ37QK2oBeNbplfYJMngF8Ubg==
-
 "@react-native-google-signin/google-signin@^13.1.0":
   version "13.2.0"
   resolved "https://registry.npmjs.org/@react-native-google-signin/google-signin/-/google-signin-13.2.0.tgz"
@@ -3722,7 +3710,7 @@ expo-web-browser@~14.2.0:
   resolved "https://registry.npmjs.org/expo-web-browser/-/expo-web-browser-14.2.0.tgz"
   integrity sha512-6S51d8pVlDRDsgGAp8BPpwnxtyKiMWEFdezNz+5jVIyT+ctReW42uxnjRgtsdn5sXaqzhaX+Tzk/CWaKCyC0hw==
 
-expo@*, expo@>=46.0.9, expo@>=47.0.0, expo@>=50.0.0, expo@~53.0.19:
+expo@*, expo@>=46.0.9, expo@>=50.0.0, expo@~53.0.19:
   version "53.0.19"
   resolved "https://registry.npmjs.org/expo/-/expo-53.0.19.tgz"
   integrity sha512-hZWEKw6h5dlfKy6+c3f2exx5x3Loio8p0b2s/Pk1eQfTffqpkQRVVlOzcTWU1RSuMfc47ZMpr97pUJWQczOGsQ==
@@ -3852,7 +3840,7 @@ find-up@^5.0.0:
     locate-path "^6.0.0"
     path-exists "^4.0.0"
 
-firebase@^11.7.1, firebase@11.10.0:
+firebase@^11.7.1:
   version "11.10.0"
   resolved "https://registry.npmjs.org/firebase/-/firebase-11.10.0.tgz"
   integrity sha512-nKBXoDzF0DrXTBQJlZa+sbC5By99ysYU1D6PkMRYknm0nCW7rJly47q492Ht7Ndz5MeYSBuboKuhS1e6mFC03w==

@@ -118,6 +118,7 @@ const useUpdateDriverLocation = () => {
               if (timeDiff > 30 && driverData.isOnline) {
                 await updateDoc(driverRef, {
                   isOnline: false,
+                  isAvailable: false, // Set to false when going offline due to inactivity
                   lastOnlineUpdate: new Date().toISOString()
                 });
               }
