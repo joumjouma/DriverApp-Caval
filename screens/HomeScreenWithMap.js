@@ -21,7 +21,7 @@ import {
   ScrollView,
   Alert,
 } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Marker } from "react-native-maps";
 import { Ionicons, MaterialIcons, FontAwesome5, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   doc,
@@ -50,8 +50,102 @@ import { GOOGLE_MAPS_APIKEY } from "@env";
 import CavalLogo from "../assets/Caval_courrier_logo-removebg-preview.png";
 import { useTheme } from "../context/ThemeContext";
 import { auth } from "../config/firebase";
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
 
 const { width, height } = Dimensions.get("window");
+
+const GOOGLE_MAPS_APIKEY = "AIzaSyBnVN-ACYzcA0Sy8BcPLpXG50Y9T8jhJGE";
+
+// Configure notification behavior
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
+// Function to register for push notifications
+const registerForPushNotificationsAsync = async () => {
+  let token;
+
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'default',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FF231F7C',
+    });
+  }
+
+  if (Device.isDevice) {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') {
+      alert('Failed to get push token for push notification!');
+      return;
+    }
+    token = (await Notifications.getExpoPushTokenAsync({
+      projectId: '97f35a2b-2bbf-4893-9f43-cd2df775196a', // Your Expo project ID
+    })).data;
+    console.log('Expo push token:', token);
+  } else {
+    alert('Must use physical device for Push Notifications');
+  }
+
+  return token;
+};
+
+// Function to save push token to Firestore
+const savePushTokenToFirestore = async (token) => {
+  try {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      console.error('No authenticated user found');
+      return;
+    }
+
+    const driverRef = doc(db, "Drivers", currentUser.uid);
+    await updateDoc(driverRef, {
+      expoPushToken: token,
+      lastTokenUpdate: serverTimestamp()
+    });
+    console.log('Push token saved to Firestore');
+  } catch (error) {
+    console.error('Error saving push token:', error);
+  }
+};
+
+// Function to update driver's notification preferences
+const updateDriverNotificationStatus = async (isOnline) => {
+  try {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      console.error('No authenticated user found');
+      return;
+    }
+
+    const driverRef = doc(db, "Drivers", currentUser.uid);
+    await updateDoc(driverRef, {
+      isOnline: isOnline,
+      isAvailable: isOnline,
+      lastOnlineUpdate: serverTimestamp(),
+      // Clear current ride if going offline
+      ...(isOnline ? {} : {
+        currentRideId: null,
+        rideInProgress: false
+      })
+    });
+    console.log(`Driver ${isOnline ? 'online' : 'offline'} status updated`);
+  } catch (error) {
+    console.error('Error updating driver status:', error);
+  }
+};
 
 const HomeScreenWithMap = () => {
   // -----------------------------------------------------------------
@@ -170,6 +264,12 @@ const HomeScreenWithMap = () => {
         // Load persisted data and fetch driver info when authenticated
         loadPersistedData();
         fetchDriverDataFromFirestore();
+        // Register for push notifications
+        registerForPushNotificationsAsync().then(token => {
+          if (token) {
+            savePushTokenToFirestore(token);
+          }
+        });
       } else {
         setIsOnline(false);
         // Reset navigation flag when user logs out
@@ -180,6 +280,75 @@ const HomeScreenWithMap = () => {
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // -----------------------------------------------------------------
+  // 3.5. Push Notification Setup and Handling
+  // -----------------------------------------------------------------
+  useEffect(() => {
+    // Set up notification response handler
+    const notificationListener = Notifications.addNotificationReceivedListener(notification => {
+      console.log('Notification received:', notification);
+    });
+
+    const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('Notification response received:', response);
+      
+      // Handle notification tap - navigate to ride offer if available
+      const data = response.notification.request.content.data;
+      if (data && data.rideId) {
+        console.log('Navigating to ride offer from notification:', data.rideId);
+        
+        // If the app was in background and user tapped notification, refresh to get latest rides
+        if (data.type === 'new_ride_offer' || data.type === 'ride_assigned') {
+          // Small delay to ensure the app is fully active
+          setTimeout(() => {
+            onRefresh();
+          }, 500);
+        }
+      }
+    });
+
+    return () => {
+      Notifications.removeNotificationSubscription(notificationListener);
+      Notifications.removeNotificationSubscription(responseListener);
+    };
+  }, []);
+
+  // Function to handle incoming notifications when app is in foreground
+  const handleForegroundNotification = (notification) => {
+    console.log('Foreground notification received:', notification);
+    const data = notification.request.content.data;
+    
+    if (data && data.type === 'new_ride_offer') {
+      // Show a local alert or update the UI
+      Alert.alert(
+        '🚗 Nouvelle course disponible!',
+        'Une nouvelle demande de course correspond à votre profil. Vérifiez l\'écran principal.',
+        [
+          { text: 'Voir maintenant', onPress: () => onRefresh() },
+          { text: 'Plus tard', style: 'cancel' }
+        ]
+      );
+    } else if (data && data.type === 'ride_assigned') {
+      Alert.alert(
+        '🎯 Course assignée!',
+        'Vous avez été sélectionné pour une nouvelle course. Vérifiez l\'écran principal.',
+        [
+          { text: 'Voir maintenant', onPress: () => onRefresh() },
+          { text: 'Plus tard', style: 'cancel' }
+        ]
+      );
+    }
+  };
+
+  // Set up foreground notification handler
+  useEffect(() => {
+    const foregroundSubscription = Notifications.addNotificationReceivedListener(handleForegroundNotification);
+    
+    return () => {
+      Notifications.removeNotificationSubscription(foregroundSubscription);
+    };
   }, []);
 
   // Cleanup function to reset navigation flag when component unmounts
@@ -1365,6 +1534,9 @@ const HomeScreenWithMap = () => {
       // Only update local state after successful Firestore update
       setIsOnline(newStatus);
       
+      // Update notification status
+      await updateDriverNotificationStatus(newStatus);
+      
       // Scale back to normal with success check
       Animated.parallel([
         Animated.spring(buttonScale, {
@@ -1828,7 +2000,6 @@ const HomeScreenWithMap = () => {
         {region ? (
           <MapView
             ref={mapRef}
-            provider={PROVIDER_GOOGLE}
             style={[styles.map, { backgroundColor: '#000000' }]}
             initialRegion={region}
             showsUserLocation
@@ -1844,7 +2015,6 @@ const HomeScreenWithMap = () => {
                 [{ text: 'OK' }]
               );
             }}
-            customMapStyle={mapStyle}
             loadingEnabled={true}
             loadingIndicatorColor="#FF8C00"
             loadingBackgroundColor="#000000"
@@ -2444,193 +2614,6 @@ const HomeScreenWithMap = () => {
     </SafeAreaView>
   );
 };
-
-const mapStyle = [
-  {
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#212121"
-      }
-    ]
-  },
-  {
-    "elementType": "labels.icon",
-    "stylers": [
-      {
-        "visibility": "off"
-      }
-    ]
-  },
-  {
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#757575"
-      }
-    ]
-  },
-  {
-    "elementType": "labels.text.stroke",
-    "stylers": [
-      {
-        "color": "#212121"
-      }
-    ]
-  },
-  {
-    "featureType": "administrative",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#757575"
-      }
-    ]
-  },
-  {
-    "featureType": "administrative.country",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#9e9e9e"
-      }
-    ]
-  },
-  {
-    "featureType": "administrative.land_parcel",
-    "stylers": [
-      {
-        "visibility": "off"
-      }
-    ]
-  },
-  {
-    "featureType": "administrative.locality",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#bdbdbd"
-      }
-    ]
-  },
-  {
-    "featureType": "poi",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#757575"
-      }
-    ]
-  },
-  {
-    "featureType": "poi.park",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#181818"
-      }
-    ]
-  },
-  {
-    "featureType": "poi.park",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#616161"
-      }
-    ]
-  },
-  {
-    "featureType": "poi.park",
-    "elementType": "labels.text.stroke",
-    "stylers": [
-      {
-        "color": "#1b1b1b"
-      }
-    ]
-  },
-  {
-    "featureType": "road",
-    "elementType": "geometry.fill",
-    "stylers": [
-      {
-        "color": "#2c2c2c"
-      }
-    ]
-  },
-  {
-    "featureType": "road",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#8a8a8a"
-      }
-    ]
-  },
-  {
-    "featureType": "road.arterial",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#373737"
-      }
-    ]
-  },
-  {
-    "featureType": "road.highway",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#3c3c3c"
-      }
-    ]
-  },
-  {
-    "featureType": "road.highway.controlled_access",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#4e4e4e"
-      }
-    ]
-  },
-  {
-    "featureType": "road.local",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#616161"
-      }
-    ]
-  },
-  {
-    "featureType": "transit",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#757575"
-      }
-    ]
-  },
-  {
-    "featureType": "water",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#000000"
-      }
-    ]
-  },
-  {
-    "featureType": "water",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#3d3d3d"
-      }
-    ]
-  }
-];
 
 const styles = StyleSheet.create({
   container: {

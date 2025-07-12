@@ -19,6 +19,10 @@
       "googleServicesFile": "./GoogleService-Info.plist",
       "newArchEnabled": true,
       "buildNumber": "27",
+      "config": {
+        "usesNonExemptEncryption": false,
+        "googleMapsApiKey": "AIzaSyBnVN-ACYzcA0Sy8BcPLpXG50Y9T8jhJGE"
+      },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "We need your location to show nearby rides and provide accurate navigation.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "We need your location to show nearby rides and provide accurate navigation even when the app is in the background.",
@@ -31,9 +35,6 @@
           "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false
-      },
-      "config": {
-        "usesNonExemptEncryption": false
       }
     },
     "android": {
@@ -101,7 +102,15 @@
       "color": "#ffffff",
       "iosDisplayInForeground": true,
       "androidMode": "default",
-      "androidCollapsedTitle": "New Ride Request"
+      "androidCollapsedTitle": "New Ride Request",
+      "androidChannelId": "ride-requests",
+      "androidChannelName": "Ride Requests",
+      "androidChannelDescription": "Notifications for new ride offers and assignments",
+      "androidChannelImportance": "max",
+      "androidChannelShowBadge": true,
+      "androidChannelEnableVibration": true,
+      "androidChannelVibrationPattern": [0, 250, 250, 250],
+      "androidChannelSound": "default"
     }
   }
 }
