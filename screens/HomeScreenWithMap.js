@@ -46,7 +46,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import { distributeRideRequest, updateDriverStats, Driver } from '../utils/rideDistribution';
-import { GOOGLE_MAPS_APIKEY } from "@env";
 import CavalLogo from "../assets/Caval_courrier_logo-removebg-preview.png";
 import { useTheme } from "../context/ThemeContext";
 import { auth } from "../config/firebase";
