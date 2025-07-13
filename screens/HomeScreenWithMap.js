@@ -146,6 +146,21 @@ const updateDriverNotificationStatus = async (isOnline) => {
   }
 };
 
+// Add this function near the other helper functions
+const fetchRideAndShowOffer = async (rideId) => {
+  try {
+    const rideDoc = await getDoc(doc(db, "rideRequests", rideId));
+    if (rideDoc.exists()) {
+      const rideData = rideDoc.data();
+      setCurrentRideRequest({ id: rideId, ...rideData });
+      setIsModalVisible(true);
+      // Optionally, fetch and set pickup/destination addresses here
+    }
+  } catch (error) {
+    console.error("Error fetching ride for notification:", error);
+  }
+};
+
 const HomeScreenWithMap = () => {
   // -----------------------------------------------------------------
   // 1. All hooks must be called in the same order every render
@@ -343,10 +358,16 @@ const HomeScreenWithMap = () => {
 
   // Set up foreground notification handler
   useEffect(() => {
-    const foregroundSubscription = Notifications.addNotificationReceivedListener(handleForegroundNotification);
-    
+    const notificationListener = Notifications.addNotificationReceivedListener(handleForegroundNotification);
+    const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data;
+      if (data && data.type === 'ride_assigned' && data.rideId) {
+        fetchRideAndShowOffer(data.rideId);
+      }
+    });
     return () => {
-      Notifications.removeNotificationSubscription(foregroundSubscription);
+      Notifications.removeNotificationSubscription(notificationListener);
+      Notifications.removeNotificationSubscription(responseListener);
     };
   }, []);
 
@@ -1148,6 +1169,11 @@ const HomeScreenWithMap = () => {
           await processRideOffer(ride, selectedDriver);
         } else {
           console.log('This driver was not selected for the ride');
+        }
+
+        // Add this block immediately after:
+        if (selectedDriver) {
+          
         }
       } catch (error) {
         console.error("Error in ride distribution:", error);
