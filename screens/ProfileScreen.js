@@ -400,6 +400,11 @@ async function handleLogout() {
             onPress={() => navigation.navigate("EarningsScreen")}
           />
           <MenuItem
+            icon="people-outline"
+            title="Chauffeurs en ligne"
+            onPress={() => navigation.navigate("OnlineDriverScreen")}
+          />
+          <MenuItem
             icon="help-circle-outline"
             title="Aide"
             onPress={handleHelpPress}
