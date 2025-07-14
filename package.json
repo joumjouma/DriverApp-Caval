@@ -45,6 +45,7 @@
     "expo-random": "^14.0.1",
     "expo-secure-store": "~14.2.3",
     "expo-status-bar": "~2.2.3",
+    "expo-task-manager": "^13.1.6",
     "expo-web-browser": "~14.2.0",
     "firebase": "^11.7.1",
     "node-fetch": "^3.3.2",

@@ -4,16 +4,49 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import OnlineDriverService from '../services/OnlineDriverService';
 
-const OnlineDriverStats = () => {
+// Module-level variables to persist fake stats across mounts
+let lastFakeStats = null;
+let lastFakeStatsTimestamp = 0;
+
+const OnlineDriverStats = ({ fake = false }) => {
   const { colors } = useTheme();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadStats();
-    const unsubscribe = OnlineDriverService.subscribeToOnlineDriverUpdates(setStats);
-    return () => unsubscribe();
-  }, []);
+    if (fake) {
+      // Helper to generate new fake stats
+      const genFakeStats = () => {
+        const totalOnlineDrivers = Math.floor(Math.random() * (26 - 12 + 1)) + 12;
+        const totalAvailableDrivers = Math.floor(totalOnlineDrivers * (0.6 + Math.random() * 0.3)); // 60-90%
+        lastFakeStats = {
+          totalOnlineDrivers,
+          totalAvailableDrivers,
+          driversByType: {},
+        };
+        lastFakeStatsTimestamp = Date.now();
+        setStats(lastFakeStats);
+        setLoading(false);
+      };
+      // On mount, use last stats if less than 5 minutes old, else generate new
+      const now = Date.now();
+      if (lastFakeStats && now - lastFakeStatsTimestamp < 300000) {
+        setStats(lastFakeStats);
+        setLoading(false);
+      } else {
+        genFakeStats();
+      }
+      // Set up interval to update every 5 minutes
+      const interval = setInterval(() => {
+        genFakeStats();
+      }, 300000);
+      return () => clearInterval(interval);
+    } else {
+      loadStats();
+      const unsubscribe = OnlineDriverService.subscribeToOnlineDriverUpdates(setStats);
+      return () => unsubscribe();
+    }
+  }, [fake]);
 
   const loadStats = async () => {
     try {
@@ -31,7 +64,7 @@ const OnlineDriverStats = () => {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={[styles.loadingText, { color: colors.text }]}>
-          Loading online driver statistics...
+          Chargement des statistiques des chauffeurs en ligne...
         </Text>
       </View>
     );
@@ -41,7 +74,7 @@ const OnlineDriverStats = () => {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <Text style={[styles.noDataText, { color: colors.text }]}>
-          No online driver data available
+          Aucune donnée de chauffeur en ligne disponible
         </Text>
       </View>
     );
@@ -52,9 +85,9 @@ const OnlineDriverStats = () => {
       <View style={[styles.header, { backgroundColor: colors.card }]}>
         <Ionicons name="car" size={32} color={colors.primary} />
         <View style={styles.headerText}>
-          <Text style={[styles.title, { color: colors.text }]}>Online Drivers</Text>
+          <Text style={[styles.title, { color: colors.text }]}>Chauffeurs en ligne</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            {stats.totalOnlineDrivers} online, {stats.totalAvailableDrivers} available
+            {stats.totalOnlineDrivers} en ligne, {stats.totalAvailableDrivers} disponibles
           </Text>
         </View>
       </View>
@@ -66,7 +99,7 @@ const OnlineDriverStats = () => {
             {stats.totalOnlineDrivers}
           </Text>
           <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>
-            Total Online
+            Total en ligne
           </Text>
         </View>
 
@@ -76,7 +109,7 @@ const OnlineDriverStats = () => {
             {stats.totalAvailableDrivers}
           </Text>
           <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>
-            Available
+            Disponibles
           </Text>
         </View>
       </View>
@@ -84,7 +117,7 @@ const OnlineDriverStats = () => {
       {stats.driversByType && Object.keys(stats.driversByType).length > 0 && (
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Drivers by Type
+            Chauffeurs par type
           </Text>
           {Object.entries(stats.driversByType).map(([type, data]) => (
             <View key={type} style={[styles.typeCard, { backgroundColor: colors.card }]}>
@@ -92,7 +125,7 @@ const OnlineDriverStats = () => {
                 {type.charAt(0).toUpperCase() + type.slice(1)}
               </Text>
               <Text style={[styles.typeStats, { color: colors.textSecondary }]}>
-                {data.count} online, {data.available} available
+                {data.count} en ligne, {data.available} disponibles
               </Text>
             </View>
           ))}

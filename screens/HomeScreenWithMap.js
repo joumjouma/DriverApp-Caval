@@ -800,10 +800,10 @@ const HomeScreenWithMap = () => {
   }, [region?.latitude, region?.longitude, fromLocation, auth.currentUser]);
 
   // -----------------------------------------------------------------
-  // 8. Subscribe to SelectedDriver collection for ride offers
+  // 8. Subscribe to Ride Requests if driver is online, not in progress, etc.
   // -----------------------------------------------------------------
   useEffect(() => {
-    console.log('[SELECTED DRIVER SUBSCRIPTION] Triggered with:', {
+    console.log('[SUBSCRIPTION EFFECT] Triggered with:', {
       isOnline,
       rideInProgress,
       rideCooldown,
@@ -818,109 +818,164 @@ const HomeScreenWithMap = () => {
       onSnapshotUnsubscribe.current = null;
     }
 
-    if (!isOnline || rideInProgress || rideCooldown || !driverType || !auth.currentUser) {
-      console.log('Not subscribing to SelectedDriver because:', {
+    if (!isOnline || rideInProgress || rideCooldown || !driverType) {
+      console.log('Not subscribing to ride requests because:', {
         isOnline,
         rideInProgress,
         rideCooldown,
-        driverType,
-        hasUser: !!auth.currentUser
+        driverType
       });
       setCurrentRideRequest(null);
       return;
     }
 
-    console.log('Setting up SelectedDriver subscription...');
+    console.log('Setting up new ride request subscription...');
 
-    const currentUserId = auth.currentUser.uid;
-    
-    // Query SelectedDriver collection for this driver
-    const q = query(
-      collection(db, "SelectedDriver"),
-      where("driverId", "==", currentUserId),
-      where("status", "==", "selected"),
-      where("notificationSent", "==", true)
-    );
-
-    console.log('Setting up SelectedDriver subscription with query:', {
-      driverId: currentUserId,
-      status: "selected",
-      notificationSent: true
-    });
-
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      console.log('Received SelectedDriver snapshot:', {
-        empty: snapshot.empty,
-        size: snapshot.size,
-        docs: snapshot.docs.map(doc => ({ 
-          id: doc.id, 
-          status: doc.data().status,
-          rideId: doc.data().rideId 
-        }))
-      });
-
-      // If the snapshot is empty, hide the modal and clear the current ride request
-      if (snapshot.empty) {
-        console.log('No selected driver documents found for this driver');
-        setIsModalVisible(false);
-        setCurrentRideRequest(null);
-        return;
-      }
-
-      // Get the most recent selected driver document
-      const docItem = snapshot.docs[0];
-      const selectedDriverData = { id: docItem.id, ...docItem.data() };
-      
-      console.log('[RIDE OFFER] Processing selected driver document:', {
-        selectedDriverId: selectedDriverData.id,
-        rideId: selectedDriverData.rideId,
-        status: selectedDriverData.status,
-        notificationSent: selectedDriverData.notificationSent,
-        currentUser: auth.currentUser?.uid
-      });
-
-      // Check if the ride is still valid (not expired)
-      const now = new Date();
-      const expiresAt = selectedDriverData.expiresAt?.toDate();
-      
-      if (expiresAt && now > expiresAt) {
-        console.log('Selected driver document has expired');
-        setIsModalVisible(false);
-        setCurrentRideRequest(null);
-        return;
-      }
-
-      // Check if we already have this ride request
-      if (currentRideRequestRef.current && currentRideRequestRef.current.id === selectedDriverData.rideId) {
-        console.log('Already processing this ride request');
-        return;
-      }
-
-      // Process the ride offer
+    // Get all available drivers with enhanced debugging
+    const getAvailableDrivers = async () => {
       try {
+        console.log('[GET AVAILABLE DRIVERS] Starting to fetch drivers...');
+        
+        // Add timeout for the entire operation
+        const fetchPromise = (async () => {
+          const driversSnapshot = await getDocs(collection(db, "Drivers"));
+          console.log('[GET AVAILABLE DRIVERS] Drivers snapshot received, size:', driversSnapshot.size);
+          
+          const drivers = [];
+          const currentUserId = auth.currentUser?.uid;
+          
+          console.log(`Total drivers in database: ${driversSnapshot.size}`);
+          
+          driversSnapshot.forEach(doc => {
+            const data = doc.data();
+            const isCurrentDriver = doc.id === currentUserId;
+            
+            console.log(`Driver ${doc.id}${isCurrentDriver ? ' (CURRENT)' : ''} status:`, {
+              isOnline: data.isOnline,
+              isAvailable: data.isAvailable,
+              rideInProgress: data.rideInProgress,
+              lastOnlineUpdate: data.lastOnlineUpdate,
+              location: data.latitude && data.longitude ? 'has location' : 'no location',
+              driverType: data.driverType,
+              currentRideId: data.currentRideId
+            });
+            
+            // Enhanced driver filtering - check multiple conditions
+            const hasValidLocation = data.latitude && data.longitude;
+            const isDriverOnline = data.isOnline === true;
+            const isDriverAvailable = data.isAvailable !== false; // Default to true if not set
+            const noRideInProgress = !data.rideInProgress;
+            const noCurrentRide = !data.currentRideId;
+            const matchesDriverType = data.driverType === driverType;
+            
+            if (isDriverOnline && hasValidLocation && isDriverAvailable && noRideInProgress && noCurrentRide && matchesDriverType) {
+              drivers.push(new Driver(
+                doc.id,
+                { latitude: data.latitude, longitude: data.longitude },
+                data.rideCount || 0,
+                data.lastRideTime ? new Date(data.lastRideTime) : null,
+                true
+              ));
+              console.log(`✓ Driver ${doc.id} added to available drivers`);
+              if (isCurrentDriver) {
+                console.log('[DRIVER FILTER] This driver is eligible:', doc.id, data);
+              }
+            } else {
+              console.log(`✗ Driver ${doc.id} excluded:`, {
+                isOnline: isDriverOnline,
+                hasLocation: hasValidLocation,
+                isAvailable: isDriverAvailable,
+                noRideInProgress,
+                noCurrentRide,
+                matchesType: matchesDriverType
+              });
+              if (isCurrentDriver) {
+                console.log('[DRIVER FILTER] This driver is NOT eligible:', doc.id, {
+                  isOnline: isDriverOnline,
+                  hasLocation: hasValidLocation,
+                  isAvailable: isDriverAvailable,
+                  noRideInProgress,
+                  noCurrentRide,
+                  matchesType: matchesDriverType,
+                  data
+                });
+              }
+            }
+          });
+          
+          console.log(`Found ${drivers.length} available drivers with valid locations and matching type: ${driverType}`);
+          console.log('[GET AVAILABLE DRIVERS] Function completed successfully');
+          return drivers;
+        })();
+        
+        // Add a shorter timeout (5 seconds instead of 10)
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('getAvailableDrivers timeout after 5s')), 5000)
+        );
+        
+        return await Promise.race([fetchPromise, timeoutPromise]);
+      } catch (error) {
+        console.error("[GET AVAILABLE DRIVERS] Error fetching available drivers:", error);
+        // Return empty array instead of throwing
+        return [];
+      }
+    };
+
+    // Helper function to process ride offer
+    const processRideOffer = async (ride, selectedDriver) => {
+      // Check if driver is still available (double-check)
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        try {
+          const driverDoc = await getDoc(doc(db, "Drivers", currentUser.uid));
+          if (driverDoc.exists()) {
+            const driverData = driverDoc.data();
+            if (!driverData.isOnline || driverData.rideInProgress || driverData.currentRideId) {
+              console.log('Driver is no longer available:', {
+                isOnline: driverData.isOnline,
+                rideInProgress: driverData.rideInProgress,
+                currentRideId: driverData.currentRideId
+              });
+              return;
+            }
+          }
+        } catch (error) {
+          console.error('Error checking driver availability:', error);
+        }
+      }
+      
+      // Fetch customer information from rideRequestsDriver collection
+      try {
+        // First get the ride request driver document by querying with rideRequestId
+        const rideRequestDriverQuery = query(
+          collection(db, "rideRequestsDriver"),
+          where("rideRequestId", "==", ride.id)
+        );
+        const rideRequestDriverSnapshot = await getDocs(rideRequestDriverQuery);
+        
+        let customerInfo = null;
+        if (!rideRequestDriverSnapshot.empty) {
+          customerInfo = rideRequestDriverSnapshot.docs[0].data();
+        }
+        
         const rideWithCustomerInfo = {
-          id: selectedDriverData.rideId,
-          ...selectedDriverData.rideInfo,
-          firstName: selectedDriverData.driverInfo?.firstName || "Customer",
-          lastName: selectedDriverData.driverInfo?.lastName || '',
-          number: selectedDriverData.driverInfo?.phoneNumber || "",
-          photo: selectedDriverData.driverInfo?.photo || "",
-          customerId: selectedDriverData.rideInfo?.customerId || selectedDriverData.rideInfo?.userId,
-          distanceToPickup: selectedDriverData.selectionCriteria?.distanceToPickup,
-          driverRating: selectedDriverData.selectionCriteria?.driverRating,
-          totalEligibleDrivers: selectedDriverData.selectionCriteria?.totalEligibleDrivers
+          ...ride,
+          firstName: customerInfo?.firstName || "Customer",
+          lastName: customerInfo?.lastName || '',
+          number: customerInfo?.number || "",
+          photo: customerInfo?.photo || "",
         };
         
+        console.log('Customer info fetched:', customerInfo);
         console.log('Ride with customer info:', rideWithCustomerInfo);
         
         setCurrentRideRequest(rideWithCustomerInfo);
         setIsLoadingAddress(true);
-        
         try {
-          const pickupLocation = { latitude: selectedDriverData.rideInfo.pickupLat, longitude: selectedDriverData.rideInfo.pickupLng };
+          const pickupLocation = { latitude: ride.pickupLat, longitude: ride.pickupLng };
           const destinationLocation = {
-            latitude: selectedDriverData.rideInfo.destinationLat,
-            longitude: selectedDriverData.rideInfo.destinationLng,
+            latitude: ride.destinationLat,
+            longitude: ride.destinationLng,
           };
           const distance = calculateDistance(pickupLocation, destinationLocation);
           console.log('Calculated distance:', distance);
@@ -955,10 +1010,177 @@ const HomeScreenWithMap = () => {
           }).start();
         }
       } catch (error) {
-        console.error("Error processing selected driver document:", error);
+        console.error("Error fetching customer information:", error);
+      }
+    };
+
+    const q = query(
+      collection(db, "rideRequests"),
+      where("status", "==", "waiting"),
+      where("rideType", "==", driverType)
+    );
+
+    console.log('Setting up ride request subscription with query:', {
+      status: "waiting",
+      rideType: driverType
+    });
+    
+    console.log('[SUBSCRIPTION DEBUG] Current state:', {
+      isOnline,
+      driverType,
+      rideInProgress,
+      rideCooldown,
+      currentUser: auth.currentUser?.uid
+    });
+
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      console.log('Received ride request snapshot:', {
+        empty: snapshot.empty,
+        size: snapshot.size,
+        docs: snapshot.docs.map(doc => ({ id: doc.id, status: doc.data().status }))
+      });
+
+      // If the snapshot is empty, hide the modal and clear the current ride request
+      if (snapshot.empty) {
+        console.log('No waiting rides found');
+        setIsModalVisible(false);
+        setCurrentRideRequest(null);
+        return;
+      }
+
+      // If the current ride offer is not in the snapshot, hide the modal and clear the current ride request
+      if (currentRideRequestRef.current && !snapshot.docs.some(doc => doc.id === currentRideRequestRef.current.id)) {
+        console.log('Current ride request no longer in waiting status');
+        setIsModalVisible(false);
+        setCurrentRideRequest(null);
+        return;
+      }
+      
+      const docItem = snapshot.docs[0];
+      const ride = { id: docItem.id, ...docItem.data() };
+      
+      console.log('[RIDE OFFER] Processing ride request:', {
+        rideId: ride.id,
+        status: ride.status,
+        rideType: ride.rideType,
+        assignedDriver: ride.assignedDriver,
+        declinedDrivers: ride.declinedDrivers || [],
+        currentUser: auth.currentUser?.uid
+      });
+      
+      // Hide the offer if the ride status is declined
+      if (ride.status === 'declined') {
+        console.log('Ride is declined, hiding modal');
+        setIsModalVisible(false);
+        setCurrentRideRequest(null);
+        return;
+      }
+
+      try {
+        // Get available drivers and distribute the ride
+        console.log('[RIDE OFFER] Starting distribution process...');
+        
+        const availableDrivers = await getAvailableDrivers();
+        console.log('[RIDE OFFER] Available drivers fetched:', availableDrivers.length);
+        
+        // Log the number of online drivers (already logged in distributeRideRequest, but repeat here for clarity)
+        const onlineDriversCount = availableDrivers.filter(d => d.isOnline).length;
+        console.log(`[RIDE OFFER] Number of online drivers considered: ${onlineDriversCount}`);
+        
+        if (availableDrivers.length === 0) {
+          console.log('[RIDE OFFER] No available drivers found, checking if current driver is eligible...');
+          
+          // Fallback: Check if current driver is eligible for this ride
+          const currentUser = auth.currentUser;
+          if (currentUser) {
+            try {
+              const driverDoc = await getDoc(doc(db, "Drivers", currentUser.uid));
+              if (driverDoc.exists()) {
+                const driverData = driverDoc.data();
+                const isEligible = driverData.isOnline === true && 
+                                 driverData.isAvailable !== false &&
+                                 !driverData.rideInProgress &&
+                                 !driverData.currentRideId &&
+                                 driverData.driverType === driverType &&
+                                 driverData.latitude && driverData.longitude;
+                
+                console.log('[RIDE OFFER] Fallback check - Current driver eligible:', isEligible, {
+                  isOnline: driverData.isOnline,
+                  isAvailable: driverData.isAvailable,
+                  rideInProgress: driverData.rideInProgress,
+                  currentRideId: driverData.currentRideId,
+                  driverType: driverData.driverType,
+                  hasLocation: !!(driverData.latitude && driverData.longitude)
+                });
+                
+                // Add detailed breakdown of each condition
+                console.log('[RIDE OFFER] Fallback eligibility breakdown:', {
+                  isOnlineCheck: driverData.isOnline === true,
+                  isAvailableCheck: driverData.isAvailable !== false,
+                  noRideInProgressCheck: !driverData.rideInProgress,
+                  noCurrentRideCheck: !driverData.currentRideId,
+                  driverTypeMatchCheck: driverData.driverType === driverType,
+                  hasLocationCheck: !!(driverData.latitude && driverData.longitude),
+                  expectedDriverType: driverType,
+                  actualDriverType: driverData.driverType,
+                  location: driverData.latitude && driverData.longitude ? 
+                    `${driverData.latitude}, ${driverData.longitude}` : 'No location'
+                });
+                
+                if (isEligible) {
+                  console.log('[RIDE OFFER] Using fallback - current driver is eligible');
+                  // Create a simple driver object for the current driver
+                  const currentDriver = new Driver(
+                    currentUser.uid,
+                    { latitude: driverData.latitude, longitude: driverData.longitude },
+                    driverData.rideCount || 0,
+                    driverData.lastRideTime ? new Date(driverData.lastRideTime) : null,
+                    true
+                  );
+                  
+                  // Show the ride offer to the current driver
+                  await processRideOffer(ride, currentDriver);
+                  return;
+                }
+              }
+            } catch (error) {
+              console.error('[RIDE OFFER] Error in fallback check:', error);
+            }
+          }
+          
+          console.log('[RIDE OFFER] No eligible drivers found, skipping distribution');
+          return;
+        }
+        
+        const selectedDriver = distributeRideRequest(ride, availableDrivers);
+        console.log('[RIDE OFFER] Distribution completed, selected driver:', selectedDriver?.id);
+
+        // Debug logging
+        console.log('[RIDE OFFER] Distribution results:', {
+          availableDrivers: availableDrivers.length,
+          selectedDriver: selectedDriver?.id,
+          currentUser: auth.currentUser?.uid,
+          isSelected: selectedDriver?.id === auth.currentUser?.uid
+        });
+
+        // Only show the ride request to the selected driver
+        if (selectedDriver && selectedDriver.id === auth.currentUser?.uid) {
+          console.log('This driver was selected for the ride');
+          await processRideOffer(ride, selectedDriver);
+        } else {
+          console.log('This driver was not selected for the ride');
+        }
+
+        // Add this block immediately after:
+        if (selectedDriver) {
+          
+        }
+      } catch (error) {
+        console.error("Error in ride distribution:", error);
+        // Don't throw the error, just log it to prevent crashes
       }
     }, (error) => {
-      console.error("Error in SelectedDriver subscription:", error);
+      console.error("Error in ride request subscription:", error);
       // Handle Firestore connection errors gracefully
       if (error.code === 'unavailable' || error.code === 'deadline-exceeded') {
         console.log('Firestore connection error, will retry automatically');
@@ -979,6 +1201,45 @@ const HomeScreenWithMap = () => {
       }
     };
   }, [isOnline, rideInProgress, rideCooldown, driverType, fromLocation]);
+
+  // Retry mechanism for Firestore connection issues
+  useEffect(() => {
+    let retryTimeout;
+    let connectionCheckInterval;
+    
+    const retryConnection = () => {
+      console.log('Retrying Firestore connection...');
+      // The subscription will automatically retry when the connection is restored
+    };
+    
+    // Set up a periodic check for connection issues
+    retryTimeout = setInterval(() => {
+      // This will help detect and recover from connection issues
+    }, 30000); // Check every 30 seconds
+    
+    // Set up connection status monitoring
+    connectionCheckInterval = setInterval(() => {
+      // Monitor connection status and log any issues
+      if (!auth.currentUser) {
+        console.log('No authenticated user, skipping connection check');
+        return;
+      }
+      
+      // Check if we have an active subscription
+      if (!onSnapshotUnsubscribe.current) {
+        console.log('No active subscription, connection may be lost');
+      }
+    }, 10000); // Check every 10 seconds
+    
+    return () => {
+      if (retryTimeout) {
+        clearInterval(retryTimeout);
+      }
+      if (connectionCheckInterval) {
+        clearInterval(connectionCheckInterval);
+      }
+    };
+  }, []);
 
   // -----------------------------------------------------------------
   // 9. Countdown Timer for Auto-Decline
@@ -1547,7 +1808,7 @@ const HomeScreenWithMap = () => {
   };
 
   // -----------------------------------------------------------------
-  // 14. Accept Ride (Update SelectedDriver status and ride request)
+  // 14. Accept Ride (Immediate unsubscribe + set rideInProgress)
   // -----------------------------------------------------------------
   const acceptRide = async () => {
     if (!currentRideRequest) return;
@@ -1585,34 +1846,13 @@ const HomeScreenWithMap = () => {
         lastRideTime: new Date().toISOString()
       });
 
-      // Update the ride request status to assigned
       await updateDoc(doc(db, "rideRequests", currentRideRequest.id), {
         status: "assigned",
         driverId,
         driverName: userName,
         driverPhoto: driverPhoto,
         driverPhone: driverPhone,
-        assignedAt: new Date()
       });
-
-      // Update SelectedDriver document status to accepted
-      const selectedDriverQuery = await getDocs(
-        query(
-          collection(db, "SelectedDriver"),
-          where("rideId", "==", currentRideRequest.id),
-          where("driverId", "==", driverId)
-        )
-      );
-
-      if (!selectedDriverQuery.empty) {
-        const selectedDriverDoc = selectedDriverQuery.docs[0];
-        await updateDoc(selectedDriverDoc.ref, {
-          status: "accepted",
-          acceptedAt: new Date()
-        });
-        console.log('Updated SelectedDriver document status to accepted');
-      }
-
       setIsModalVisible(false);
       if (currentRideRequest.fare) {
         const today = new Date();
@@ -1674,7 +1914,7 @@ const HomeScreenWithMap = () => {
   };
 
   // -----------------------------------------------------------------
-  // 15. Decline Ride (Update SelectedDriver status)
+  // 15. Decline Ride (Also unsubscribe to avoid second request)
   // -----------------------------------------------------------------
   const declineRide = async () => {
     if (!currentRideRequest) return;
@@ -1687,35 +1927,9 @@ const HomeScreenWithMap = () => {
       timerRef.current = null;
     }
     try {
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        console.log("No authenticated user found");
-        return;
-      }
-
-      // Update SelectedDriver document status to declined
-      const selectedDriverQuery = await getDocs(
-        query(
-          collection(db, "SelectedDriver"),
-          where("rideId", "==", currentRideRequest.id),
-          where("driverId", "==", currentUser.uid)
-        )
-      );
-
-      if (!selectedDriverQuery.empty) {
-        const selectedDriverDoc = selectedDriverQuery.docs[0];
-        await updateDoc(selectedDriverDoc.ref, {
-          status: "declined",
-          declinedAt: new Date()
-        });
-        console.log('Updated SelectedDriver document status to declined');
-      }
-
-      // Also update the ride request to add this driver to declined list
       await updateDoc(doc(db, "rideRequests", currentRideRequest.id), {
-        declinedDrivers: arrayUnion(currentUser.uid)
+        status: "declined",
       });
-
       console.log("Ride declined:", currentRideRequest.id);
       setIsModalVisible(false);
       setCurrentRideRequest(null);

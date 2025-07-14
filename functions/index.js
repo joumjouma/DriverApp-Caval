@@ -7,8 +7,7 @@
  * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
 
-const {onDocumentUpdated, onDocumentCreated} = require("firebase-functions/v2/firestore");
-const {onSchedule} = require("firebase-functions/v2/scheduler");
+const {onDocumentUpdated} = require("firebase-functions/v2/firestore");
 const {initializeApp} = require("firebase-admin/app");
 const {getFirestore} = require("firebase-admin/firestore");
 const {getMessaging} = require("firebase-admin/messaging");
@@ -159,226 +158,6 @@ Merci de votre service!
 Caval Team`;
 };
 
-// Cloud Function to handle ride assignment with driver selection from OnlineDriver collection
-exports.handleRideAssignment = onDocumentCreated({
-  document: "rideRequests/{rideId}",
-  maxInstances: 10,
-}, async (event) => {
-  const db = getFirestore();
-  
-  try {
-    const rideData = event.data && event.data.data ? event.data.data() : null;
-    
-    if (!rideData || rideData.status !== "waiting") {
-      console.log("Ride request is not in waiting status, skipping assignment");
-      return;
-    }
-
-    const rideType = rideData.rideType;
-    if (!rideType) {
-      console.log("No ride type specified");
-      return;
-    }
-
-    console.log(`Processing ride assignment for ride ${event.params.rideId}, type: ${rideType}`);
-
-    // Get the current OnlineDriver document
-    const onlineDriverDoc = await db.collection("OnlineDriver").doc("current").get();
-    
-    if (!onlineDriverDoc.exists) {
-      console.log("No OnlineDriver document found");
-      return;
-    }
-
-    const onlineDriverData = onlineDriverDoc.data();
-    
-    if (!onlineDriverData || !onlineDriverData.onlineDrivers || onlineDriverData.onlineDrivers.length === 0) {
-      console.log("No online drivers available");
-      return;
-    }
-
-    // Filter available drivers by type and availability
-    const eligibleDrivers = onlineDriverData.onlineDrivers.filter(driver => {
-      return driver.driverType === rideType && 
-             driver.isAvailable === true &&
-             driver.latitude && 
-             driver.longitude;
-    });
-
-    console.log(`Found ${eligibleDrivers.length} eligible drivers for ride type: ${rideType}`);
-
-    if (eligibleDrivers.length === 0) {
-      console.log("No eligible drivers found for this ride type");
-      return;
-    }
-
-    // Calculate distance from pickup location to each driver
-    const pickupLocation = {
-      latitude: rideData.pickupLat,
-      longitude: rideData.pickupLng
-    };
-
-    const driversWithDistance = eligibleDrivers.map(driver => {
-      const distance = calculateDistance(pickupLocation, {
-        latitude: driver.latitude,
-        longitude: driver.longitude
-      });
-      
-      return {
-        ...driver,
-        distanceToPickup: distance
-      };
-    });
-
-    // Sort by distance (closest first) and then by rating (highest first)
-    driversWithDistance.sort((a, b) => {
-      // Primary sort: distance (closest first)
-      if (Math.abs(a.distanceToPickup - b.distanceToPickup) > 0.1) {
-        return a.distanceToPickup - b.distanceToPickup;
-      }
-      // Secondary sort: rating (highest first)
-      return (b.rating || 0) - (a.rating || 0);
-    });
-
-    // Select the best driver (closest with highest rating)
-    const selectedDriver = driversWithDistance[0];
-    
-    console.log(`Selected driver: ${selectedDriver.id} (${selectedDriver.firstName})`);
-    console.log(`Distance to pickup: ${selectedDriver.distanceToPickup.toFixed(2)} km`);
-    console.log(`Driver rating: ${selectedDriver.rating || 0}`);
-
-    // Create SelectedDriver document
-    const selectedDriverData = {
-      rideId: event.params.rideId,
-      driverId: selectedDriver.id,
-      driverInfo: {
-        firstName: selectedDriver.firstName,
-        lastName: selectedDriver.lastName,
-        phoneNumber: selectedDriver.phoneNumber,
-        driverType: selectedDriver.driverType,
-        rating: selectedDriver.rating,
-        rideCount: selectedDriver.rideCount,
-        photo: selectedDriver.photo,
-        latitude: selectedDriver.latitude,
-        longitude: selectedDriver.longitude
-      },
-      rideInfo: {
-        pickupLat: rideData.pickupLat,
-        pickupLng: rideData.pickupLng,
-        destinationLat: rideData.destinationLat,
-        destinationLng: rideData.destinationLng,
-        pickupAddress: rideData.pickupAddress,
-        destinationAddress: rideData.destinationAddress,
-        fare: rideData.fare,
-        distance: rideData.distance,
-        rideType: rideData.rideType
-      },
-      selectionCriteria: {
-        distanceToPickup: selectedDriver.distanceToPickup,
-        driverRating: selectedDriver.rating,
-        totalEligibleDrivers: eligibleDrivers.length
-      },
-      status: "selected",
-      selectedAt: new Date(),
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes from now
-      notificationSent: false
-    };
-
-    // Save to SelectedDriver collection
-    await db.collection("SelectedDriver").add(selectedDriverData);
-    
-    console.log(`Driver ${selectedDriver.id} registered in SelectedDriver collection`);
-
-    // Wait 3 seconds before sending notification
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // Send notification to selected driver
-    try {
-      // Get driver's current document to get push token
-      const driverDoc = await db.collection("Drivers").doc(selectedDriver.id).get();
-      if (driverDoc.exists) {
-        const driverData = driverDoc.data();
-        
-        // Send push notification if Expo token exists
-        if (driverData.expoPushToken) {
-          const notificationData = {
-            type: "new_ride_offer",
-            rideId: event.params.rideId,
-            driverId: selectedDriver.id,
-            fare: (rideData.fare && rideData.fare.toString()) || "0",
-            pickupAddress: rideData.pickupAddress || "",
-            destinationAddress: rideData.destinationAddress || "",
-            rideType: rideData.rideType,
-            distance: selectedDriver.distanceToPickup.toFixed(2)
-          };
-
-          await sendExpoPushNotification(
-            driverData.expoPushToken,
-            "🚗 Nouvelle course disponible!",
-            `Une nouvelle course à ${selectedDriver.distanceToPickup.toFixed(1)}km de vous. Ouvrez l'app pour voir les détails.`,
-            notificationData
-          );
-          
-          console.log(`Push notification sent to driver ${selectedDriver.id}`);
-        } else {
-          console.log(`Driver ${selectedDriver.id} has no Expo push token`);
-        }
-
-        // Send WhatsApp message if phone number exists
-        if (selectedDriver.phoneNumber) {
-          const whatsappMessage = formatRideOfferMessage({
-            pickupAddress: rideData.pickupAddress || "Adresse non disponible",
-            destinationAddress: rideData.destinationAddress || "Adresse non disponible",
-            fare: rideData.fare || 0,
-            distance: selectedDriver.distanceToPickup
-          }, selectedDriver.firstName || "Chauffeur");
-
-          await sendWhatsAppMessage(selectedDriver.phoneNumber, whatsappMessage);
-          console.log(`WhatsApp message sent to driver ${selectedDriver.id}`);
-        } else {
-          console.log(`Driver ${selectedDriver.id} has no phone number`);
-        }
-      }
-
-      // Update SelectedDriver document to mark notification as sent
-      const selectedDriverQuery = await db.collection("SelectedDriver")
-        .where("rideId", "==", event.params.rideId)
-        .where("driverId", "==", selectedDriver.id)
-        .get();
-      
-      if (!selectedDriverQuery.empty) {
-        const docRef = selectedDriverQuery.docs[0].ref;
-        await docRef.update({ 
-          notificationSent: true,
-          notificationSentAt: new Date()
-        });
-      }
-
-      console.log(`Ride assignment completed for driver ${selectedDriver.id}`);
-    } catch (error) {
-      console.error("Error sending notification to selected driver:", error);
-    }
-
-  } catch (error) {
-    console.error("Error in handleRideAssignment:", error);
-  }
-});
-
-// Helper function to calculate distance between two points
-const calculateDistance = (point1, point2) => {
-  const R = 6371; // Earth's radius in km
-  const dLat = ((point2.latitude - point1.latitude) * Math.PI) / 180;
-  const dLon = ((point2.longitude - point1.longitude) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((point1.latitude * Math.PI) / 180) *
-      Math.cos((point2.latitude * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return parseFloat((R * c).toFixed(2));
-};
-
 // Cloud Function to send push notification when a new ride request is created
 exports.sendNewRideNotification = onDocumentUpdated({
   document: "rideRequests/{rideId}",
@@ -396,6 +175,20 @@ exports.sendNewRideNotification = onDocumentUpdated({
       if ((!beforeData || beforeData.status !== "waiting") &&
         afterData && afterData.status === "waiting") {
         console.log("New ride request created, selecting best driver");
+
+        // Send WhatsApp notification to admin/dispatcher
+        try {
+          const adminPhone = "+25377702036";
+          const rideId = event.params.rideId;
+          const customerName = afterData.customerName || "Unknown";
+          const customerPhone = afterData.customerPhone || "Unknown";
+          const origin = afterData.origin && afterData.origin.address ? afterData.origin.address : "Unknown";
+          const destination = afterData.destination && afterData.destination.address ? afterData.destination.address : "Unknown";
+          const adminMessage = `🆕 Nouvelle demande de course !\n\nID: ${rideId}\nClient: ${customerName}\nTéléphone: ${customerPhone}\nDépart: ${origin}\nDestination: ${destination}`;
+          await sendWhatsAppMessage(adminPhone, adminMessage);
+        } catch (err) {
+          console.error("Error sending admin WhatsApp notification:", err);
+        }
 
         const rideType = afterData.rideType;
         if (!rideType) {
@@ -436,17 +229,42 @@ exports.sendNewRideNotification = onDocumentUpdated({
         const bestDriver = eligibleDrivers[0];
         console.log("Selected driver:", bestDriver.id);
 
-        // Update the ride request with selected driver info
+        // Add to SelectedDriver collection
+        await db.collection("SelectedDriver").add({
+          rideId: event.params.rideId,
+          selectedDriverId: bestDriver.id,
+          selectedDriverName: bestDriver.firstName,
+          selectedDriverPhone: bestDriver.phoneNumber,
+          createdAt: new Date(),
+        });
+
+        // 1. Send WhatsApp message FIRST if phone number exists
+        if (bestDriver.phoneNumber) {
+          const whatsappMessage =
+            `🚗 *Nouvelle course possible!*
+
+Bonjour ${bestDriver.firstName},
+
+Ouvrez l'application Caval Courrier, vous pourriez recevoir une nouvelle course à accepter.
+
+Merci de votre service!
+Caval Team`;
+          await sendWhatsAppMessage(bestDriver.phoneNumber, whatsappMessage);
+        } else {
+          console.log("Selected driver has no phone number");
+        }
+
+        // 2. Update the ride request with selected driver info
         await db.collection("rideRequests").doc(event.params.rideId).update({
           selectedDriverId: bestDriver.id,
           selectedDriverName: bestDriver.firstName,
           selectedDriverPhone: bestDriver.phoneNumber,
         });
 
-        // Wait 3 seconds
+        // 3. Wait 3 seconds
         await new Promise(resolve => setTimeout(resolve, 3000));
 
-        // Prepare notification data
+        // 4. Prepare notification data
         const notificationData = {
           type: "new_ride_offer",
           rideId: event.params.rideId,
@@ -457,7 +275,7 @@ exports.sendNewRideNotification = onDocumentUpdated({
           rideType: rideType,
         };
 
-        // Send push notification if Expo token exists
+        // 5. Send push notification if Expo token exists
         if (bestDriver.expoPushToken) {
           await sendExpoPushNotification(
             bestDriver.expoPushToken,
@@ -469,7 +287,9 @@ exports.sendNewRideNotification = onDocumentUpdated({
           console.log("Selected driver has no Expo push token");
         }
 
-        // Send WhatsApp message if phone number exists
+        // 6. (Optional) Send WhatsApp ride details as before (if you want both messages)
+        // If you want to keep the detailed WhatsApp message, uncomment below:
+        /*
         if (bestDriver.phoneNumber) {
           const whatsappMessage = formatRideOfferMessage({
             pickupAddress: afterData.pickupAddress || "Adresse non disponible",
@@ -482,6 +302,7 @@ exports.sendNewRideNotification = onDocumentUpdated({
         } else {
           console.log("Selected driver has no phone number");
         }
+        */
 
         console.log("Ride offer sent to selected driver only");
       } else if ((!beforeData || beforeData.status !== "assigned") &&
@@ -562,6 +383,7 @@ Caval Team`;
   });
 
 // Cloud Function to handle driver selection and delayed ride offer
+const {onDocumentCreated} = require("firebase-functions/v2/firestore");
 
 exports.handleDriverSelection = onDocumentCreated({
   document: "rideRequests/{rideId}",
@@ -1146,51 +968,6 @@ exports.scheduledCleanupOfflineDrivers = onSchedule({
     }
   } catch (error) {
     console.error("Error in scheduled cleanup of offline drivers:", error);
-  }
-});
-
-exports.cleanupExpiredSelectedDrivers = onSchedule({
-  schedule: "every 5 minutes",
-  maxInstances: 1,
-}, async (event) => {
-  const db = getFirestore();
-
-  try {
-    console.log("Running scheduled cleanup of expired SelectedDriver documents...");
-    
-    const currentTime = new Date();
-    const cutoffTime = new Date(currentTime.getTime() - 15 * 60 * 1000); // 15 minutes ago
-    
-    // Query for expired SelectedDriver documents
-    const expiredQuery = query(
-      collection(db, "SelectedDriver"),
-      where("status", "==", "selected"),
-      where("selectedAt", "<", cutoffTime)
-    );
-    
-    const expiredDocs = await getDocs(expiredQuery);
-    
-    if (expiredDocs.empty) {
-      console.log("No expired SelectedDriver documents found");
-      return;
-    }
-
-    console.log(`Found ${expiredDocs.size} expired SelectedDriver documents to clean up`);
-    
-    // Update expired documents to expired status
-    const batch = db.batch();
-    expiredDocs.forEach((doc) => {
-      batch.update(doc.ref, {
-        status: "expired",
-        expiredAt: currentTime
-      });
-    });
-    
-    await batch.commit();
-    console.log(`Successfully updated ${expiredDocs.size} expired SelectedDriver documents`);
-    
-  } catch (error) {
-    console.error("Error in cleanup of expired SelectedDriver documents:", error);
   }
 });
 

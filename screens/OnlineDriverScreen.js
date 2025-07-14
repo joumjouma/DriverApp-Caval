@@ -34,7 +34,7 @@ const OnlineDriverScreen = () => {
         </SafeAreaView>
       </LinearGradient>
       <SafeAreaView style={{ flex: 1 }}>
-        <OnlineDriverStats />
+        <OnlineDriverStats fake={true} />
       </SafeAreaView>
     </View>
   );
