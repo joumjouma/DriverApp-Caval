@@ -1057,6 +1057,7 @@ const RideInProgressScreen = () => {
         await updateDoc(rideRef, {
           status: "driver_arrived",
           driverArrivedAt: serverTimestamp(),
+          state: "Arrivé", // <-- Add this line
         });
         console.log("✅ Ride status updated to driver_arrived in Firebase");
       }
@@ -1108,6 +1109,7 @@ const RideInProgressScreen = () => {
         await updateDoc(rideRef, {
           status: "picked_up",
           pickedUpAt: serverTimestamp(),
+          state: "En Charge", // <-- Add this line
         });
         console.log("✅ Ride status updated to picked_up in Firebase");
       }
@@ -1157,6 +1159,7 @@ const RideInProgressScreen = () => {
         await updateDoc(rideRef, {
           status: "completed",
           completedAt: serverTimestamp(),
+          state: "déposé", // <-- Add this line
         });
         console.log("Ride status updated to completed");
       }
