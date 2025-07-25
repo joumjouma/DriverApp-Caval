@@ -3,9 +3,9 @@
     "name": "Caval Courrier",
     "slug": "Eco-share-new",
     "owner": "zouhair1234",
-    "version": "1.00",
+    "version": "1.0.1",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icone.png",
     "userInterfaceStyle": "light",
     "scheme": "com.googleusercontent.apps.1007561335979-uiduf2a3h59mjcdassp5hl3rgljr5tes",
     "splash": {
@@ -18,7 +18,7 @@
       "bundleIdentifier": "com.misscoding.Eco-Share",
       "googleServicesFile": "./GoogleService-Info.plist",
       "newArchEnabled": true,
-      "buildNumber": "31",
+      "buildNumber": "34",
       "config": {
         "usesNonExemptEncryption": false,
         "googleMapsApiKey": "AIzaSyBnVN-ACYzcA0Sy8BcPLpXG50Y9T8jhJGE"
@@ -41,7 +41,7 @@
       "package": "com.misscoding.ecoshare",
       "versionCode": 133,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
+        "foregroundImage": "./assets/icone.png",
         "backgroundColor": "#ffffff"
       },
       "config": {
