@@ -52,8 +52,19 @@ import { useTheme } from "../context/ThemeContext";
 import { auth } from "../config/firebase";
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
-import * as TaskManager from 'expo-task-manager';
-import * as BackgroundFetch from 'expo-background-fetch';
+
+// Safe imports for background functionality
+let TaskManager = null;
+let BackgroundFetch = null;
+
+try {
+  TaskManager = require('expo-task-manager');
+  BackgroundFetch = require('expo-background-fetch');
+  console.log('Background packages loaded successfully');
+} catch (error) {
+  console.log('Background packages not available (this is normal in Expo Go):', error.message);
+  console.log('Background functionality will be disabled - this is expected in development');
+}
 
 const { width, height } = Dimensions.get("window");
 
@@ -67,6 +78,106 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 });
+
+// Define background task for countdown timer (only if TaskManager is available)
+const COUNTDOWN_TASK_NAME = 'countdown-timer-task';
+const RIDE_MONITORING_TASK_NAME = 'ride-monitoring-task';
+
+if (TaskManager) {
+  TaskManager.defineTask(COUNTDOWN_TASK_NAME, async ({ data, error }) => {
+    if (error) {
+      console.error('Countdown timer task error:', error);
+      return;
+    }
+    
+    if (data) {
+      const { timeLeft, rideId, startTime, totalDuration } = data;
+      
+      try {
+        // Calculate elapsed time and remaining time
+        const elapsed = Date.now() - startTime;
+        const remainingTime = Math.max(0, Math.ceil((totalDuration - elapsed) / 1000));
+        
+        if (remainingTime > 0) {
+          // Update the countdown in AsyncStorage for persistence
+          await AsyncStorage.setItem(`countdown_${rideId}`, JSON.stringify({
+            timeLeft: remainingTime,
+            rideId,
+            startTime,
+            totalDuration,
+            lastUpdate: Date.now()
+          }));
+          
+          console.log(`Background countdown update: ${remainingTime}s remaining for ride ${rideId}`);
+        } else {
+          // Countdown expired, mark ride as declined
+          await AsyncStorage.setItem(`countdown_${rideId}_expired`, JSON.stringify({
+            expired: true,
+            timestamp: Date.now()
+          }));
+          
+          console.log(`Background countdown expired for ride ${rideId}`);
+        }
+      } catch (e) {
+        console.error('Error updating countdown in background:', e);
+      }
+    }
+  });
+
+  // Define background task for ride request monitoring
+  TaskManager.defineTask(RIDE_MONITORING_TASK_NAME, async ({ data, error }) => {
+    if (error) {
+      console.error('Ride monitoring task error:', error);
+      return;
+    }
+    
+    try {
+      // Check for new ride requests in the background
+      const { driverId, driverType, lastCheckTime } = data;
+      
+      // Query Firestore for new ride requests
+      const q = query(
+        collection(db, "rideRequests"),
+        where("status", "==", "waiting"),
+        where("rideType", "==", driverType),
+        where("createdAt", ">", new Date(lastCheckTime))
+      );
+      
+      const snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+        // New ride requests found, send push notification
+        const rideRequest = snapshot.docs[0];
+        const rideData = rideRequest.data();
+        
+        // Store ride request for when app comes to foreground
+        await AsyncStorage.setItem(`background_ride_${rideRequest.id}`, JSON.stringify({
+          rideId: rideRequest.id,
+          rideData,
+          timestamp: Date.now()
+        }));
+        
+        // Send local notification
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "🚗 Nouvelle course disponible!",
+            body: `Course de ${rideData.rideType} - ${rideData.fare}€`,
+            data: { 
+              type: 'new_ride_request',
+              rideId: rideRequest.id,
+              rideData 
+            },
+          },
+          trigger: null, // Send immediately
+        });
+        
+        console.log(`Background ride monitoring: New ride ${rideRequest.id} found and notification sent`);
+      }
+    } catch (e) {
+      console.error('Error in background ride monitoring:', e);
+    }
+  });
+}
 
 // Function to register for push notifications
 const registerForPushNotificationsAsync = async () => {
@@ -131,7 +242,7 @@ const updateDriverNotificationStatus = async (isOnline) => {
       console.error('No authenticated user found');
       return;
     }
-
+    
     const driverRef = doc(db, "Drivers", currentUser.uid);
     await updateDoc(driverRef, {
       isOnline: isOnline,
@@ -234,6 +345,15 @@ const HomeScreenWithMap = () => {
   const [showStatusPopup, setShowStatusPopup] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
+  // Safe initialization check
+  useEffect(() => {
+    console.log('HomeScreenWithMap initialized');
+    console.log('Background packages available:', {
+      TaskManager: !!TaskManager,
+      BackgroundFetch: !!BackgroundFetch
+    });
+  }, []);
+
   // -----------------------------------------------------------------
   // 2. Effects
   // -----------------------------------------------------------------
@@ -322,7 +442,7 @@ const HomeScreenWithMap = () => {
         }
         
         // Start background ride monitoring if driver is online
-        if (isOnline && auth.currentUser && driverType) {
+        if (isOnline && auth.currentUser && driverType && TaskManager && BackgroundFetch) {
           startBackgroundRideMonitoring();
         }
       }
@@ -338,7 +458,7 @@ const HomeScreenWithMap = () => {
   // Background Countdown Management
   // -----------------------------------------------------------------
   const startBackgroundCountdown = async () => {
-    if (!currentRideRequest || timeLeft <= 0) return;
+    if (!currentRideRequest || timeLeft <= 0 || !TaskManager || !BackgroundFetch) return;
     
     try {
       // Store current countdown state
@@ -366,11 +486,22 @@ const HomeScreenWithMap = () => {
       console.log('Background countdown task started for ride:', currentRideRequest.id);
     } catch (error) {
       console.error('Error starting background countdown:', error);
+      // Fallback: just store the data without background tasks
+      try {
+        await AsyncStorage.setItem(`countdown_${currentRideRequest.id}`, JSON.stringify({
+          timeLeft,
+          rideId: currentRideRequest.id,
+          startTime: Date.now(),
+          totalDuration: 15000
+        }));
+      } catch (fallbackError) {
+        console.error('Error in fallback countdown storage:', fallbackError);
+      }
     }
   };
 
   const startBackgroundRideMonitoring = async () => {
-    if (!auth.currentUser || !isOnline || !driverType) return;
+    if (!auth.currentUser || !isOnline || !driverType || !TaskManager || !BackgroundFetch) return;
     
     try {
       const monitoringData = {
@@ -382,12 +513,12 @@ const HomeScreenWithMap = () => {
       // Store monitoring state
       await AsyncStorage.setItem('background_ride_monitoring', JSON.stringify(monitoringData));
       
-      // Start background ride monitoring task
+      // Start background task with TaskManager
       await TaskManager.startTaskAsync(RIDE_MONITORING_TASK_NAME, {
         data: monitoringData
       });
       
-      // Register background fetch for periodic ride checking
+      // Also register background fetch for periodic updates
       await BackgroundFetch.registerTaskAsync(RIDE_MONITORING_TASK_NAME, {
         minimumInterval: 10000, // Check every 10 seconds
         stopOnTerminate: false,
@@ -397,10 +528,22 @@ const HomeScreenWithMap = () => {
       console.log('Background ride monitoring started for driver:', auth.currentUser.uid);
     } catch (error) {
       console.error('Error starting background ride monitoring:', error);
+      // Fallback: just store the monitoring data without background tasks
+      try {
+        await AsyncStorage.setItem('background_ride_monitoring', JSON.stringify({
+          driverId: auth.currentUser.uid,
+          driverType,
+          lastCheckTime: Date.now()
+        }));
+      } catch (fallbackError) {
+        console.error('Error in fallback monitoring storage:', fallbackError);
+      }
     }
   };
 
   const stopBackgroundRideMonitoring = async () => {
+    if (!BackgroundFetch) return;
+    
     try {
       // Unregister background tasks
       await BackgroundFetch.unregisterTaskAsync(RIDE_MONITORING_TASK_NAME);
@@ -411,6 +554,12 @@ const HomeScreenWithMap = () => {
       console.log('Background ride monitoring stopped');
     } catch (error) {
       console.error('Error stopping background ride monitoring:', error);
+      // Fallback: just clean up the stored data
+      try {
+        await AsyncStorage.removeItem('background_ride_monitoring');
+      } catch (fallbackError) {
+        console.error('Error in fallback monitoring cleanup:', fallbackError);
+      }
     }
   };
 
@@ -421,25 +570,35 @@ const HomeScreenWithMap = () => {
       const backgroundRideKeys = keys.filter(key => key.startsWith('background_ride_'));
       
       for (const key of backgroundRideKeys) {
-        const rideData = await AsyncStorage.getItem(key);
-        if (rideData) {
-          const { rideId, rideData: ride, timestamp } = JSON.parse(rideData);
-          
-          // Check if ride is still available (not too old)
-          const age = Date.now() - timestamp;
-          const maxAge = 30000; // 30 seconds
-          
-          if (age < maxAge) {
-            console.log('Processing background ride:', rideId);
+        try {
+          const rideData = await AsyncStorage.getItem(key);
+          if (rideData) {
+            const { rideId, rideData: ride, timestamp } = JSON.parse(rideData);
             
-            // Process the ride offer
-            if (isOnline && !rideInProgress && !rideCooldown) {
-              await processRideOffer(ride, null); // Let the system select the best driver
+            // Check if ride is still available (not too old)
+            const age = Date.now() - timestamp;
+            const maxAge = 30000; // 30 seconds
+            
+            if (age < maxAge) {
+              console.log('Processing background ride:', rideId);
+              
+              // Process the ride offer
+              if (isOnline && !rideInProgress && !rideCooldown) {
+                await processRideOffer(ride, null); // Let the system select the best driver
+              }
             }
+            
+            // Clean up stored data
+            await AsyncStorage.removeItem(key);
           }
-          
-          // Clean up the stored ride data
-          await AsyncStorage.removeItem(key);
+        } catch (rideError) {
+          console.error('Error processing individual background ride:', rideError);
+          // Clean up the problematic key
+          try {
+            await AsyncStorage.removeItem(key);
+          } catch (cleanupError) {
+            console.error('Error cleaning up problematic key:', cleanupError);
+          }
         }
       }
     } catch (error) {
@@ -456,7 +615,11 @@ const HomeScreenWithMap = () => {
       if (expiredCountdown) {
         console.log('Countdown expired while in background');
         setTimeLeft(0);
-        await AsyncStorage.removeItem(`countdown_${currentRideRequest.id}_expired`);
+        try {
+          await AsyncStorage.removeItem(`countdown_${currentRideRequest.id}_expired`);
+        } catch (cleanupError) {
+          console.error('Error cleaning up expired countdown:', cleanupError);
+        }
         declineRide();
         return;
       }
@@ -485,7 +648,11 @@ const HomeScreenWithMap = () => {
         }
         
         // Clean up stored countdown
-        await AsyncStorage.removeItem(`countdown_${currentRideRequest.id}`);
+        try {
+          await AsyncStorage.removeItem(`countdown_${currentRideRequest.id}`);
+        } catch (cleanupError) {
+          console.error('Error cleaning up stored countdown:', cleanupError);
+        }
       }
     } catch (error) {
       console.error('Error restoring countdown from background:', error);
@@ -493,31 +660,37 @@ const HomeScreenWithMap = () => {
   };
 
   const startTimerWithTime = (initialTime) => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
+    try {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+      
+      setTimeLeft(initialTime);
+      countdownAnim.setValue(1);
+      
+      // Calculate animation duration based on remaining time
+      const animationDuration = initialTime * 1000;
+      
+      Animated.timing(countdownAnim, {
+        toValue: 0,
+        duration: animationDuration,
+        useNativeDriver: false,
+      }).start();
+      
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prevTime) => {
+          if (prevTime <= 1) {
+            clearInterval(timerRef.current);
+            return 0;
+          }
+          return prevTime - 1;
+        });
+      }, 1000);
+    } catch (error) {
+      console.error('Error starting timer with time:', error);
+      // Fallback to regular timer
+      startTimer();
     }
-    
-    setTimeLeft(initialTime);
-    countdownAnim.setValue(1);
-    
-    // Calculate animation duration based on remaining time
-    const animationDuration = initialTime * 1000;
-    
-    Animated.timing(countdownAnim, {
-      toValue: 0,
-      duration: animationDuration,
-      useNativeDriver: false,
-    }).start();
-    
-    timerRef.current = setInterval(() => {
-      setTimeLeft((prevTime) => {
-        if (prevTime <= 1) {
-          clearInterval(timerRef.current);
-          return 0;
-        }
-        return prevTime - 1;
-      });
-    }, 1000);
   };
 
   // -----------------------------------------------------------------
@@ -617,7 +790,7 @@ const HomeScreenWithMap = () => {
         mapRef.current = null;
       }
       // Clean up background tasks
-      if (backgroundTaskRef.current) {
+      if (backgroundTaskRef.current && BackgroundFetch) {
         BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME).catch(console.error);
       }
       // Stop background ride monitoring
@@ -947,7 +1120,7 @@ const HomeScreenWithMap = () => {
         console.log("Real-time driver data updated, including rating:", userData.rating);
         
         // Start background ride monitoring if driver is online and we have driver type
-        if (userData.isOnline && userData.driverType && !backgroundTaskRef.current) {
+        if (userData.isOnline && userData.driverType && !backgroundTaskRef.current && TaskManager && BackgroundFetch) {
           console.log('Starting background ride monitoring from real-time update');
           await startBackgroundRideMonitoring();
         }
@@ -1494,32 +1667,38 @@ const HomeScreenWithMap = () => {
   }, [timeLeft]);
 
   const startTimer = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
+    try {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+      
+      // Store the start time for background calculations
+      countdownStartTimeRef.current = Date.now();
+      
+      setTimeLeft(15);
+      countdownAnim.setValue(1);
+      
+      // Start the animation
+      Animated.timing(countdownAnim, {
+        toValue: 0,
+        duration: 15000,
+        useNativeDriver: false,
+      }).start();
+      
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prevTime) => {
+          if (prevTime <= 1) {
+            clearInterval(timerRef.current);
+            return 0;
+          }
+          return prevTime - 1;
+        });
+      }, 1000);
+    } catch (error) {
+      console.error('Error starting timer:', error);
+      // Fallback: just set the time without animation
+      setTimeLeft(15);
     }
-    
-    // Store the start time for background calculations
-    countdownStartTimeRef.current = Date.now();
-    
-    setTimeLeft(15);
-    countdownAnim.setValue(1);
-    
-    // Start the animation
-    Animated.timing(countdownAnim, {
-      toValue: 0,
-      duration: 15000,
-      useNativeDriver: false,
-    }).start();
-    
-    timerRef.current = setInterval(() => {
-      setTimeLeft((prevTime) => {
-        if (prevTime <= 1) {
-          clearInterval(timerRef.current);
-          return 0;
-        }
-        return prevTime - 1;
-      });
-    }, 1000);
   };
 
   // Cleanup function to reset navigation flag when component unmounts
@@ -1537,7 +1716,7 @@ const HomeScreenWithMap = () => {
         mapRef.current = null;
       }
       // Clean up background tasks
-      if (backgroundTaskRef.current) {
+      if (backgroundTaskRef.current && BackgroundFetch) {
         BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME).catch(console.error);
       }
       // Stop background ride monitoring
@@ -1551,7 +1730,7 @@ const HomeScreenWithMap = () => {
       timerRef.current = null;
       
       // Clean up background countdown task
-      if (currentRideRequest) {
+      if (currentRideRequest && BackgroundFetch) {
         BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME).catch(console.error);
         // Clean up stored countdown data
         AsyncStorage.removeItem(`countdown_${currentRideRequest.id}`).catch(console.error);
@@ -1847,10 +2026,14 @@ const HomeScreenWithMap = () => {
       // Start/stop background ride monitoring based on online status
       if (newStatus) {
         // Going online - start background ride monitoring
-        await startBackgroundRideMonitoring();
+        if (TaskManager && BackgroundFetch) {
+          await startBackgroundRideMonitoring();
+        }
       } else {
         // Going offline - stop background ride monitoring
-        await stopBackgroundRideMonitoring();
+        if (TaskManager && BackgroundFetch) {
+          await stopBackgroundRideMonitoring();
+        }
       }
       
       // Scale back to normal with success check
@@ -2040,6 +2223,7 @@ const HomeScreenWithMap = () => {
       );
     }
     
+    
     // Add empty stars to complete 5 stars
     const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
     for (let i = 0; i < emptyStars; i++) {
@@ -2123,7 +2307,9 @@ const HomeScreenWithMap = () => {
     
     // Clean up background countdown task
     try {
-      await BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME);
+      if (BackgroundFetch) {
+        await BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME);
+      }
       // Clean up stored countdown data
       await AsyncStorage.removeItem(`countdown_${currentRideRequest.id}`);
     } catch (error) {
@@ -2230,7 +2416,9 @@ const HomeScreenWithMap = () => {
     
     // Clean up background countdown task
     try {
-      await BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME);
+      if (BackgroundFetch) {
+        await BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME);
+      }
       // Clean up stored countdown data
       await AsyncStorage.removeItem(`countdown_${currentRideRequest.id}`);
     } catch (error) {
@@ -3702,104 +3890,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-});
-
-// Define background task for countdown timer
-const COUNTDOWN_TASK_NAME = 'countdown-timer-task';
-const RIDE_MONITORING_TASK_NAME = 'ride-monitoring-task';
-
-TaskManager.defineTask(COUNTDOWN_TASK_NAME, async ({ data, error }) => {
-  if (error) {
-    console.error('Countdown timer task error:', error);
-    return;
-  }
-  
-  if (data) {
-    const { timeLeft, rideId, startTime, totalDuration } = data;
-    
-    try {
-      // Calculate elapsed time and remaining time
-      const elapsed = Date.now() - startTime;
-      const remainingTime = Math.max(0, Math.ceil((totalDuration - elapsed) / 1000));
-      
-      if (remainingTime > 0) {
-        // Update the countdown in AsyncStorage for persistence
-        await AsyncStorage.setItem(`countdown_${rideId}`, JSON.stringify({
-          timeLeft: remainingTime,
-          rideId,
-          startTime,
-          totalDuration,
-          lastUpdate: Date.now()
-        }));
-        
-        console.log(`Background countdown update: ${remainingTime}s remaining for ride ${rideId}`);
-      } else {
-        // Countdown expired, mark ride as declined
-        await AsyncStorage.setItem(`countdown_${rideId}_expired`, JSON.stringify({
-          expired: true,
-          timestamp: Date.now()
-        }));
-        
-        console.log(`Background countdown expired for ride ${rideId}`);
-      }
-    } catch (e) {
-      console.error('Error updating countdown in background:', e);
-    }
-  }
-});
-
-// Define background task for ride request monitoring
-TaskManager.defineTask(RIDE_MONITORING_TASK_NAME, async ({ data, error }) => {
-  if (error) {
-    console.error('Ride monitoring task error:', error);
-    return;
-  }
-  
-  try {
-    // Check for new ride requests in the background
-    const { driverId, driverType, lastCheckTime } = data;
-    
-    // Query Firestore for new ride requests
-    const q = query(
-      collection(db, "rideRequests"),
-      where("status", "==", "waiting"),
-      where("rideType", "==", driverType),
-      where("createdAt", ">", new Date(lastCheckTime))
-    );
-    
-    const snapshot = await getDocs(q);
-    
-    if (!snapshot.empty) {
-      // New ride requests found, send push notification
-      const rideRequest = snapshot.docs[0];
-      const rideData = rideRequest.data();
-      
-      // Store ride request for when app comes to foreground
-      await AsyncStorage.setItem(`background_ride_${rideRequest.id}`, JSON.stringify({
-        rideId: rideRequest.id,
-        rideData,
-        timestamp: Date.now()
-      }));
-      
-      // Send local notification
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: "🚗 Nouvelle course disponible!",
-          body: `Course de ${rideData.rideType} - ${rideData.fare}€`,
-          data: { 
-            type: 'new_ride_request',
-            rideId: rideRequest.id,
-            rideData 
-          },
-        },
-        trigger: null, // Send immediately
-      });
-      
-      console.log(`Background ride monitoring: New ride ${rideRequest.id} found and notification sent`);
-    }
-  } catch (e) {
-    console.error('Error in background ride monitoring:', e);
-  }
 });
 
 export default HomeScreenWithMap;
