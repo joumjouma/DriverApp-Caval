@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import { auth } from '../config/firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import messaging from '@react-native-firebase/messaging';
 
 // Configure notification behavior
 Notifications.setNotificationHandler({
@@ -17,6 +18,7 @@ Notifications.setNotificationHandler({
 class NotificationService {
   constructor() {
     this.expoPushToken = null;
+    this.fcmToken = null;
     this.auth = auth;
   }
 
@@ -50,7 +52,7 @@ class NotificationService {
       if (!hasPermission) return null;
 
       const token = await Notifications.getExpoPushTokenAsync({
-        projectId: '97f35a2b-2bbf-4893-9f43-cd2df775196a', // Your Expo project ID
+        projectId: '14b90510-8ecb-46b6-9f35-2537774896a1', // Updated to match app.json EAS project ID
       });
 
       this.expoPushToken = token.data;
@@ -62,7 +64,30 @@ class NotificationService {
     }
   }
 
-  // Save the push token to Firestore
+  // Get Firebase Cloud Messaging token
+  async getFCMToken() {
+    try {
+      if (Platform.OS === 'ios') {
+        const authStatus = await messaging().requestPermission();
+        const enabled =
+          authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+          authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+
+        if (enabled) {
+          const token = await messaging().getToken();
+          this.fcmToken = token;
+          console.log('FCM token:', this.fcmToken);
+          return this.fcmToken;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting FCM token:', error);
+      return null;
+    }
+  }
+
+  // Save both push tokens to Firestore
   async savePushTokenToFirestore() {
     try {
       const user = this.auth.currentUser;
@@ -71,22 +96,26 @@ class NotificationService {
         return;
       }
 
-      const token = await this.getExpoPushToken();
-      if (!token) {
-        console.log('No push token available');
+      // Get both tokens
+      const expoToken = await this.getExpoPushToken();
+      const fcmToken = await this.getFCMToken();
+
+      if (!expoToken && !fcmToken) {
+        console.log('No push tokens available');
         return;
       }
 
-      // Save token to user's document in Firestore
+      // Save tokens to user's document in Firestore
       const userDocRef = doc(db, 'Drivers', user.uid);
       await setDoc(userDocRef, {
-        pushToken: token,
+        expoPushToken: expoToken,
+        fcmToken: fcmToken,
         tokenUpdatedAt: new Date().toISOString(),
       }, { merge: true });
 
-      console.log('Push token saved to Firestore');
+      console.log('Push tokens saved to Firestore');
     } catch (error) {
-      console.error('Error saving push token to Firestore:', error);
+      console.error('Error saving push tokens to Firestore:', error);
     }
   }
 
@@ -103,13 +132,14 @@ class NotificationService {
 
       const userDocRef = doc(db, 'Drivers', user.uid);
       await setDoc(userDocRef, {
-        pushToken: null,
+        expoPushToken: null,
+        fcmToken: null,
         tokenUpdatedAt: new Date().toISOString(),
       }, { merge: true });
 
-      console.log('Push token removed from Firestore');
+      console.log('Push tokens removed from Firestore');
     } catch (error) {
-      console.error('Error removing push token:', error);
+      console.error('Error removing push tokens:', error);
     }
   }
 
