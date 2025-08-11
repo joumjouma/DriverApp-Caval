@@ -7,7 +7,7 @@
     "orientation": "portrait",
     "icon": "./assets/icone.png",
     "userInterfaceStyle": "light",
-    "scheme": "com.googleusercontent.apps.1007561335979-uiduf2a3h59mjcdassp5hl3rgljr5tes",
+    "scheme": "caval-courrier",
     "splash": {
       "image": "./assets/Caval_courrier_logo-removebg-preview.png",
       "resizeMode": "contain",
@@ -18,7 +18,7 @@
       "bundleIdentifier": "com.misscoding.Eco-Share",
       "googleServicesFile": "./GoogleService-Info.plist",
       "newArchEnabled": true,
-      "buildNumber": "35",
+      "buildNumber": "36",
       "config": {
         "usesNonExemptEncryption": false,
         "googleMapsApiKey": "AIzaSyBnVN-ACYzcA0Sy8BcPLpXG50Y9T8jhJGE"

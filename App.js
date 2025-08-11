@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { auth, db } from './config/firebase';
 import notificationService from './services/NotificationService';
+import * as Linking from 'expo-linking';
 
 // Import Screens
 import LoginScreen from "./screens/LoginScreen";
@@ -134,7 +135,29 @@ const AppContent = () => {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer
+      linking={{
+        prefixes: [Linking.createURL('/')],
+        config: {
+          screens: {
+            LoginScreen: 'login',
+            RegisterScreen: 'register',
+            HomeScreenWithMap: 'home',
+            RideInProgressScreen: 'ride',
+            DriverInboxScreen: 'inbox',
+            RideOptionsScreen: 'options',
+            EarningsScreen: 'earnings',
+            ModifyInfo: 'modify',
+            PaymentScreen: 'payment',
+            SettingsScreen: 'settings',
+            Profile: 'profile',
+            ApprovalStatusScreen: 'approval',
+            OnlineDriverScreen: 'online',
+            TestOnlineDriverScreen: 'test-online'
+          }
+        }
+      }}
+    >
       <Stack.Navigator
         initialRouteName={user ? "HomeScreenWithMap" : "LoginScreen"}
         screenOptions={{
