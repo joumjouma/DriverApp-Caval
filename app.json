@@ -62,7 +62,7 @@
       "googleServicesFile": "./google-services.json"
     },
     "web": {
-      "favicon": "./assets/icon.png"
+      "favicon": "./assets/icone.png"
     },
     "extra": {
       "firebaseApiKey": "AIzaSyBMQW59pFle0vVp0xotmnpVTYqAlTbdbQQ",
@@ -91,7 +91,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
+          "icon": "./assets/icone.png",
           "color": "#ffffff"
         }
       ],
@@ -99,7 +99,7 @@
       "expo-font"
     ],
     "notification": {
-      "icon": "./assets/icon.png",
+      "icon": "./assets/icone.png",
       "color": "#ffffff",
       "iosDisplayInForeground": true,
       "androidMode": "default",
