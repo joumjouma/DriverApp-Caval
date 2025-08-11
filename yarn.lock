@@ -3532,6 +3532,13 @@ expo-auth-session@~6.2.1:
     expo-web-browser "~14.2.0"
     invariant "^2.2.4"
 
+expo-background-fetch@^13.1.6:
+  version "13.1.6"
+  resolved "https://registry.npmjs.org/expo-background-fetch/-/expo-background-fetch-13.1.6.tgz"
+  integrity sha512-hl4kR32DaxoHFYqNsILLZG2mWssCkUb4wnEAHtDGmpxUP4SCnJILcAn99J6AGDFUw5lF6FXNZZCXNfcrFioO4Q==
+  dependencies:
+    expo-task-manager "~13.1.6"
+
 expo-blur@~14.1.5:
   version "14.1.5"
   resolved "https://registry.npmjs.org/expo-blur/-/expo-blur-14.1.5.tgz"
@@ -3717,7 +3724,7 @@ expo-status-bar@~2.2.3:
     react-native-edge-to-edge "1.6.0"
     react-native-is-edge-to-edge "^1.1.6"
 
-expo-task-manager@^13.1.6:
+expo-task-manager@^13.1.6, expo-task-manager@~13.1.6:
   version "13.1.6"
   resolved "https://registry.npmjs.org/expo-task-manager/-/expo-task-manager-13.1.6.tgz"
   integrity sha512-sYNAftpIeZ+j6ur17Jo0OpSTk9ks/MDvTbrNCimXMyjIt69XXYL/kAPYf76bWuxOuN8bcJ8Ef8YvihkwFG9hDA==
