@@ -328,6 +328,18 @@ const HomeScreenWithMap = () => {
   const successAnimation = useRef(new Animated.Value(0)).current;
   const successScaleAnimation = useRef(new Animated.Value(1)).current;
   const rippleAnimation = useRef(new Animated.Value(0)).current;
+  const tierBadgeScale = useRef(new Animated.Value(1)).current;
+  const screenGlowAnim = useRef(new Animated.Value(0)).current;
+  const expandingRing1 = useRef(new Animated.Value(0)).current;
+  const expandingRing2 = useRef(new Animated.Value(0)).current;
+  const expandingRing3 = useRef(new Animated.Value(0)).current;
+  const statusPopupAnim = useRef(new Animated.Value(0)).current;
+  const statusTextAnim = useRef(new Animated.Value(0)).current;
+  const ringAnim1 = useRef(new Animated.Value(0)).current;
+  const ringAnim2 = useRef(new Animated.Value(0)).current;
+  const ringAnim3 = useRef(new Animated.Value(0)).current;
+  const iconAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
 
   // Refs for timers and state management
   const intervalRef = useRef(null);
@@ -338,6 +350,7 @@ const HomeScreenWithMap = () => {
   const mapRef = useRef(null);
   const backgroundTaskRef = useRef(null);
   const countdownStartTimeRef = useRef(null);
+  const onSnapshotUnsubscribe = useRef(null);
 
   // Flags
   const [rideInProgress, setRideInProgress] = useState(false);
@@ -458,7 +471,29 @@ const HomeScreenWithMap = () => {
   // Background Countdown Management
   // -----------------------------------------------------------------
   const startBackgroundCountdown = async () => {
-    if (!currentRideRequest || timeLeft <= 0 || !TaskManager || !BackgroundFetch) return;
+    if (!currentRideRequest || timeLeft <= 0) {
+      console.log('Cannot start background countdown - missing required data:', {
+        hasRideRequest: !!currentRideRequest,
+        timeLeft
+      });
+      return;
+    }
+    
+    if (!TaskManager || !BackgroundFetch) {
+      console.log('Background packages not available, skipping background countdown start');
+      return;
+    }
+    
+    // Check if the required methods exist
+    if (typeof TaskManager.startTaskAsync !== 'function') {
+      console.log('TaskManager.startTaskAsync is not available, skipping background countdown start');
+      return;
+    }
+    
+    if (typeof BackgroundFetch.registerTaskAsync !== 'function') {
+      console.log('BackgroundFetch.registerTaskAsync is not available, skipping background countdown start');
+      return;
+    }
     
     try {
       // Store current countdown state
@@ -494,6 +529,7 @@ const HomeScreenWithMap = () => {
           startTime: Date.now(),
           totalDuration: 15000
         }));
+        console.log('Fallback: stored countdown data without background tasks');
       } catch (fallbackError) {
         console.error('Error in fallback countdown storage:', fallbackError);
       }
@@ -501,7 +537,30 @@ const HomeScreenWithMap = () => {
   };
 
   const startBackgroundRideMonitoring = async () => {
-    if (!auth.currentUser || !isOnline || !driverType || !TaskManager || !BackgroundFetch) return;
+    if (!auth.currentUser || !isOnline || !driverType) {
+      console.log('Cannot start background monitoring - missing required data:', {
+        hasUser: !!auth.currentUser,
+        isOnline,
+        driverType
+      });
+      return;
+    }
+    
+    if (!TaskManager || !BackgroundFetch) {
+      console.log('Background packages not available, skipping background monitoring start');
+      return;
+    }
+    
+    // Check if the required methods exist
+    if (typeof TaskManager.startTaskAsync !== 'function') {
+      console.log('TaskManager.startTaskAsync is not available, skipping background monitoring start');
+      return;
+    }
+    
+    if (typeof BackgroundFetch.registerTaskAsync !== 'function') {
+      console.log('BackgroundFetch.registerTaskAsync is not available, skipping background monitoring start');
+      return;
+    }
     
     try {
       const monitoringData = {
@@ -535,6 +594,7 @@ const HomeScreenWithMap = () => {
           driverType,
           lastCheckTime: Date.now()
         }));
+        console.log('Fallback: stored monitoring data without background tasks');
       } catch (fallbackError) {
         console.error('Error in fallback monitoring storage:', fallbackError);
       }
@@ -542,7 +602,30 @@ const HomeScreenWithMap = () => {
   };
 
   const stopBackgroundRideMonitoring = async () => {
-    if (!BackgroundFetch) return;
+    if (!BackgroundFetch) {
+      console.log('BackgroundFetch not available, skipping background monitoring stop');
+      // Still try to clean up stored data
+      try {
+        await AsyncStorage.removeItem('background_ride_monitoring');
+        console.log('Cleaned up stored monitoring data');
+      } catch (cleanupError) {
+        console.error('Error cleaning up stored monitoring data:', cleanupError);
+      }
+      return;
+    }
+    
+    // Check if the required method exists
+    if (typeof BackgroundFetch.unregisterTaskAsync !== 'function') {
+      console.log('BackgroundFetch.unregisterTaskAsync is not available, skipping background monitoring stop');
+      // Still try to clean up stored data
+      try {
+        await AsyncStorage.removeItem('background_ride_monitoring');
+        console.log('Cleaned up stored monitoring data');
+      } catch (cleanupError) {
+        console.error('Error cleaning up stored monitoring data:', cleanupError);
+      }
+      return;
+    }
     
     try {
       // Unregister background tasks
@@ -557,6 +640,7 @@ const HomeScreenWithMap = () => {
       // Fallback: just clean up the stored data
       try {
         await AsyncStorage.removeItem('background_ride_monitoring');
+        console.log('Fallback: cleaned up stored monitoring data');
       } catch (fallbackError) {
         console.error('Error in fallback monitoring cleanup:', fallbackError);
       }
@@ -791,7 +875,11 @@ const HomeScreenWithMap = () => {
       }
       // Clean up background tasks
       if (backgroundTaskRef.current && BackgroundFetch) {
-        BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME).catch(console.error);
+        if (typeof BackgroundFetch.unregisterTaskAsync === 'function') {
+          BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME).catch(console.error);
+        } else {
+          console.log('BackgroundFetch.unregisterTaskAsync not available during cleanup');
+        }
       }
       // Stop background ride monitoring
       stopBackgroundRideMonitoring();
@@ -1717,7 +1805,11 @@ const HomeScreenWithMap = () => {
       }
       // Clean up background tasks
       if (backgroundTaskRef.current && BackgroundFetch) {
-        BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME).catch(console.error);
+        if (typeof BackgroundFetch.unregisterTaskAsync === 'function') {
+          BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME).catch(console.error);
+        } else {
+          console.log('BackgroundFetch.unregisterTaskAsync not available during cleanup');
+        }
       }
       // Stop background ride monitoring
       stopBackgroundRideMonitoring();
@@ -1731,7 +1823,11 @@ const HomeScreenWithMap = () => {
       
       // Clean up background countdown task
       if (currentRideRequest && BackgroundFetch) {
-        BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME).catch(console.error);
+        if (typeof BackgroundFetch.unregisterTaskAsync === 'function') {
+          BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME).catch(console.error);
+        } else {
+          console.log('BackgroundFetch.unregisterTaskAsync not available during cleanup');
+        }
         // Clean up stored countdown data
         AsyncStorage.removeItem(`countdown_${currentRideRequest.id}`).catch(console.error);
       }
@@ -1995,7 +2091,13 @@ const HomeScreenWithMap = () => {
       const driverRef = doc(db, "Drivers", currentUser.uid);
       
       // Get current location before updating status
-      const currentLocation = await Location.getCurrentPositionAsync({});
+      let currentLocation = null;
+      try {
+        currentLocation = await Location.getCurrentPositionAsync({});
+      } catch (locationError) {
+        console.error('Error getting current location:', locationError);
+        // Continue without location if it fails
+      }
       
       // Enhanced update data with all necessary fields
       const updateData = {
@@ -2004,9 +2106,11 @@ const HomeScreenWithMap = () => {
         rideInProgress: false, // Reset ride progress when going online
         currentRideId: null, // Clear any current ride
         lastOnlineUpdate: new Date().toISOString(),
-        latitude: currentLocation.coords.latitude,
-        longitude: currentLocation.coords.longitude,
-        lastLocationUpdate: new Date().toISOString()
+        ...(currentLocation ? {
+          latitude: currentLocation.coords.latitude,
+          longitude: currentLocation.coords.longitude,
+          lastLocationUpdate: new Date().toISOString()
+        } : {})
       };
 
       // If going offline, also set isAvailable to false
@@ -2020,20 +2124,29 @@ const HomeScreenWithMap = () => {
       // Only update local state after successful Firestore update
       setIsOnline(newStatus);
       
-      // Update notification status
-      await updateDriverNotificationStatus(newStatus);
+      // Note: Driver status already updated in Firestore above, no need for duplicate call
+      // The updateDriverNotificationStatus function was causing duplicate updates
       
       // Start/stop background ride monitoring based on online status
-      if (newStatus) {
-        // Going online - start background ride monitoring
-        if (TaskManager && BackgroundFetch) {
-          await startBackgroundRideMonitoring();
+      try {
+        if (newStatus) {
+          // Going online - start background ride monitoring
+          if (TaskManager && BackgroundFetch) {
+            await startBackgroundRideMonitoring();
+          } else {
+            console.log('Background packages not available, skipping background monitoring start');
+          }
+        } else {
+          // Going offline - stop background ride monitoring
+          if (TaskManager && BackgroundFetch) {
+            await stopBackgroundRideMonitoring();
+          } else {
+            console.log('Background packages not available, skipping background monitoring stop');
+          }
         }
-      } else {
-        // Going offline - stop background ride monitoring
-        if (TaskManager && BackgroundFetch) {
-          await stopBackgroundRideMonitoring();
-        }
+      } catch (backgroundError) {
+        console.error('Error with background monitoring:', backgroundError);
+        // Don't let background errors crash the main toggle function
       }
       
       // Scale back to normal with success check
@@ -2307,8 +2420,10 @@ const HomeScreenWithMap = () => {
     
     // Clean up background countdown task
     try {
-      if (BackgroundFetch) {
+      if (BackgroundFetch && typeof BackgroundFetch.unregisterTaskAsync === 'function') {
         await BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME);
+      } else {
+        console.log('BackgroundFetch.unregisterTaskAsync not available during ride acceptance');
       }
       // Clean up stored countdown data
       await AsyncStorage.removeItem(`countdown_${currentRideRequest.id}`);
@@ -2416,8 +2531,10 @@ const HomeScreenWithMap = () => {
     
     // Clean up background countdown task
     try {
-      if (BackgroundFetch) {
+      if (BackgroundFetch && typeof BackgroundFetch.unregisterTaskAsync === 'function') {
         await BackgroundFetch.unregisterTaskAsync(COUNTDOWN_TASK_NAME);
+      } else {
+        console.log('BackgroundFetch.unregisterTaskAsync not available during ride decline');
       }
       // Clean up stored countdown data
       await AsyncStorage.removeItem(`countdown_${currentRideRequest.id}`);

@@ -41,7 +41,25 @@ const RideInProgressScreen = () => {
   useEffect(() => {
     navigation.setOptions({
       gestureEnabled: false, // Disable swipe back gesture
-      headerLeft: () => null, // Remove back button
+      headerLeft: () => (
+        <TouchableOpacity
+          onPress={async () => {
+            try {
+              // Clean up ride state
+              await AsyncStorage.removeItem('currentRide');
+              // Navigate back to home
+              navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+            } catch (error) {
+              console.error("Error navigating back:", error);
+              // Force navigation even if there's an error
+              navigation.navigate("HomeScreenWithMap");
+            }
+          }}
+          style={{ marginLeft: 15 }}
+        >
+          <Ionicons name="arrow-back" size={24} color="#007AFF" />
+        </TouchableOpacity>
+      ),
     });
   }, [navigation]);
 
@@ -570,29 +588,64 @@ const RideInProgressScreen = () => {
         if (rideIdToUse) {
           console.log("Updating ride status to active for ride:", rideIdToUse);
           const rideRequestRef = doc(db, "rideRequests", rideIdToUse);
-          await updateDoc(rideRequestRef, {
-            status: "active",
-            updatedAt: serverTimestamp()
-          });
-
-          // Fetch customer information from rideRequestsDriver
-          const rideRequestDriverRef = doc(db, "rideRequestsDriver", rideIdToUse);
-          const rideRequestDriverDoc = await getDoc(rideRequestDriverRef);
           
-          if (rideRequestDriverDoc.exists()) {
-            const rideData = rideRequestDriverDoc.data();
-            setCustomerInfo({
-              firstName: rideData.firstName || "",
-              number: rideData.number || "",
-              photo: rideData.photo || "",
-              price: rideData.fare || 0
+          // Check if document exists before updating
+          const rideDoc = await getDoc(rideRequestRef);
+          if (!rideDoc.exists()) {
+            console.warn("Ride request document does not exist:", rideIdToUse);
+            // Try to find the ride in rideRequestsDriver collection
+            const rideRequestDriverRef = doc(db, "rideRequestsDriver", rideIdToUse);
+            const rideRequestDriverDoc = await getDoc(rideRequestDriverRef);
+            
+            if (rideRequestDriverDoc.exists()) {
+              console.log("Found ride in rideRequestsDriver collection");
+              const rideData = rideRequestDriverDoc.data();
+              setCustomerInfo({
+                firstName: rideData.firstName || "",
+                number: rideData.number || "",
+                photo: rideData.photo || "",
+                price: rideData.fare || 0
+              });
+            } else {
+              console.error("Ride not found in either collection");
+              // Navigate back to home screen since ride doesn't exist
+              await AsyncStorage.removeItem('currentRide');
+              navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+              return;
+            }
+          } else {
+            // Document exists, proceed with update
+            await updateDoc(rideRequestRef, {
+              status: "active",
+              updatedAt: serverTimestamp()
             });
+
+            // Fetch customer information from rideRequestsDriver
+            const rideRequestDriverRef = doc(db, "rideRequestsDriver", rideIdToUse);
+            const rideRequestDriverDoc = await getDoc(rideRequestDriverRef);
+            
+            if (rideRequestDriverDoc.exists()) {
+              const rideData = rideRequestDriverDoc.data();
+              setCustomerInfo({
+                firstName: rideData.firstName || "",
+                number: rideData.number || "",
+                photo: rideData.photo || "",
+                price: rideData.fare || 0
+              });
+            }
           }
         } else {
           console.warn("No rideId available to update status");
         }
       } catch (error) {
         console.error("Error updating ride status:", error);
+        // If there's an error, try to navigate back to home
+        try {
+          await AsyncStorage.removeItem('currentRide');
+          navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+        } catch (navError) {
+          console.error("Error navigating back:", navError);
+        }
       }
     };
 
@@ -613,11 +666,18 @@ const RideInProgressScreen = () => {
       if (rideIdToUse) {
         console.log("Completing ride:", rideIdToUse);
         const rideRequestRef = doc(db, "rideRequests", rideIdToUse);
-        await updateDoc(rideRequestRef, {
-          status: "completed",
-          updatedAt: serverTimestamp(),
-          completedAt: serverTimestamp()
-        });
+        
+        // Check if document exists before updating
+        const rideDoc = await getDoc(rideRequestRef);
+        if (rideDoc.exists()) {
+          await updateDoc(rideRequestRef, {
+            status: "completed",
+            updatedAt: serverTimestamp(),
+            completedAt: serverTimestamp()
+          });
+        } else {
+          console.warn("Ride document does not exist, skipping Firebase update");
+        }
 
         // Update driver's status to be available for new rides
         if (auth.currentUser) {
@@ -637,6 +697,12 @@ const RideInProgressScreen = () => {
       await AsyncStorage.removeItem('currentRide');
     } catch (error) {
       console.error('Error completing ride:', error);
+      // Even if there's an error, try to clean up
+      try {
+        await AsyncStorage.removeItem('currentRide');
+      } catch (cleanupError) {
+        console.error('Error cleaning up ride state:', cleanupError);
+      }
     }
   };
 
@@ -986,11 +1052,18 @@ const RideInProgressScreen = () => {
       // Update ride status in Firebase
       if (currentRideId) {
         const rideRef = doc(db, "rideRequests", currentRideId);
-        await updateDoc(rideRef, {
-          status: "driver_arrived",
-          driverArrivedAt: serverTimestamp(),
-        });
-        console.log("✅ Ride status updated to driver_arrived in Firebase");
+        
+        // Check if document exists before updating
+        const rideDoc = await getDoc(rideRef);
+        if (rideDoc.exists()) {
+          await updateDoc(rideRef, {
+            status: "driver_arrived",
+            driverArrivedAt: serverTimestamp(),
+          });
+          console.log("✅ Ride status updated to driver_arrived in Firebase");
+        } else {
+          console.warn("Ride document does not exist, skipping Firebase update");
+        }
       }
       
       // Advance to next step
@@ -1038,11 +1111,18 @@ const RideInProgressScreen = () => {
       // Update ride status in Firebase
       if (currentRideId) {
         const rideRef = doc(db, "rideRequests", currentRideId);
-        await updateDoc(rideRef, {
-          status: "picked_up",
-          pickedUpAt: serverTimestamp(),
-        });
-        console.log("✅ Ride status updated to picked_up in Firebase");
+        
+        // Check if document exists before updating
+        const rideDoc = await getDoc(rideRef);
+        if (rideDoc.exists()) {
+          await updateDoc(rideRef, {
+            status: "picked_up",
+            pickedUpAt: serverTimestamp(),
+          });
+          console.log("✅ Ride status updated to picked_up in Firebase");
+        } else {
+          console.warn("Ride document does not exist, skipping Firebase update");
+        }
       }
       
       // Advance to next step
@@ -1088,11 +1168,18 @@ const RideInProgressScreen = () => {
       // Update ride status in Firebase
       if (currentRideId) {
         const rideRef = doc(db, "rideRequests", currentRideId);
-        await updateDoc(rideRef, {
-          status: "completed",
-          completedAt: serverTimestamp(),
-        });
-        console.log("Ride status updated to completed");
+        
+        // Check if document exists before updating
+        const rideDoc = await getDoc(rideRef);
+        if (rideDoc.exists()) {
+          await updateDoc(rideRef, {
+            status: "completed",
+            completedAt: serverTimestamp(),
+          });
+          console.log("Ride status updated to completed");
+        } else {
+          console.warn("Ride document does not exist, skipping Firebase update");
+        }
       }
       
       // Advance to next step (step 4 - completed)
