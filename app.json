@@ -3,7 +3,7 @@
     "name": "Caval Courrier",
     "slug": "Eco-share-new",
     "owner": "zouhair1234",
-    "version": "1.0.3",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icone.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,7 @@
       "bundleIdentifier": "com.misscoding.Eco-Share",
       "googleServicesFile": "./GoogleService-Info.plist",
       "newArchEnabled": true,
-      "buildNumber": "40",
+      "buildNumber": "39",
       "config": {
         "usesNonExemptEncryption": false,
         "googleMapsApiKey": "AIzaSyBnVN-ACYzcA0Sy8BcPLpXG50Y9T8jhJGE"
@@ -39,7 +39,7 @@
     },
     "android": {
       "package": "com.misscoding.ecoshare",
-      "versionCode": 134,
+      "versionCode": 133,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icone.png",
         "backgroundColor": "#ffffff"
@@ -65,7 +65,8 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION"
       ],
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "useNextNotificationsApi": true
     },
     "web": {
       "favicon": "./assets/icone.png"
@@ -98,7 +99,9 @@
         "expo-notifications",
         {
           "icon": "./assets/icone.png",
-          "color": "#ffffff"
+          "color": "#ffffff",
+          "androidMode": "default",
+          "androidCollapsedTitle": "New Ride Request"
         }
       ],
       "expo-asset",

@@ -355,7 +355,7 @@ const HomeScreenWithMap = () => {
     // Enhanced GO button states
     const [isGoingOnline, setIsGoingOnline] = useState(false);
     const [showSearchingAnimation, setShowSearchingAnimation] = useState(false);
-    const [searchingText, setSearchingText] = useState("Looking for rides...");
+    const [searchingText, setSearchingText] = useState("Nous cherchons des courses, restez sur place et attendez...");
     
     // Full-screen animation states
     const [showFullScreenAnimation, setShowFullScreenAnimation] = useState(false);
@@ -1970,11 +1970,11 @@ const HomeScreenWithMap = () => {
     // Start searching animation loop
     const startSearchingAnimation = () => {
       const searchTexts = [
-        "Looking for rides...",
-        "Scanning for passengers...",
-        "Searching nearby...",
-        "Ready to serve...",
-        "Active and searching..."
+        "Nous cherchons des courses, restez sur place et attendez...",
+        "Scan de passagers en cours, ne bougez pas...",
+        "Recherche à proximité, restez disponible...",
+        "Prêt à servir, attendez les courses...",
+        "Actif et en recherche, restez sur place..."
       ];
       
       let textIndex = 0;
@@ -3531,22 +3531,39 @@ const HomeScreenWithMap = () => {
     useEffect(() => {
       if (!isOnline && showSearchingAnimation) {
         setShowSearchingAnimation(false);
+        // Reset the text opacity
+        searchingTextOpacity.setValue(0);
+        // Stop any ongoing animations
         if (searchingTextIntervalRef.current) {
           clearInterval(searchingTextIntervalRef.current);
           searchingTextIntervalRef.current = null;
         }
-        if (searchingDotAnimationRef.current) {
-          searchingDotAnimationRef.current.stop();
-          searchingDotAnimationRef.current = null;
-        }
-        if (circlePulseAnimationRef.current) {
-          circlePulseAnimationRef.current.stop();
-          circlePulseAnimationRef.current = null;
-        }
-        // Also hide full-screen animation
-        setShowFullScreenAnimation(false);
+        console.log('❌ Driver is offline, hiding searching animation');
       }
     }, [isOnline, showSearchingAnimation]);
+
+    // Auto-show searching animation when driver goes online
+    useEffect(() => {
+      if (isOnline) {
+        setShowSearchingAnimation(true);
+        // Animate the text opacity to make it visible
+        Animated.timing(searchingTextOpacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+        // Start the searching animation loop
+        setTimeout(() => {
+          startSearchingAnimation();
+        }, 100);
+        console.log('✅ Driver is online, showing searching animation');
+      } else {
+        setShowSearchingAnimation(false);
+        // Reset the text opacity
+        searchingTextOpacity.setValue(0);
+        console.log('❌ Driver is offline, hiding searching animation');
+      }
+    }, [isOnline]);
 
     // -----------------------------------------------------------------
     // 17. Render
@@ -3816,39 +3833,6 @@ const HomeScreenWithMap = () => {
               </TouchableOpacity>
               <Text style={styles.tapHintText}>Press here to view earnings</Text>
 
-              {/* French message for no ride found - moved to top panel */}
-              {isOnline && !currentRideRequest && (
-                <View style={styles.noRideMessage}>
-                  <BlurView intensity={80} tint="dark" style={styles.noRideBlur}>
-                    <View style={styles.noRideContent}>
-                      <MaterialIcons name="info-outline" size={20} color="#FF8C00" style={styles.noRideIcon} />
-                      <Text style={styles.noRideText}>
-                        Si vous ne trouvez pas de course, essayez de redémarrer l'application
-                      </Text>
-                    </View>
-                  </BlurView>
-                </View>
-              )}
-
-              <View style={styles.refreshContainer}>
-                <TouchableOpacity
-                  style={styles.refreshButton}
-                  onPress={() => {
-                    try {
-                      onRefresh();
-                    } catch (error) {
-                      console.error('❌ Refresh error:', error);
-                    }
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="refresh" size={20} color="#FF6F00" />
-                </TouchableOpacity>
-                <Text style={styles.refreshMessage}>
-                  Appuyer sur le bouton ci-dessus si vous remarquez des comportements inhabituels
-                </Text>
-              </View>
-
               {isOnline && !currentRideRequest && (
                 <Animated.View 
                   style={[
@@ -3859,7 +3843,10 @@ const HomeScreenWithMap = () => {
                   <BlurView intensity={80} tint="dark" style={styles.searchingBlur}>
                     <View style={styles.searchingContent}>
                       <ActivityIndicator size="small" color="#FF8C00" />
-                      <Text style={styles.searchingText}>Recherche de courses en cours...</Text>
+                      <View style={styles.searchingTextRow}>
+                        <MaterialIcons name="directions-car" size={16} color="#FF8C00" style={styles.searchingIcon} />
+                        <Text style={styles.searchingText}>Nous cherchons des courses, restez sur place et attendez...</Text>
+                      </View>
                     </View>
                   </BlurView>
                 </Animated.View>
@@ -4091,55 +4078,6 @@ const HomeScreenWithMap = () => {
                           />
                         )}
                         
-                        {/* Searching status text */}
-                        {isOnline && showSearchingAnimation && (
-                        <Animated.View
-                          style={[
-                              styles.searchingTextContainer,
-                              {
-                                opacity: searchingTextOpacity,
-                              },
-                            ]}
-                          >
-                            <Text style={styles.searchingText}>{searchingText}</Text>
-                            <View style={styles.searchingDots}>
-                              <Animated.View
-                                style={[
-                                  styles.searchingDot,
-                                  {
-                                    opacity: searchingAnimation.interpolate({
-                                      inputRange: [0, 0.33, 0.66, 1],
-                                      outputRange: [0.3, 1, 0.3, 0.3],
-                                    }),
-                                  },
-                                ]}
-                              />
-                              <Animated.View
-                                style={[
-                                  styles.searchingDot,
-                                  {
-                                    opacity: searchingAnimation.interpolate({
-                                      inputRange: [0, 0.33, 0.66, 1],
-                                      outputRange: [0.3, 0.3, 1, 0.3],
-                                    }),
-                                  },
-                                ]}
-                              />
-                              <Animated.View
-                                style={[
-                                  styles.searchingDot,
-                                  {
-                                    opacity: searchingAnimation.interpolate({
-                                      inputRange: [0, 0.33, 0.66, 1],
-                                      outputRange: [0.3, 0.3, 0.3, 1],
-                                    }),
-                                  },
-                                ]}
-                              />
-                            </View>
-                          </Animated.View>
-                        )}
-                        
                         {/* Original animations for offline state */}
                         {!isOnline && (
                           <>
@@ -4166,6 +4104,59 @@ const HomeScreenWithMap = () => {
                   </LinearGradient>
                 </TouchableOpacity>
               </Animated.View>
+              
+              {/* Searching status text - moved outside button to display on screen */}
+              {isOnline && showSearchingAnimation && (
+                <Animated.View
+                  style={[
+                    styles.searchingTextContainer,
+                    {
+                      opacity: searchingTextOpacity,
+                    },
+                  ]}
+                >
+                  <View style={styles.searchingTextRow}>
+                    <MaterialIcons name="directions-car" size={16} color="#FFFFFF" style={styles.searchingIcon} />
+                    <Text style={styles.searchingText}>{searchingText}</Text>
+                  </View>
+                  <View style={styles.searchingDots}>
+                    <ActivityIndicator size="small" color="#FFFFFF" style={styles.loadingSpinner} />
+                    <Animated.View
+                      style={[
+                        styles.searchingDot,
+                        {
+                          opacity: searchingAnimation.interpolate({
+                            inputRange: [0, 0.33, 0.66, 1],
+                            outputRange: [0.3, 1, 0.3, 0.3],
+                          }),
+                        },
+                      ]}
+                    />
+                    <Animated.View
+                      style={[
+                        styles.searchingDot,
+                        {
+                          opacity: searchingAnimation.interpolate({
+                            inputRange: [0, 0.33, 0.66, 1],
+                            outputRange: [0.3, 0.3, 1, 0.3],
+                          }),
+                        },
+                      ]}
+                    />
+                    <Animated.View
+                      style={[
+                        styles.searchingDot,
+                        {
+                          opacity: searchingAnimation.interpolate({
+                            inputRange: [0, 0.33, 0.66, 1],
+                            outputRange: [0.3, 0.3, 0.3, 1],
+                          }),
+                        },
+                      ]}
+                    />
+                  </View>
+                </Animated.View>
+              )}
             </View>
 
             {/* Driver Info Card */}
@@ -5127,7 +5118,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
   searchingContent: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -5135,7 +5126,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '500',
-    marginLeft: 12,
+    textAlign: 'center',
   },
   topButtonsContainer: {
     flexDirection: 'row',
@@ -5318,23 +5309,26 @@ const styles = StyleSheet.create({
   // Enhanced GO button styles
   searchingTextContainer: {
     position: 'absolute',
-    bottom: -40,
+    bottom: Platform.OS === 'ios' ? 500 : 650,
     left: 0,
     right: 0,
     alignItems: 'center',
-    backgroundColor: 'rgba(34, 139, 34, 0.9)',
+    backgroundColor: 'rgba(255, 140, 0, 0.9)',
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 8,
     marginTop: 8,
-    shadowColor: "#228B22",
+    marginBottom: 20,
+    shadowColor: "#FF8C00",
     shadowOffset: {
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.5,
     shadowRadius: 4,
     elevation: 5,
+    borderWidth: 2,
+    borderColor: '#FF8C00',
   },
   searchingText: {
     color: "#FFFFFF",
@@ -5495,6 +5489,18 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  loadingSpinner: {
+    marginRight: 8,
+    marginLeft: 4,
+  },
+  searchingTextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  searchingIcon: {
+    marginRight: 4,
   },
 });
 

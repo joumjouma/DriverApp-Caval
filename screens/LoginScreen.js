@@ -15,7 +15,7 @@ import {
   TouchableWithoutFeedback,
 } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
-import { signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithCredential, onAuthStateChanged } from "firebase/auth";
+import { signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithCredential, onAuthStateChanged, sendPasswordResetEmail } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { auth, db } from "../config/firebase";
@@ -33,6 +33,7 @@ function LoginScreen() {
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [pendingUser, setPendingUser] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
   const navigation = useNavigation();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
@@ -63,6 +64,85 @@ function LoginScreen() {
       };
     }, [])
   );
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      Alert.alert(
+        "Email requis", 
+        "Veuillez entrer votre adresse email pour réinitialiser votre mot de passe.",
+        [
+          { text: "OK", onPress: () => {} }
+        ]
+      );
+      return;
+    }
+
+    try {
+      setForgotPasswordLoading(true);
+      console.log("Attempting to send password reset email to:", email.trim());
+      
+      // Check if user exists first
+      try {
+        const methods = await auth.fetchSignInMethodsForEmail(email.trim());
+        if (methods.length === 0) {
+          Alert.alert(
+            "Compte non trouvé", 
+            "Aucun compte n'est associé à cette adresse email. Veuillez vérifier l'adresse ou créer un nouveau compte.",
+            [
+              { text: "OK", onPress: () => {} }
+            ]
+          );
+          setForgotPasswordLoading(false);
+          return;
+        }
+        console.log("User exists with methods:", methods);
+      } catch (checkError) {
+        console.log("Error checking user existence:", checkError);
+        // Continue anyway, Firebase will handle this
+      }
+
+      // Send password reset email
+      const result = await sendPasswordResetEmail(auth, email.trim());
+      console.log("Password reset email result:", result);
+      
+      Alert.alert(
+        "Email envoyé", 
+        "Un email de réinitialisation de mot de passe a été envoyé à votre adresse email.\n\n📧 **Important:** Vérifiez votre dossier spam/indésirable si vous ne le recevez pas dans votre boîte de réception principale.\n\nL'email provient de: noreply@eco-share-92ef1.firebaseapp.com\n\nSi vous ne recevez toujours pas l'email dans les 10 minutes, contactez le support.",
+        [
+          { text: "OK", onPress: () => {} }
+        ]
+      );
+    } catch (error) {
+      console.log("Password reset error code:", error.code);
+      console.log("Password reset error message:", error.message);
+      console.log("Full error object:", error);
+      
+      let errorMessage = "Une erreur est survenue lors de l'envoi de l'email de réinitialisation.";
+      
+      // Check for specific Firebase auth errors and provide French messages
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = "Aucun compte trouvé avec cet email.";
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = "Adresse email invalide.";
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = "Trop de tentatives. Veuillez réessayer plus tard.";
+      } else if (error.code === 'auth/operation-not-allowed') {
+        errorMessage = "La réinitialisation de mot de passe n'est pas activée pour ce projet. Contactez l'administrateur.";
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = "Erreur de réseau. Vérifiez votre connexion internet et réessayez.";
+      }
+      
+      Alert.alert(
+        "Erreur", 
+        `${errorMessage}\n\nCode d'erreur: ${error.code}\n\nSi le problème persiste, contactez le support technique.`,
+        [
+          { text: "OK", onPress: () => {} }
+        ]
+      );
+    } finally {
+      setForgotPasswordLoading(false);
+    }
+  };
 
   const handlePrivacyPolicyAccept = async () => {
     try {
@@ -275,6 +355,21 @@ function LoginScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* Forgot Password Link */}
+            <TouchableOpacity
+              style={styles.forgotPasswordContainer}
+              onPress={handleForgotPassword}
+              disabled={forgotPasswordLoading}
+            >
+              {forgotPasswordLoading ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Text style={[styles.forgotPasswordText, { color: colors.primary }]}>
+                  Mot de passe oublié ?
+                </Text>
+              )}
+            </TouchableOpacity>
+
             <TouchableOpacity 
               style={[styles.button, { backgroundColor: colors.primary }]} 
               onPress={handleLogin}
@@ -414,5 +509,15 @@ const styles = StyleSheet.create({
     top: 8, // Moved higher from 12 to 8
     padding: 8,
     borderRadius: 20,
+  },
+  forgotPasswordContainer: {
+    alignItems: 'flex-end',
+    marginBottom: 16,
+    marginTop: -8,
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    fontWeight: '500',
+    textDecorationLine: 'underline',
   },
 });
