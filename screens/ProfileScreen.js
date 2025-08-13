@@ -419,6 +419,11 @@ async function handleLogout() {
             onPress={() => navigation.navigate("SettingsScreen")}
           />
           <MenuItem
+            icon="notifications-outline"
+            title="Test Notifications"
+            onPress={() => navigation.navigate("NotificationTestScreen")}
+          />
+          <MenuItem
             icon="shield-outline"
             title="Confidentialité et sécurité"
             onPress={() => Linking.openURL('https://www.caval.tech/privacy-policy')}

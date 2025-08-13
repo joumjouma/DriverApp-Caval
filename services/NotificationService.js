@@ -1,6 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
-import { Platform } from 'react-native';
+import { Platform, Alert } from 'react-native';
 import { auth } from '../config/firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -18,28 +18,128 @@ class NotificationService {
   constructor() {
     this.expoPushToken = null;
     this.auth = auth;
+    this.isInitialized = false;
   }
 
-  // Request notification permissions
+  // Request notification permissions with Android 13+ support
   async requestPermissions() {
-    if (Device.isDevice) {
+    if (!Device.isDevice) {
+      console.log('Must use physical device for Push Notifications');
+      return false;
+    }
+
+    try {
+      // Check current permission status
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
       
+      // If permission not granted, request it
       if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
+        const { status } = await Notifications.requestPermissionsAsync({
+          ios: {
+            allowAlert: true,
+            allowBadge: true,
+            allowSound: true,
+            allowAnnouncements: true,
+          },
+          android: {
+            allowAlert: true,
+            allowBadge: true,
+            allowSound: true,
+            allowAnnouncements: true,
+          },
+        });
         finalStatus = status;
       }
       
       if (finalStatus !== 'granted') {
-        console.log('Failed to get push token for push notification!');
+        Alert.alert(
+          'Permission Required',
+          'Please enable notifications in your device settings to receive ride requests and important updates.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => this.openAppSettings() }
+          ]
+        );
         return false;
       }
       
+      console.log('Notification permissions granted');
       return true;
-    } else {
-      console.log('Must use physical device for Push Notifications');
+    } catch (error) {
+      console.error('Error requesting notification permissions:', error);
       return false;
+    }
+  }
+
+  // Open app settings for manual permission enable
+  async openAppSettings() {
+    if (Platform.OS === 'ios') {
+      // For iOS, you can use Linking to open settings
+      const { Linking } = require('react-native');
+      await Linking.openSettings();
+    } else {
+      // For Android, show instructions
+      Alert.alert(
+        'Enable Notifications',
+        'Go to Settings > Apps > Caval Courrier > Notifications and enable all notification options.',
+        [{ text: 'OK' }]
+      );
+    }
+  }
+
+  // Create Android notification channels
+  async createAndroidChannels() {
+    if (Platform.OS !== 'android') return;
+
+    try {
+      // Main ride requests channel
+      await Notifications.setNotificationChannelAsync('ride-requests', {
+        name: 'Course Caval',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF8C00',
+        sound: 'default',
+        enableVibrate: true,
+        enableLights: true,
+        description: 'Notifications pour les nouvelles courses et demandes de transport',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        bypassDnd: true,
+        showBadge: true,
+      });
+      
+      // Driver approval channel
+      await Notifications.setNotificationChannelAsync('driver-approval', {
+        name: 'Approbation Chauffeur',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#4CAF50',
+        sound: 'default',
+        enableVibrate: true,
+        enableLights: true,
+        description: 'Notifications pour l\'approbation des comptes chauffeurs',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        bypassDnd: true,
+        showBadge: true,
+      });
+
+      // General notifications channel
+      await Notifications.setNotificationChannelAsync('general', {
+        name: 'Notifications Générales',
+        importance: Notifications.AndroidImportance.DEFAULT,
+        vibrationPattern: [0, 250],
+        lightColor: '#2196F3',
+        sound: 'default',
+        enableVibrate: true,
+        enableLights: true,
+        description: 'Notifications générales de l\'application',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        showBadge: true,
+      });
+
+      console.log('Android notification channels created successfully');
+    } catch (error) {
+      console.error('Error creating Android notification channels:', error);
     }
   }
 
@@ -50,7 +150,7 @@ class NotificationService {
       if (!hasPermission) return null;
 
       const token = await Notifications.getExpoPushTokenAsync({
-        projectId: '14b90510-8ecb-46b6-9f35-2537774896a1', // Updated to match app.json EAS project ID
+        projectId: '14b90510-8ecb-46b6-9f35-2537774896a1',
       });
 
       this.expoPushToken = token.data;
@@ -82,6 +182,8 @@ class NotificationService {
       await setDoc(userDocRef, {
         expoPushToken: token,
         tokenUpdatedAt: new Date().toISOString(),
+        platform: Platform.OS,
+        appVersion: '1.0.2', // Update this with your app version
       }, { merge: true });
 
       console.log('Push token saved to Firestore');
@@ -114,38 +216,8 @@ class NotificationService {
   }
 
   // Send local notification for testing
-  async sendLocalNotification(title, body, data = {}) {
+  async sendLocalNotification(title, body, data = {}, channelId = 'ride-requests') {
     try {
-      // Create notification channel for Android (required for Android 8.0+)
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('ride-requests', {
-          name: 'Courses Caval',
-          importance: Notifications.AndroidImportance.HIGH,
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#FF8C00',
-          sound: 'default',
-          enableVibrate: true,
-          enableLights: true,
-          description: 'Notifications pour les nouvelles courses et demandes de transport',
-          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-          bypassDnd: true,
-        });
-        
-        // Add driver approval notification channel
-        await Notifications.setNotificationChannelAsync('driver-approval', {
-          name: 'Approbation Chauffeur',
-          importance: Notifications.AndroidImportance.HIGH,
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#4CAF50',
-          sound: 'default',
-          enableVibrate: true,
-          enableLights: true,
-          description: 'Notifications pour l\'approbation des comptes chauffeurs',
-          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-          bypassDnd: true,
-        });
-      }
-
       await Notifications.scheduleNotificationAsync({
         content: {
           title,
@@ -153,6 +225,7 @@ class NotificationService {
           data,
           sound: 'default',
           priority: Notifications.AndroidNotificationPriority.HIGH,
+          channelId: Platform.OS === 'android' ? channelId : undefined,
         },
         trigger: null, // Send immediately
       });
@@ -177,7 +250,24 @@ class NotificationService {
     await this.sendLocalNotification(
       '🎯 Course assignée!',
       'Vous avez été sélectionné pour une nouvelle course. Ouvrez l\'app pour voir les détails.',
-      testData
+      testData,
+      'ride-requests'
+    );
+  }
+
+  // Send test approval notification
+  async sendTestApprovalNotification() {
+    const testData = {
+      type: 'driver_approval',
+      status: 'approved',
+      message: 'Votre compte chauffeur a été approuvé!',
+    };
+
+    await this.sendLocalNotification(
+      '✅ Compte Approuvé!',
+      'Félicitations! Votre compte chauffeur a été approuvé. Vous pouvez maintenant commencer à recevoir des courses.',
+      testData,
+      'driver-approval'
     );
   }
 
@@ -192,6 +282,9 @@ class NotificationService {
       // Handle ride request notification
       console.log('Ride request received:', data);
       // You can add custom logic here, like updating UI state
+    } else if (data?.type === 'driver_approval') {
+      // Handle driver approval notification
+      console.log('Driver approval notification received:', data);
     }
   }
 
@@ -222,12 +315,12 @@ class NotificationService {
   setupNotificationListeners() {
     // Listener for notifications received while app is in foreground
     const notificationReceivedListener = Notifications.addNotificationReceivedListener(
-      this.handleNotificationReceived
+      this.handleNotificationReceived.bind(this)
     );
 
     // Listener for notification responses (when user taps notification)
     const notificationResponseListener = Notifications.addNotificationResponseReceivedListener(
-      this.handleNotificationResponse
+      this.handleNotificationResponse.bind(this)
     );
 
     return {
@@ -248,12 +341,22 @@ class NotificationService {
 
   // Initialize the notification service
   async initialize() {
+    if (this.isInitialized) {
+      console.log('Notification service already initialized');
+      return { success: true, listeners: null };
+    }
+
     try {
+      console.log('Initializing notification service...');
+      
+      // Create Android channels first
+      await this.createAndroidChannels();
+
       // Request permissions
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
         console.log('Notification permissions not granted');
-        return false;
+        return { success: false, error: 'Permissions not granted' };
       }
 
       // Get and save push token
@@ -262,11 +365,43 @@ class NotificationService {
       // Set up notification listeners
       const listeners = this.setupNotificationListeners();
 
+      this.isInitialized = true;
       console.log('Notification service initialized successfully');
       return { success: true, listeners };
     } catch (error) {
       console.error('Error initializing notification service:', error);
       return { success: false, error };
+    }
+  }
+
+  // Check if notifications are enabled
+  async checkNotificationStatus() {
+    try {
+      const { status } = await Notifications.getPermissionsAsync();
+      return status === 'granted';
+    } catch (error) {
+      console.error('Error checking notification status:', error);
+      return false;
+    }
+  }
+
+  // Get all scheduled notifications
+  async getScheduledNotifications() {
+    try {
+      return await Notifications.getAllScheduledNotificationsAsync();
+    } catch (error) {
+      console.error('Error getting scheduled notifications:', error);
+      return [];
+    }
+  }
+
+  // Cancel all scheduled notifications
+  async cancelAllNotifications() {
+    try {
+      await Notifications.cancelAllScheduledNotificationsAsync();
+      console.log('All scheduled notifications cancelled');
+    } catch (error) {
+      console.error('Error cancelling notifications:', error);
     }
   }
 }
