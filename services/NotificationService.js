@@ -1,6 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
-import { Platform, Alert, NativeModules, NativeEventEmitter } from 'react-native';
+import { Platform, Alert } from 'react-native';
 import { auth } from '../config/firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -17,37 +17,8 @@ Notifications.setNotificationHandler({
 class NotificationService {
   constructor() {
     this.expoPushToken = null;
-    this.fcmToken = null;
     this.auth = auth;
     this.isInitialized = false;
-    this.fcmTokenModule = null;
-    this.fcmEventEmitter = null;
-    
-    // Initialize FCM module for Android
-    if (Platform.OS === 'android' && NativeModules.FCMTokenModule) {
-      this.fcmTokenModule = NativeModules.FCMTokenModule;
-      this.fcmEventEmitter = new NativeEventEmitter(NativeModules.FCMTokenModule);
-      this.setupFCMListeners();
-    }
-  }
-
-  // Setup FCM token listeners
-  setupFCMListeners() {
-    if (!this.fcmEventEmitter) return;
-
-    // Listen for FCM token received
-    this.fcmEventEmitter.addListener('FCMTokenReceived', (data) => {
-      console.log('FCM token received:', data.token);
-      this.fcmToken = data.token;
-      this.savePushTokenToFirestore();
-    });
-
-    // Listen for FCM token refresh
-    this.fcmEventEmitter.addListener('FCMTokenRefreshed', (data) => {
-      console.log('FCM token refreshed:', data.token);
-      this.fcmToken = data.token;
-      this.savePushTokenToFirestore();
-    });
   }
 
   // Request notification permissions with Android 13+ support
@@ -191,22 +162,7 @@ class NotificationService {
     }
   }
 
-  // Get FCM token for Android using native module
-  async getFCMToken() {
-    if (Platform.OS !== 'android' || !this.fcmTokenModule) return null;
-    
-    try {
-      const token = await this.fcmTokenModule.getFCMToken();
-      this.fcmToken = token;
-      console.log('FCM token received from native module:', token);
-      return token;
-    } catch (error) {
-      console.error('Error getting FCM token from native module:', error);
-      return null;
-    }
-  }
-
-  // Save the push tokens to Firestore
+  // Save the push token to Firestore
   async savePushTokenToFirestore() {
     try {
       const user = this.auth.currentUser;
@@ -215,44 +171,33 @@ class NotificationService {
         return;
       }
 
-      const expoToken = await this.getExpoPushToken();
-      const fcmToken = await this.getFCMToken();
-      
-      if (!expoToken && !fcmToken) {
-        console.log('No push tokens available');
+      const token = await this.getExpoPushToken();
+      if (!token) {
+        console.log('No push token available');
         return;
       }
 
-      // Save tokens to user's document in Firestore
+      // Save token to user's document in Firestore
       const userDocRef = doc(db, 'Drivers', user.uid);
-      const tokenData = {
+      await setDoc(userDocRef, {
+        expoPushToken: token,
         tokenUpdatedAt: new Date().toISOString(),
         platform: Platform.OS,
         appVersion: '1.0.2', // Update this with your app version
-      };
+      }, { merge: true });
 
-      if (expoToken) {
-        tokenData.expoPushToken = expoToken;
-      }
-      
-      if (fcmToken) {
-        tokenData.fcmToken = fcmToken;
-      }
-
-      await setDoc(userDocRef, tokenData, { merge: true });
-
-      console.log('Push tokens saved to Firestore:', { expoToken, fcmToken });
+      console.log('Push token saved to Firestore');
     } catch (error) {
-      console.error('Error saving push tokens to Firestore:', error);
+      console.error('Error saving push token to Firestore:', error);
     }
   }
 
-  // Update push tokens when user logs in
+  // Update push token when user logs in
   async updatePushToken() {
     await this.savePushTokenToFirestore();
   }
 
-  // Remove push tokens when user logs out
+  // Remove push token when user logs out
   async removePushToken() {
     try {
       const user = this.auth.currentUser;
@@ -261,13 +206,12 @@ class NotificationService {
       const userDocRef = doc(db, 'Drivers', user.uid);
       await setDoc(userDocRef, {
         expoPushToken: null,
-        fcmToken: null,
         tokenUpdatedAt: new Date().toISOString(),
       }, { merge: true });
 
-      console.log('Push tokens removed from Firestore');
+      console.log('Push token removed from Firestore');
     } catch (error) {
-      console.error('Error removing push tokens:', error);
+      console.error('Error removing push token:', error);
     }
   }
 

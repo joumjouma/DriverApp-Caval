@@ -1375,6 +1375,8 @@ exports.selectBestDriverForRide = onDocumentCreated({
     const driverDoc = driversSnapshot.docs[0];
     const driverData = driverDoc.data();
     
+    console.log(`Selected driver: ${driverDoc.id} (${driverData.firstName})`);
+    
     // Calculate countdown times
     const now = new Date();
     const countdownExpiryTime = new Date(now.getTime() + 15000); // 15 seconds from now
@@ -1430,6 +1432,19 @@ exports.selectBestDriverForRide = onDocumentCreated({
     } catch (notificationError) {
       console.error(`Error sending push notification to driver ${driverDoc.id}:`, notificationError);
       // Continue with the process even if notification fails
+    }
+    
+    // Send WhatsApp message if phone number exists
+    if (driverData.phoneNumber) {
+      const whatsappMessage = formatRideOfferMessage({
+        pickupAddress: rideData.pickupAddress || "Adresse non disponible",
+        destinationAddress: rideData.destinationAddress || "Adresse non disponible",
+        fare: rideData.fare || 0,
+        distance: rideData.distance || 5,
+      }, driverData.firstName || "Chauffeur");
+      await sendWhatsAppMessage(driverData.phoneNumber, whatsappMessage);
+    } else {
+      console.log("Selected driver has no phone number");
     }
     
     // Start countdown timer for auto-reassignment

@@ -65,8 +65,7 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION"
       ],
-      "googleServicesFile": "./google-services.json",
-      "useNextNotificationsApi": true
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/icone.png"
@@ -99,9 +98,7 @@
         "expo-notifications",
         {
           "icon": "./assets/icone.png",
-          "color": "#ffffff",
-          "androidMode": "default",
-          "androidCollapsedTitle": "New Ride Request"
+          "color": "#ffffff"
         }
       ],
       "expo-asset",

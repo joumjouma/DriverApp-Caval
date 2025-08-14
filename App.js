@@ -26,7 +26,6 @@ import DriverInboxScreen from "./screens/DriverInboxScreen";
 import ApprovalStatusScreen from "./screens/ApprovalStatusScreen";
 import OnlineDriverScreen from "./screens/OnlineDriverScreen";
 import TestOnlineDriverScreen from "./screens/TestOnlineDriverScreen";
-import NotificationTestScreen from "./screens/NotificationTestScreen";
 import "react-native-get-random-values";
 
 const Stack = createStackNavigator();
@@ -255,11 +254,6 @@ const AppContent = () => {
         <Stack.Screen
           name="TestOnlineDriverScreen"
           component={TestOnlineDriverScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="NotificationTestScreen"
-          component={NotificationTestScreen}
           options={{ headerShown: false }}
         />
       </Stack.Navigator>

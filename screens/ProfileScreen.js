@@ -419,11 +419,6 @@ async function handleLogout() {
             onPress={() => navigation.navigate("SettingsScreen")}
           />
           <MenuItem
-            icon="notifications-outline"
-            title="Test Notifications"
-            onPress={() => navigation.navigate("NotificationTestScreen")}
-          />
-          <MenuItem
             icon="shield-outline"
             title="Confidentialité et sécurité"
             onPress={() => Linking.openURL('https://www.caval.tech/privacy-policy')}
@@ -442,7 +437,7 @@ async function handleLogout() {
 
         <View style={styles.versionContainer}>
           <Text style={[styles.versionText, { color: colors.textSecondary }]}>
-            version 1.2.3
+            version 1.0.2
           </Text>
           <Text style={[styles.copyrightText, { color: colors.textSecondary }]}>
             © 2025 Caval Technologies
