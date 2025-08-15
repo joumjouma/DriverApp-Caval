@@ -123,167 +123,90 @@ const sendExpoPushNotification = async (pushToken, title, body, data) => {
 // Enhanced notification function with fallback and retry logic
 const sendEnhancedPushNotification = async (pushToken, title, body, data, driverId) => {
   try {
-    // Get driver's document to check platform and available tokens
-    const driverDoc = await getFirestore().collection("Drivers").doc(driverId).get();
-    if (!driverDoc.exists()) {
-      console.log(`Driver ${driverId} document not found`);
-      return { success: false, method: "error", error: "Driver document not found" };
+    // First attempt: Send via Expo
+    console.log(`Attempting to send notification to driver ${driverId} via Expo...`);
+    
+    try {
+      const expoResult = await sendExpoPushNotification(pushToken, title, body, data);
+      
+      // Check if Expo notification was successful
+      if (expoResult.data && expoResult.data.status === "ok") {
+        console.log(`✅ Expo notification sent successfully to driver ${driverId}`);
+        return expoResult;
+      }
+    } catch (expoError) {
+      console.warn(`Expo notification failed for driver ${driverId}:`, expoError);
     }
     
-    const driverData = driverDoc.data();
-    const fcmToken = driverData.fcmToken;
-    const expoToken = driverData.expoPushToken;
-    const platform = driverData.platform || "unknown";
-    
-    console.log(`Driver ${driverId} platform: ${platform}, FCM: ${!!fcmToken}, Expo: ${!!expoToken}`);
-    
-    // For Android, try FCM first (better for background notifications)
-    if (platform === "android" && fcmToken) {
-      try {
-        console.log(`Attempting FCM notification for Android driver ${driverId}...`);
+    // Fallback: Try to get FCM token and send via Firebase
+    try {
+      console.log(`Attempting FCM fallback for driver ${driverId}...`);
+      
+      // Get driver's FCM token if available
+      const driverDoc = await getFirestore().collection("Drivers").doc(driverId).get();
+      if (driverDoc.exists()) {
+        const driverData = driverDoc.data();
+        const fcmToken = driverData.fcmToken || driverData.pushToken;
         
-        const messaging = getMessaging();
-        const fcmMessage = {
-          token: fcmToken,
-          notification: {
-            title: title,
-            body: body,
-          },
-          data: data,
-          android: {
-            priority: "high",
+        if (fcmToken && fcmToken !== pushToken) {
+          console.log(`Trying FCM token for driver ${driverId}:`, fcmToken);
+          
+          // Send via Firebase Cloud Messaging
+          const messaging = getMessaging();
+          const fcmMessage = {
+            token: fcmToken,
             notification: {
-              sound: "default",
-              channelId: "ride-requests",
-              priority: "high",
-              defaultSound: true,
-              defaultVibrateTimings: true,
-              vibrateTimings: [0, 250, 250, 250],
-              icon: "ic_launcher",
-              color: "#4CAF50",
-              largeIcon: "ic_launcher",
-              style: {
-                type: "bigtext",
-                text: body,
-                summary: title,
-              },
-              visibility: "public",
-              priority: "high",
-              sticky: false,
-              badge: 1,
+              title: title,
+              body: body,
             },
             data: data,
-          },
-          apns: {
-            payload: {
-              aps: {
-                sound: "default",
-                badge: 1,
-                alert: {
-                  title: title,
-                  body: body,
-                },
-                category: "RIDE_OFFER",
-                "mutable-content": 1,
-                "content-available": 1,
-              },
-              data: data,
-            },
-            headers: {
-              "apns-priority": "10",
-              "apns-expiration": "360000", // 1 hour
-              "apns-topic": "com.misscoding.Eco-Share",
-            },
-          },
-        };
-        
-        const fcmResult = await messaging.send(fcmMessage);
-        console.log(`✅ FCM notification sent successfully to Android driver ${driverId}:`, fcmResult);
-        return { success: true, method: "FCM", result: fcmResult };
-        
-      } catch (fcmError) {
-        console.warn(`FCM notification failed for Android driver ${driverId}:`, fcmError);
-      }
-    }
-    
-    // Fallback to Expo for all platforms
-    if (expoToken) {
-      try {
-        console.log(`Attempting Expo notification for driver ${driverId}...`);
-        
-        const expoResult = await sendExpoPushNotification(expoToken, title, body, data);
-        
-        // Check if Expo notification was successful
-        if (expoResult.data && expoResult.data.status === "ok") {
-          console.log(`✅ Expo notification sent successfully to driver ${driverId}`);
-          return expoResult;
-        }
-      } catch (expoError) {
-        console.warn(`Expo notification failed for driver ${driverId}:`, expoError);
-      }
-    }
-    
-    // Final fallback: Try FCM if not already attempted
-    if (platform !== "android" && fcmToken) {
-      try {
-        console.log(`Attempting FCM fallback for non-Android driver ${driverId}...`);
-        
-        const messaging = getMessaging();
-        const fcmMessage = {
-          token: fcmToken,
-          notification: {
-            title: title,
-            body: body,
-          },
-          data: data,
-          android: {
-            priority: "high",
-            notification: {
-              sound: "default",
-              channelId: "ride-requests",
+            android: {
               priority: "high",
-              defaultSound: true,
-              defaultVibrateTimings: true,
-              vibrateTimings: [0, 250, 250, 250],
-              icon: "ic_launcher",
-              color: "#4CAF50",
-              largeIcon: "ic_launcher",
-              style: {
-                type: "bigtext",
-                text: body,
-                summary: title,
-              },
-            },
-          },
-          apns: {
-            payload: {
-              aps: {
+              notification: {
                 sound: "default",
-                badge: 1,
-                alert: {
-                  title: title,
-                  body: body,
+                channelId: "ride-requests",
+                priority: "high",
+                defaultSound: true,
+                defaultVibrateTimings: true,
+                vibrateTimings: [0, 250, 250, 250],
+                icon: "ic_launcher",
+                color: "#4CAF50",
+                largeIcon: "ic_launcher",
+                style: {
+                  type: "bigtext",
+                  text: body,
+                  summary: title,
                 },
-                category: "RIDE_OFFER",
-                "mutable-content": 1,
               },
             },
-          },
-        };
-        
-        const fcmResult = await messaging.send(fcmMessage);
-        console.log(`✅ FCM fallback notification sent successfully to driver ${driverId}:`, fcmResult);
-        return { success: true, method: "FCM-fallback", result: fcmResult };
-        
-      } catch (fcmError) {
-        console.warn(`FCM fallback failed for driver ${driverId}:`, fcmError);
+            apns: {
+              payload: {
+                aps: {
+                  sound: "default",
+                  badge: 1,
+                  alert: {
+                    title: title,
+                    body: body,
+                  },
+                  category: "RIDE_OFFER",
+                  "mutable-content": 1,
+                },
+              },
+            },
+          };
+          
+          const fcmResult = await messaging.send(fcmMessage);
+          console.log(`✅ FCM notification sent successfully to driver ${driverId}:`, fcmResult);
+          return { success: true, method: "FCM", result: fcmResult };
+        }
       }
+    } catch (fcmError) {
+      console.warn(`FCM fallback failed for driver ${driverId}:`, fcmError);
     }
     
     // Final fallback: Log the failure for manual intervention
     console.error(`❌ All notification methods failed for driver ${driverId}`);
     console.error(`Driver ${driverId} will not receive notification for ride offer`);
-    console.error(`Available tokens - FCM: ${!!fcmToken}, Expo: ${!!expoToken}, Platform: ${platform}`);
     
     return { success: false, method: "none", error: "All notification methods failed" };
     
@@ -1375,8 +1298,6 @@ exports.selectBestDriverForRide = onDocumentCreated({
     const driverDoc = driversSnapshot.docs[0];
     const driverData = driverDoc.data();
     
-    console.log(`Selected driver: ${driverDoc.id} (${driverData.firstName})`);
-    
     // Calculate countdown times
     const now = new Date();
     const countdownExpiryTime = new Date(now.getTime() + 15000); // 15 seconds from now
@@ -1432,19 +1353,6 @@ exports.selectBestDriverForRide = onDocumentCreated({
     } catch (notificationError) {
       console.error(`Error sending push notification to driver ${driverDoc.id}:`, notificationError);
       // Continue with the process even if notification fails
-    }
-    
-    // Send WhatsApp message if phone number exists
-    if (driverData.phoneNumber) {
-      const whatsappMessage = formatRideOfferMessage({
-        pickupAddress: rideData.pickupAddress || "Adresse non disponible",
-        destinationAddress: rideData.destinationAddress || "Adresse non disponible",
-        fare: rideData.fare || 0,
-        distance: rideData.distance || 5,
-      }, driverData.firstName || "Chauffeur");
-      await sendWhatsAppMessage(driverData.phoneNumber, whatsappMessage);
-    } else {
-      console.log("Selected driver has no phone number");
     }
     
     // Start countdown timer for auto-reassignment

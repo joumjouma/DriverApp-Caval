@@ -98,7 +98,7 @@ curl -X POST https://us-central1-eco-share-92ef1.cloudfunctions.net/testWhatsApp
    - Expected: Ride status → "waiting_for_next_driver"
 
 3. **Let Expire**:
-   - Wait 15 seconds
+   - Wait 20 seconds
    - Expected: Ride status → "waiting_for_next_driver"
 
 ## 🔍 **Monitoring & Debugging**
@@ -160,7 +160,7 @@ npx firebase functions:log --follow
    ↓
 4. Push notification + WhatsApp sent
    ↓
-5. App shows offer modal (15s countdown)
+5. App shows offer modal (20s countdown)
    ↓
 6. Driver accepts/rejects OR expires
    ↓

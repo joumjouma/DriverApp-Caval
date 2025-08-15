@@ -21,12 +21,12 @@ const RideOfferModal = ({
   onReject, 
   onClose 
 }) => {
-  const [countdown, setCountdown] = useState(15);
+  const [countdown, setCountdown] = useState(20);
   const [pulseAnim] = useState(new Animated.Value(1));
 
   useEffect(() => {
     if (visible && offer) {
-      setCountdown(offer.remainingSeconds || 15);
+      setCountdown(offer.remainingSeconds || 20);
       startPulseAnimation();
     }
   }, [visible, offer]);

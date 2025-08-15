@@ -294,7 +294,7 @@ const HomeScreenWithMap = () => {
     const [lastResetWeek, setLastResetWeek] = useState(null);
     const [activeTime, setActiveTime] = useState(0);
     const [startTime, setStartTime] = useState(null);
-    const [timeLeft, setTimeLeft] = useState(15);
+    const [timeLeft, setTimeLeft] = useState(20);
     const [lastEarningsDate, setLastEarningsDate] = useState(null);
     const [refreshing, setRefreshing] = useState(false);
     const [appState, setAppState] = useState(AppState.currentState);
@@ -599,7 +599,7 @@ const HomeScreenWithMap = () => {
     useEffect(() => {
       let backgroundStartTime = null;
       let backgroundTimeout = null;
-      const BACKGROUND_TIMEOUT = 30000; // 30 seconds - if app is backgrounded for this long, assume it's being closed
+      const BACKGROUND_TIMEOUT = 20000; // Reduced to 20 seconds - if app is backgrounded for this long, assume it's being closed
       
       const handleAppStateChange = (nextAppState) => {
         console.log('App state changed from', appState, 'to', nextAppState);
@@ -625,7 +625,7 @@ const HomeScreenWithMap = () => {
           
           // Set a timeout - if the app stays in background for too long, assume it's being closed
           backgroundTimeout = setTimeout(async () => {
-            console.log('🚨 App has been in background for 30+ seconds - assuming it is being closed');
+            console.log('🚨 App has been in background for 20+ seconds - assuming it is being closed');
             
             try {
               const currentUser = auth.currentUser;
@@ -638,7 +638,8 @@ const HomeScreenWithMap = () => {
                   isAvailable: false,
                   lastOnlineUpdate: new Date().toISOString(),
                   appBackgroundedAt: new Date().toISOString(),
-                  backgroundDuration: Date.now() - backgroundStartTime
+                  backgroundDuration: Date.now() - backgroundStartTime,
+                  offlineReason: "app_backgrounded_too_long"
                 });
                 
                 console.log('✅ Driver set offline due to extended background time');
@@ -683,7 +684,8 @@ const HomeScreenWithMap = () => {
               isOnline: false,
               isAvailable: false,
               lastOnlineUpdate: new Date().toISOString(),
-              appClosedAt: new Date().toISOString()
+              appClosedAt: new Date().toISOString(),
+              offlineReason: "app_terminated"
             }).then(() => {
               console.log('✅ Driver set offline due to app closure');
             }).catch((error) => {
@@ -695,15 +697,10 @@ const HomeScreenWithMap = () => {
         }
       };
 
-      // Add event listener for app termination
-      const handleBeforeUnload = () => {
-        handleAppTermination();
-      };
-
       // For React Native, we need to use a different approach
       // Add the handler to the global error boundary and cleanup
       if (global.addEventListener) {
-        global.addEventListener('beforeunload', handleBeforeUnload);
+        global.addEventListener('beforeunload', handleAppTermination);
       }
 
       // Also handle when the component unmounts (which happens on app closure)
@@ -730,11 +727,53 @@ const HomeScreenWithMap = () => {
           
           // Remove event listener
           if (global.removeEventListener) {
-            global.removeEventListener('beforeunload', handleBeforeUnload);
+            global.removeEventListener('beforeunload', handleAppTermination);
           }
         } catch (error) {
           console.error('❌ Error during cleanup:', error);
         }
+      };
+    }, [isOnline, auth.currentUser]);
+
+    // -----------------------------------------------------------------
+    // Network State Handler - Set Driver Offline When Network is Lost
+    // -----------------------------------------------------------------
+    useEffect(() => {
+      const handleNetworkChange = (isConnected) => {
+        if (!isConnected && isOnline) {
+          console.log('🚨 Network connection lost - setting driver offline for safety');
+          
+          try {
+            const currentUser = auth.currentUser;
+            if (currentUser) {
+              const driverRef = doc(db, "Drivers", currentUser.uid);
+              updateDoc(driverRef, {
+                isOnline: false,
+                isAvailable: false,
+                lastOnlineUpdate: new Date().toISOString(),
+                networkLostAt: new Date().toISOString(),
+                offlineReason: "network_connection_lost"
+              }).then(() => {
+                console.log('✅ Driver set offline due to network loss');
+              }).catch((error) => {
+                console.error('❌ Error setting driver offline due to network loss:', error);
+              });
+            }
+          } catch (error) {
+            console.error('❌ Error in network change handler:', error);
+          }
+        }
+      };
+
+      // For React Native, we'll use a simpler approach
+      // Just log network status changes without trying to detect them
+      console.log('📱 Network monitoring initialized for React Native');
+      
+      // In a real React Native app, you could use NetInfo library here
+      // For now, we'll rely on the app state changes and component unmounting
+      
+      return () => {
+        console.log('📱 Network monitoring cleanup');
       };
     }, [isOnline, auth.currentUser]);
 
@@ -752,7 +791,7 @@ const HomeScreenWithMap = () => {
         setRideCooldown(false);
         setCurrentRideRequest(null);
         setIsModalVisible(false);
-        setTimeLeft(15); // Reset timer for next ride offer
+        setTimeLeft(20); // Reset timer for next ride offer
         
         // Reset any timers
         if (timerRef.current) {
@@ -1337,7 +1376,7 @@ const HomeScreenWithMap = () => {
           } finally {
             setIsLoadingAddress(false);
             setIsModalVisible(true);
-            setTimeLeft(15);
+            setTimeLeft(20);
             startTimer();
             Animated.timing(countdownAnim, {
               toValue: 0,
@@ -1675,7 +1714,7 @@ const HomeScreenWithMap = () => {
         // Store the start time for background calculations
         countdownStartTimeRef.current = Date.now();
         
-        setTimeLeft(15);
+        setTimeLeft(20);
         countdownAnim.setValue(1);
         
         // Start the animation
@@ -1697,7 +1736,7 @@ const HomeScreenWithMap = () => {
       } catch (error) {
         console.error('Error starting timer:', error);
         // Fallback: just set the time without animation
-        setTimeLeft(15);
+        setTimeLeft(20);
       }
     };
 
