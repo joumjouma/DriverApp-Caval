@@ -42,7 +42,7 @@
       "versionCode": 147,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icone.png",
-        "backgroundColor": "#3DDC84"
+        "backgroundColor": "#FF6B35"
       },
       "config": {
         "googleMaps": {
