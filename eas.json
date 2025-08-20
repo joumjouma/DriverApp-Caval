@@ -1,53 +1,54 @@
 {
-  "cli": {
-    "version": ">= 5.9.1",
-    "appVersionSource": "local",
-    "requireCommit": true
-  },
-  "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal",
-      "ios": {
-        "resourceClass": "m-medium"
-      }
+    "cli": {
+      "version": ">= 5.9.1",
+      "appVersionSource": "local",
+      "requireCommit": true
     },
-    "preview": {
-      "android": {
-        "buildType": "apk"
+    "build": {
+      "development": {
+        "developmentClient": true,
+        "distribution": "internal",
+        "ios": {
+          "resourceClass": "m-medium"
+        }
       },
-      "distribution": "internal",
-      "developmentClient": false,
-      "ios": {
-        "resourceClass": "m-medium"
-      }
-    },
-    "production": {
-      "android": {
-        "buildType": "app-bundle"
+      "preview": {
+        "android": {
+          "buildType": "apk"
+        },
+        "distribution": "internal",
+        "developmentClient": false,
+        "ios": {
+          "resourceClass": "m-medium"
+        }
       },
-      "ios": {
-        "resourceClass": "m-medium"
+      "production": {
+        "android": {
+          "buildType": "app-bundle"
+        },
+        "ios": {
+          "resourceClass": "m-medium"
+        },
+        "distribution": "store",
+        "developmentClient": false
       },
-      "distribution": "store",
-      "developmentClient": false
-    },
-    "minimal": {
-      "ios": {
-        "resourceClass": "m-medium"
+      "minimal": {
+        "ios": {
+          "resourceClass": "m-medium"
+        },
+        "distribution": "internal",
+        "developmentClient": false
       },
-      "distribution": "internal",
-      "developmentClient": false
-    },
-    "test": {
-      "ios": {
-        "resourceClass": "m-medium"
-      },
-      "distribution": "internal",
-      "developmentClient": false,
-      "env": {
-        "EXPO_PUBLIC_TEST_MODE": "true"
+      "test": {
+        "ios": {
+          "resourceClass": "m-medium"
+        },
+        "distribution": "internal",
+        "developmentClient": false,
+        "env": {
+          "EXPO_PUBLIC_TEST_MODE": "true"
+        }
       }
     }
   }
-}
+  

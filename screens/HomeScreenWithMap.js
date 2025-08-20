@@ -56,6 +56,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import RideOfferModal from '../components/RideOfferModal';
 import RideOfferService from '../services/RideOfferService';
+import notificationService from '../services/NotificationService';
 
 const { width, height } = Dimensions.get("window");
 
@@ -1453,6 +1454,46 @@ const HomeScreenWithMap = () => {
         // Check if this driver is the selected driver
         if (ride.selectedDriverId === auth.currentUser?.uid) {
           console.log('🎯 You have been selected for this ride by the backend!');
+          
+          // Send notification to the selected driver
+          const sendRideSelectionNotification = async () => {
+            try {
+              console.log('Sending ride selection notification...');
+              
+              // Check if notifications are properly initialized
+              const hasPermission = await notificationService.requestPermissions();
+              if (!hasPermission) {
+                console.log('Notification permissions not granted, skipping notification');
+                return;
+              }
+              
+              // Send notification with ride details
+              const notificationData = {
+                type: 'ride_request',
+                rideId: ride.id,
+                driverId: auth.currentUser?.uid,
+                fare: ride.fare?.toString() || '0',
+                pickupAddress: ride.pickupAddress || 'Adresse de départ',
+                destinationAddress: ride.destinationAddress || 'Adresse de destination',
+                rideType: ride.rideType || 'car'
+              };
+              
+              await notificationService.sendLocalNotification(
+                '🎯 Course assignée!',
+                `Nouvelle course disponible! Départ: ${ride.pickupAddress || 'Adresse de départ'}`,
+                notificationData,
+                'ride-requests'
+              );
+              
+              console.log('Ride selection notification sent successfully');
+            } catch (error) {
+              console.error('Error sending ride selection notification:', error);
+              // Don't fail the ride selection process if notification fails
+            }
+          };
+          
+          // Send notification
+          sendRideSelectionNotification();
           
           // Get the selected driver details from SelectedDriver collection
           try {
