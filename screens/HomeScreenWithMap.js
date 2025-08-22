@@ -57,6 +57,7 @@ import * as Device from 'expo-device';
 import RideOfferModal from '../components/RideOfferModal';
 import RideOfferService from '../services/RideOfferService';
 import notificationService from '../services/NotificationService';
+import whatsAppService from '../services/WhatsAppService';
 
 const { width, height } = Dimensions.get("window");
 
@@ -600,7 +601,7 @@ const HomeScreenWithMap = () => {
     useEffect(() => {
       let backgroundStartTime = null;
       let backgroundTimeout = null;
-      const BACKGROUND_TIMEOUT = 20000; // Reduced to 20 seconds - if app is backgrounded for this long, assume it's being closed
+      const BACKGROUND_TIMEOUT = 20 * 60 * 1000; // 20 minutes in milliseconds
       
       const handleAppStateChange = (nextAppState) => {
         console.log('App state changed from', appState, 'to', nextAppState);
@@ -624,14 +625,14 @@ const HomeScreenWithMap = () => {
           // Start tracking background time
           backgroundStartTime = Date.now();
           
-          // Set a timeout - if the app stays in background for too long, assume it's being closed
+          // Set a timeout - if the app stays in background for 20+ minutes, set driver offline
           backgroundTimeout = setTimeout(async () => {
-            console.log('🚨 App has been in background for 20+ seconds - assuming it is being closed');
+            console.log('🚨 App has been in background for 20+ minutes - setting driver offline for safety');
             
             try {
               const currentUser = auth.currentUser;
               if (currentUser && isOnline) {
-                console.log('🚨 Setting driver offline due to extended background time');
+                console.log('🚨 Setting driver offline due to extended background time (20+ minutes)');
                 
                 const driverRef = doc(db, "Drivers", currentUser.uid);
                 await updateDoc(driverRef, {
@@ -643,7 +644,10 @@ const HomeScreenWithMap = () => {
                   offlineReason: "app_backgrounded_too_long"
                 });
                 
-                console.log('✅ Driver set offline due to extended background time');
+                // Update local state to match
+                setIsOnline(false);
+                
+                console.log('✅ Driver set offline due to extended background time (20+ minutes)');
               }
             } catch (error) {
               console.error('❌ Error setting driver offline due to background timeout:', error);
@@ -1261,6 +1265,49 @@ const HomeScreenWithMap = () => {
     // -----------------------------------------------------------------
     // 8. Subscribe to Ride Requests if driver is online, not in progress, etc.
     // -----------------------------------------------------------------
+    
+    // NEW: Handle background notifications when app is opened
+    useEffect(() => {
+      if (route.params?.fromNotification && route.params?.notificationRideId) {
+        console.log('🚨 App opened from background notification for ride:', route.params.notificationRideId);
+        
+        // Fetch the ride details and show the offer
+        const fetchRideFromNotification = async () => {
+          try {
+            const rideDoc = await getDoc(doc(db, "rideRequests", route.params.notificationRideId));
+            if (rideDoc.exists()) {
+              const rideData = rideDoc.data();
+              
+              // Check if this driver is still the selected driver
+              if (rideData.selectedDriverId === auth.currentUser?.uid && rideData.status === 'driver_selected') {
+                console.log('✅ Driver is still selected for this ride, showing offer...');
+                
+                // Process the ride offer
+                await processRideOffer(rideData, { id: auth.currentUser.uid });
+                
+                // Clear the notification params
+                navigation.setParams({ fromNotification: undefined, notificationRideId: undefined });
+              } else {
+                console.log('❌ Driver is no longer selected for this ride or status changed');
+                // Clear the notification params
+                navigation.setParams({ fromNotification: undefined, notificationRideId: undefined });
+              }
+            } else {
+              console.log('❌ Ride no longer exists');
+              // Clear the notification params
+              navigation.setParams({ fromNotification: undefined, notificationRideId: undefined });
+            }
+          } catch (error) {
+            console.error('❌ Error fetching ride from notification:', error);
+            // Clear the notification params
+            navigation.setParams({ fromNotification: undefined, notificationRideId: undefined });
+          }
+        };
+        
+        fetchRideFromNotification();
+      }
+    }, [route.params?.fromNotification, route.params?.notificationRideId, auth.currentUser?.uid]);
+    
     useEffect(() => {
       console.log('[SUBSCRIPTION EFFECT] Triggered with:', {
         isOnline,
@@ -1296,6 +1343,48 @@ const HomeScreenWithMap = () => {
         where("status", "==", "driver_selected"),
         where("rideType", "==", driverType)
       );
+
+      // NEW: Listen for new ride requests to automatically assign to best driver
+      const newRideRequestsQuery = query(
+        collection(db, "rideRequests"),
+        where("status", "==", "waiting"),
+        where("rideType", "==", driverType)
+      );
+
+      // Set up subscription for new ride requests (automatic assignment)
+      const newRideRequestsUnsubscribe = onSnapshot(newRideRequestsQuery, async (snapshot) => {
+        console.log('🆕 New ride requests snapshot:', {
+          empty: snapshot.empty,
+          size: snapshot.size,
+          docs: snapshot.docs.map(doc => ({ id: doc.id, status: doc.data().status }))
+        });
+
+        if (!snapshot.empty) {
+          // Process each new ride request
+          for (const doc of snapshot.docs) {
+            const rideData = doc.data();
+            console.log('🆕 Processing new ride request:', doc.id, rideData.status);
+            
+            // Only process if it's still waiting and hasn't been assigned yet
+            if (rideData.status === 'waiting' && !rideData.selectedDriverId) {
+              console.log('🚀 Auto-assigning new ride request:', doc.id);
+              
+              try {
+                // Use the new smart assignment function
+                const assignmentSuccess = await assignRideToBestDriver(doc.id);
+                
+                if (assignmentSuccess) {
+                  console.log('✅ Ride automatically assigned to best driver');
+                } else {
+                  console.log('❌ Failed to auto-assign ride');
+                }
+              } catch (assignmentError) {
+                console.error('❌ Error auto-assigning ride:', assignmentError);
+              }
+            }
+          }
+        }
+      });
 
       // Helper function to process ride offer
       const processRideOffer = async (ride, selectedDriver) => {
@@ -1495,6 +1584,36 @@ const HomeScreenWithMap = () => {
           // Send notification
           sendRideSelectionNotification();
           
+          // Send WhatsApp notification to the selected driver
+          try {
+            console.log('📱 Sending WhatsApp notification for ride selection...');
+            
+            // Get current driver info
+            const currentUser = auth.currentUser;
+            if (currentUser) {
+              const driverDoc = await getDoc(doc(db, "Drivers", currentUser.uid));
+              if (driverDoc.exists()) {
+                const driverData = driverDoc.data();
+                
+                // Prepare ride info for WhatsApp notification
+                const rideInfo = {
+                  pickupAddress: ride.pickupAddress || 'Adresse de départ',
+                  destinationAddress: ride.destinationAddress || 'Adresse de destination',
+                  fare: ride.fare || 0,
+                  estimatedTime: 15 // Default estimated time
+                };
+                
+                // Send WhatsApp notification
+                await whatsAppService.sendRideAssignmentNotification(driverData, rideInfo);
+                console.log('✅ WhatsApp notification sent successfully for ride selection');
+              }
+            }
+          } catch (whatsappError) {
+            console.error('❌ Error sending WhatsApp notification for ride selection:', whatsappError);
+            // Don't fail the ride selection process if WhatsApp fails
+            console.log('⚠️ Ride selection continues despite WhatsApp notification failure');
+          }
+          
           // Get the selected driver details from SelectedDriver collection
           try {
             const selectedDriverDoc = await getDoc(doc(db, "SelectedDriver", ride.id));
@@ -1557,6 +1676,10 @@ const HomeScreenWithMap = () => {
         if (onSnapshotUnsubscribe.current) {
           onSnapshotUnsubscribe.current();
         }
+        // Clean up the new ride requests subscription
+        if (newRideRequestsUnsubscribe) {
+          newRideRequestsUnsubscribe();
+        }
       };
     }, [isOnline, rideInProgress, rideCooldown, driverType]);
 
@@ -1616,46 +1739,105 @@ const HomeScreenWithMap = () => {
       if (!currentRideRequest) return;
       
       try {
-        console.log('Looking for next available driver for ride:', currentRideRequest.id);
+        console.log('🔍 Looking for next available driver for ride:', currentRideRequest.id);
         
         // Get the current ride request to check if it's still available
         const rideDoc = await getDoc(doc(db, "rideRequests", currentRideRequest.id));
         if (!rideDoc.exists()) {
-          console.log('Ride request no longer exists');
+          console.log('❌ Ride request no longer exists');
           return;
         }
         
         const rideData = rideDoc.data();
         if (rideData.status !== 'waiting') {
-          console.log('Ride status is no longer waiting:', rideData.status);
+          console.log('❌ Ride status is no longer waiting:', rideData.status);
           return;
         }
         
-        // Get all available drivers of the same type
+        // Get pickup coordinates from the correct fields
+        const pickupLocation = {
+          latitude: rideData.pickupLat,
+          longitude: rideData.pickupLng
+        };
+        
+        if (!pickupLocation.latitude || !pickupLocation.longitude) {
+          console.error('❌ Invalid pickup coordinates:', pickupLocation);
+          return;
+        }
+        
+        console.log('📍 Pickup location:', pickupLocation);
+        
+        // More flexible query - only check essential fields first
         const driversQuery = query(
           collection(db, "Drivers"),
           where("isOnline", "==", true),
-          where("isAvailable", "==", true),
-          where("driverType", "==", rideData.driverType || "standard")
+          where("driverType", "==", rideData.rideType || "standard")
         );
         
         const driversSnapshot = await getDocs(driversQuery);
         const availableDrivers = [];
         
+        console.log(`🔍 Found ${driversSnapshot.size} drivers with basic criteria`);
+        
         driversSnapshot.forEach((doc) => {
           const driverData = doc.data();
+          console.log(`🔍 Checking driver ${doc.id}:`, {
+            isOnline: driverData.isOnline,
+            driverType: driverData.driverType,
+            rideInProgress: driverData.rideInProgress,
+            currentRideId: driverData.currentRideId,
+            latitude: driverData.latitude,
+            longitude: driverData.longitude,
+            firstName: driverData.firstName
+          });
+          
           // Exclude the current driver and previously declined drivers
           if (doc.id !== auth.currentUser?.uid && 
               !rideData.declinedDrivers?.includes(doc.id)) {
-            availableDrivers.push({
-              id: doc.id,
-              ...driverData
+            
+            // Check availability more flexibly
+            const isAvailable = (
+              driverData.isAvailable !== false && // Available unless explicitly false
+              driverData.rideInProgress !== true && // Not in progress unless explicitly true
+              !driverData.currentRideId // No current ride
+            );
+            
+            // Only include drivers with valid coordinates and are available
+            if (driverData.latitude && driverData.longitude && isAvailable) {
+              const distance = calculateDistance(
+                { latitude: driverData.latitude, longitude: driverData.longitude },
+                pickupLocation
+              );
+              
+              availableDrivers.push({
+                id: doc.id,
+                ...driverData,
+                distanceToPickup: distance
+              });
+              
+              console.log(`✅ Driver ${doc.id} added - distance: ${distance.toFixed(2)}km`);
+            } else {
+              console.log(`❌ Driver ${doc.id} excluded:`, {
+                hasCoordinates: !!(driverData.latitude && driverData.longitude),
+                isAvailable,
+                reason: !driverData.latitude || !driverData.longitude ? 'No coordinates' : 'Not available'
+              });
+            }
+          } else {
+            console.log(`❌ Driver ${doc.id} excluded:`, {
+              isCurrentDriver: doc.id === auth.currentUser?.uid,
+              wasDeclined: rideData.declinedDrivers?.includes(doc.id)
             });
           }
         });
         
+        console.log(`🔍 Final available drivers: ${availableDrivers.length}`);
+        availableDrivers.forEach(driver => {
+          console.log(`📍 Available driver ${driver.id}: ${driver.distanceToPickup.toFixed(2)}km`);
+        });
+        
         if (availableDrivers.length === 0) {
-          console.log('No other available drivers found, incrementing reassignment attempts');
+          console.log('❌ No other available drivers found, incrementing reassignment attempts');
           
           // Get current reassignment attempts
           const currentAttempts = rideData.reassignmentAttempts || 0;
@@ -1668,7 +1850,7 @@ const HomeScreenWithMap = () => {
           
           // Add a delay before the next attempt to allow other drivers to come online
           const delay = Math.min(5000 + (currentAttempts * 2000), 15000); // 5s, 7s, 9s, 11s, 13s, 15s
-          console.log(`No drivers available, waiting ${delay}ms before next attempt`);
+          console.log(`⏰ No drivers available, waiting ${delay}ms before next attempt`);
           
           // Set a timeout to retry after the delay
           setTimeout(async () => {
@@ -1676,47 +1858,34 @@ const HomeScreenWithMap = () => {
               // Check if the ride is still waiting and we haven't navigated away
               const currentRideDoc = await getDoc(doc(db, "rideRequests", currentRideRequest.id));
               if (currentRideDoc.exists() && currentRideDoc.data().status === 'waiting') {
-                console.log('Retrying driver search after delay');
+                console.log('🔄 Retrying driver search after delay');
                 await findNextAvailableDriver();
               }
             } catch (retryError) {
-              console.error('Error during retry:', retryError);
+              console.error('❌ Error during retry:', retryError);
             }
           }, delay);
           
           return;
         }
         
-        // Sort drivers by distance to pickup location
+        // Sort drivers by distance to pickup location (closest first)
         const sortedDrivers = availableDrivers.sort((a, b) => {
-          if (!a.latitude || !a.longitude || !b.latitude || !b.longitude) return 0;
-          
-          const distanceA = calculateDistance(
-            { latitude: a.latitude, longitude: a.longitude },
-            { latitude: rideData.pickupLocation.latitude, longitude: rideData.pickupLocation.longitude }
-          );
-          const distanceB = calculateDistance(
-            { latitude: b.latitude, longitude: b.longitude },
-            { latitude: rideData.pickupLocation.latitude, longitude: rideData.pickupLocation.longitude }
-          );
-          
-          return distanceA - distanceB;
+          return a.distanceToPickup - b.distanceToPickup;
         });
         
         // Select the closest available driver
         const nextDriver = sortedDrivers[0];
-        console.log('Next available driver found:', nextDriver.id, 'at distance:', 
-          calculateDistance(
-            { latitude: nextDriver.latitude, longitude: nextDriver.longitude },
-            { latitude: rideData.pickupLocation.latitude, longitude: rideData.pickupLocation.longitude }
-          )
-        );
+        
+        console.log(`✅ Selected closest driver: ${nextDriver.id} at ${nextDriver.distanceToPickup.toFixed(2)}km`);
+        console.log(`📍 Driver coordinates: ${nextDriver.latitude}, ${nextDriver.longitude}`);
+        console.log(`📍 Pickup coordinates: ${pickupLocation.latitude}, ${pickupLocation.longitude}`);
         
         // Update the ride request to assign it to the next driver
         await updateDoc(doc(db, "rideRequests", currentRideRequest.id), {
           driverId: nextDriver.id,
-          driverName: nextDriver.userName || nextDriver.name || "Driver",
-          driverPhoto: nextDriver.profilePhoto || "",
+          driverName: nextDriver.firstName || nextDriver.userName || nextDriver.name || "Driver",
+          driverPhoto: nextDriver.photo || nextDriver.profilePhoto || "",
           driverPhone: nextDriver.phoneNumber || null,
           lastDriverAssignment: serverTimestamp(),
           reassignmentAttempts: increment(1),
@@ -1732,16 +1901,16 @@ const HomeScreenWithMap = () => {
             reassignedFromDriver: auth.currentUser?.uid,
             reassignmentAttempt: increment(1)
           });
-          console.log('SelectedDriver collection updated to reassigned status');
+          console.log('✅ SelectedDriver collection updated to reassigned status');
         } catch (selectedDriverError) {
-          console.error('Error updating SelectedDriver collection for reassignment:', selectedDriverError);
+          console.error('❌ Error updating SelectedDriver collection for reassignment:', selectedDriverError);
           // Continue with reassignment even if SelectedDriver update fails
         }
         
-        console.log('Ride successfully reassigned to next available driver');
+        console.log('✅ Ride successfully reassigned to closest available driver');
         
       } catch (error) {
-        console.error('Error finding next available driver:', error);
+        console.error('❌ Error finding next available driver:', error);
         throw error;
       }
     };
@@ -3006,6 +3175,14 @@ const HomeScreenWithMap = () => {
           customerId: currentRideRequest.customerId || currentRideRequest.userId || '',
         };
         
+        console.log('🎯 Customer information for navigation:', {
+          firstName: navigationParams.firstName,
+          lastName: navigationParams.lastName,
+          number: navigationParams.number,
+          photo: navigationParams.photo,
+          customerId: navigationParams.customerId
+        });
+        
         console.log('Navigating to RideInProgressScreen with params:', navigationParams);
         
         // Navigate to ride in progress screen
@@ -3457,23 +3634,52 @@ const HomeScreenWithMap = () => {
           
           if (firestoreOnline !== localOnline) {
             console.log(`🔍 Manual verification: Online status mismatch. Local: ${localOnline}, Firestore: ${firestoreOnline}`);
-            console.log('🔄 Fixing online status to match local state...');
             
-            await updateDoc(driverRef, {
-              isOnline: localOnline,
-              isAvailable: localOnline,
-              lastOnlineUpdate: new Date().toISOString()
-            });
-            
-            console.log(`✅ Manual verification completed. Online status now consistent: ${localOnline}`);
+            // Fix the mismatch
+            if (localOnline) {
+              await updateDoc(driverRef, { isOnline: true });
+              console.log('✅ Fixed online status in Firestore');
+            } else {
+              await updateDoc(driverRef, { isOnline: false });
+              console.log('✅ Fixed offline status in Firestore');
+            }
           } else {
-            console.log(`✅ Manual verification: Online status is consistent. Both local and Firestore show: ${localOnline}`);
+            console.log('✅ Online status is consistent between local and Firestore');
           }
         }
       } catch (error) {
         console.error('Error in manual online status verification:', error);
       }
     };
+
+    // -----------------------------------------------------------------
+    // 16.6.7. Periodic Push Token Refresh for Background Notifications
+    // -----------------------------------------------------------------
+    useEffect(() => {
+      let tokenRefreshInterval = null;
+      
+      if (auth.currentUser && isOnline) {
+        // Refresh push token every 30 minutes to ensure it stays valid
+        tokenRefreshInterval = setInterval(async () => {
+          try {
+            console.log('🔄 Refreshing push token for background notifications...');
+            
+            // Update the push token
+            await notificationService.updatePushToken();
+            
+            console.log('✅ Push token refreshed successfully');
+          } catch (tokenError) {
+            console.error('❌ Error refreshing push token:', tokenError);
+          }
+        }, 30 * 60 * 1000); // 30 minutes
+      }
+      
+      return () => {
+        if (tokenRefreshInterval) {
+          clearInterval(tokenRefreshInterval);
+        }
+      };
+    }, [auth.currentUser, isOnline]);
 
     // -----------------------------------------------------------------
     // 16.7. Ride Offer Service Integration
@@ -3644,6 +3850,584 @@ const HomeScreenWithMap = () => {
         console.log('❌ Driver is offline, hiding searching animation');
       }
     }, [isOnline]);
+
+    // -----------------------------------------------------------------
+    // 16.6.7. Test Push Notification Function
+    // -----------------------------------------------------------------
+    const testPushNotification = async () => {
+      try {
+        console.log('🧪 Testing push notification system...');
+        
+        // First, check if we have a valid push token
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.log('❌ No authenticated user');
+          return;
+        }
+        
+        // Check current token status
+        const tokenStatus = await notificationService.checkPushTokenStatus();
+        console.log('📱 Current token status:', tokenStatus);
+        
+        if (tokenStatus.hasToken) {
+          console.log('✅ Push token found');
+          
+          // Test local notification first
+          await notificationService.sendLocalNotification(
+            '🧪 Test Notification',
+            'This is a test notification to verify the system is working.',
+            { type: 'test', timestamp: new Date().toISOString() }
+          );
+          console.log('✅ Local test notification sent');
+          
+          // Now test if we can trigger the cloud function
+          const testRideRef = doc(collection(db, "rideRequests"));
+          await setDoc(testRideRef, {
+            status: 'waiting',
+            rideType: driverType || 'car',
+            pickupAddress: 'Test Pickup Address',
+            destinationAddress: 'Test Destination Address',
+            fare: 1000,
+            customerName: 'Test Customer',
+            customerPhone: '+25377702036',
+            createdAt: serverTimestamp(),
+            isTest: true
+          });
+          
+          console.log('✅ Test ride request created, should trigger cloud function');
+          console.log('📱 Check your device for push notification (may take a few seconds)');
+          
+          // Clean up test ride after 30 seconds
+          setTimeout(async () => {
+            try {
+              await updateDoc(testRideRef, { status: 'cancelled', testCleanedUp: true });
+              console.log('🧹 Test ride cleaned up');
+            } catch (cleanupError) {
+              console.log('⚠️ Could not clean up test ride:', cleanupError.message);
+            }
+          }, 30000);
+          
+        } else {
+          console.log('❌ No push token found');
+          console.log('🔄 Attempting to update push token...');
+          
+          const newToken = await notificationService.updatePushToken();
+          if (newToken) {
+            console.log('✅ New push token obtained:', newToken.substring(0, 20) + '...');
+            console.log('🔄 Retry the test after a few seconds');
+          } else {
+            console.log('❌ Failed to get push token');
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error testing push notification:', error);
+      }
+    };
+
+    // -----------------------------------------------------------------
+    // 16.6.8. Test WhatsApp Notification Function
+    // -----------------------------------------------------------------
+    const testWhatsAppNotification = async () => {
+      try {
+        console.log('🧪 Testing WhatsApp notification system...');
+        
+        // Check if we have a current user
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          console.log('❌ No authenticated user');
+          Alert.alert('Test Error', 'Please log in to test WhatsApp notifications');
+          return;
+        }
+        
+        // First check UltraMsg service status
+        console.log('🔍 Checking UltraMsg service status...');
+        const serviceStatus = await whatsAppService.checkUltraMsgStatus();
+        console.log('📊 Service status:', serviceStatus);
+        
+        if (!serviceStatus.active) {
+          Alert.alert(
+            'WhatsApp Service Inactive', 
+            `UltraMsg service is currently inactive:\n\n${JSON.stringify(serviceStatus.error, null, 2)}\n\nPlease reactivate your UltraMsg instance or set up an alternative service.`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+        
+        // Get driver info from Firestore
+        const driverDoc = await getDoc(doc(db, "Drivers", currentUser.uid));
+        if (!driverDoc.exists()) {
+          console.log('❌ Driver document not found');
+          Alert.alert('Test Error', 'Driver information not found');
+          return;
+        }
+        
+        const driverData = driverDoc.data();
+        const phoneNumber = driverData.phoneNumber || driverData.phone || driverData.number;
+        
+        if (!phoneNumber) {
+          console.log('❌ Driver phone number not available');
+          Alert.alert('Test Error', 'Driver phone number not available. Please update your profile with a phone number.');
+          return;
+        }
+        
+        console.log('📱 Testing WhatsApp with phone number:', phoneNumber);
+        
+        // Test WhatsApp integration
+        await whatsAppService.testIntegration(phoneNumber);
+        
+        console.log('✅ WhatsApp test completed successfully');
+        Alert.alert(
+          'WhatsApp Test', 
+          'WhatsApp test message sent successfully! Check your WhatsApp for the test message.',
+          [{ text: 'OK' }]
+        );
+        
+      } catch (error) {
+        console.error('❌ Error testing WhatsApp notification:', error);
+        Alert.alert(
+          'WhatsApp Test Failed', 
+          `Error: ${error.message}. Please check the console for details.`,
+          [{ text: 'OK' }]
+        );
+      }
+    };
+
+    // -----------------------------------------------------------------
+    // 16.6.9. Check WhatsApp Service Status Function
+    // -----------------------------------------------------------------
+    const checkWhatsAppServiceStatus = async () => {
+      try {
+        console.log('🔍 Checking WhatsApp service status...');
+        
+        const status = await whatsAppService.checkUltraMsgStatus();
+        const serviceInfo = whatsAppService.getServiceStatus();
+        
+        console.log('📊 WhatsApp service status:', status);
+        console.log('📊 Service configuration:', serviceInfo);
+        
+        let statusMessage = '';
+        let statusTitle = '';
+        
+        if (status.active) {
+          statusTitle = '✅ Service WhatsApp Actif';
+          statusMessage = `Le service UltraMsg fonctionne correctement.\n\nInstance ID: ${serviceInfo.ultraMsg.instanceId}\nStatus: Active\n\nDeduplication: ${serviceInfo.deduplication.activeMessages} message actif\nCooldown: ${serviceInfo.deduplication.cooldownPeriod}ms`;
+        } else {
+          statusTitle = '❌ WhatsApp Service Inactive';
+          statusMessage = `UltraMsg service is currently inactive.\n\nError: ${JSON.stringify(status.error, null, 2)}\n\nTo fix this:\n1. Go to ultramsg.com\n2. Log in to your account\n3. Reactivate instance ${serviceInfo.ultraMsg.instanceId}\n4. Wait 5 minutes for activation`;
+        }
+        
+        Alert.alert(statusTitle, statusMessage, [
+          { text: 'OK' },
+          { text: 'Clear Cache', onPress: clearWhatsAppCache }
+        ]);
+        
+      } catch (error) {
+        console.error('❌ Error checking WhatsApp service status:', error);
+        Alert.alert(
+          'Status Check Failed', 
+          `Error: ${error.message}. Please check the console for details.`,
+          [{ text: 'OK' }]
+        );
+      }
+    };
+
+    // -----------------------------------------------------------------
+    // 16.6.10. Clear WhatsApp Message Cache Function
+    // -----------------------------------------------------------------
+    const clearWhatsAppCache = async () => {
+      try {
+        console.log('🧹 Clearing WhatsApp message cache...');
+        
+        const result = whatsAppService.clearMessageCache();
+        const stats = whatsAppService.getDeduplicationStats();
+        
+        console.log('📊 Cache cleared:', result);
+        console.log('📊 Current stats:', stats);
+        
+        Alert.alert(
+          'Cache Cleared', 
+          `WhatsApp message cache has been cleared.\n\nRemoved: ${result.removedCount} entries\nCurrent active: ${stats.activeEntries}`,
+          [{ text: 'OK' }]
+        );
+        
+      } catch (error) {
+        console.error('❌ Error clearing WhatsApp cache:', error);
+        Alert.alert(
+          'Cache Clear Failed', 
+          `Error: ${error.message}. Please check the console for details.`,
+          [{ text: 'OK' }]
+        );
+      }
+    };
+
+    // -----------------------------------------------------------------
+    // 16.8.5. Find Closest Driver to Pickup Location
+    // -----------------------------------------------------------------
+    const findClosestDriverToPickup = async (rideId) => {
+      try {
+        console.log('🔍 Finding closest driver to pickup location for ride:', rideId);
+        
+        // First, get the ride request to get pickup coordinates
+        const rideDoc = await getDoc(doc(db, "rideRequests", rideId));
+        if (!rideDoc.exists()) {
+          console.log('❌ Ride request not found:', rideId);
+          return null;
+        }
+        
+        const rideData = rideDoc.data();
+        
+        // Get pickup coordinates from rideRequests collection
+        const pickupLocation = {
+          latitude: rideData.pickupLat,
+          longitude: rideData.pickupLng
+        };
+        
+        if (!pickupLocation.latitude || !pickupLocation.longitude) {
+          console.error('❌ Invalid pickup coordinates in rideRequests:', pickupLocation);
+          return null;
+        }
+        
+        console.log('📍 Pickup location from rideRequests:', pickupLocation);
+        
+        // Get all available drivers of the same type
+        const driversQuery = query(
+          collection(db, "Drivers"),
+          where("isOnline", "==", true),
+          where("driverType", "==", rideData.rideType || "standard")
+        );
+        
+        const driversSnapshot = await getDocs(driversQuery);
+        const availableDrivers = [];
+        
+        console.log(`🔍 Found ${driversSnapshot.size} online drivers of type ${rideData.rideType || "standard"}`);
+        
+        driversSnapshot.forEach((doc) => {
+          const driverData = doc.data();
+          
+          // Check if driver is available (not in progress, no current ride)
+          const isAvailable = (
+            driverData.isAvailable !== false &&
+            driverData.rideInProgress !== true &&
+            !driverData.currentRideId
+          );
+          
+          // Only include drivers with valid coordinates and are available
+          if (driverData.latitude && driverData.longitude && isAvailable) {
+            const distance = calculateDistance(
+              { latitude: driverData.latitude, longitude: driverData.longitude },
+              pickupLocation
+            );
+            
+            availableDrivers.push({
+              id: doc.id,
+              ...driverData,
+              distanceToPickup: distance
+            });
+            
+            console.log(`📍 Driver ${doc.id}: ${distance.toFixed(2)}km from pickup`);
+          }
+        });
+        
+        if (availableDrivers.length === 0) {
+          console.log('❌ No available drivers found');
+          return null;
+        }
+        
+        // Sort drivers by distance (closest first)
+        const sortedDrivers = availableDrivers.sort((a, b) => a.distanceToPickup - b.distanceToPickup);
+        
+        // Get the closest driver
+        const closestDriver = sortedDrivers[0];
+        
+        console.log(`✅ Closest driver selected: ${closestDriver.id} at ${closestDriver.distanceToPickup.toFixed(2)}km`);
+        console.log(`📍 Driver coordinates: ${closestDriver.latitude}, ${closestDriver.longitude}`);
+        console.log(`📍 Pickup coordinates: ${pickupLocation.latitude}, ${pickupLocation.longitude}`);
+        
+        return closestDriver;
+        
+      } catch (error) {
+        console.error('❌ Error finding closest driver to pickup:', error);
+        return null;
+      }
+    };
+
+    // -----------------------------------------------------------------
+    // 16.8.6. Assign Ride to Best Driver in SelectedDriver Collection
+    // -----------------------------------------------------------------
+    const assignRideToBestDriver = async (rideId) => {
+      try {
+        console.log('🚀 Assigning ride to best driver:', rideId);
+        
+        // Find the closest available driver
+        const bestDriver = await findClosestDriverToPickup(rideId);
+        if (!bestDriver) {
+          console.log('❌ No suitable driver found for ride assignment');
+          return false;
+        }
+        
+        // Update the rideRequests collection with the selected driver
+        await updateDoc(doc(db, "rideRequests", rideId), {
+          selectedDriverId: bestDriver.id,
+          driverId: bestDriver.id,
+          driverName: bestDriver.firstName || bestDriver.userName || bestDriver.name || "Driver",
+          driverPhoto: bestDriver.photo || bestDriver.profilePhoto || "",
+          driverPhone: bestDriver.phoneNumber || null,
+          driverSelectedAt: serverTimestamp(),
+          status: "driver_selected"
+        });
+        
+        // Create or update the SelectedDriver collection entry
+        const selectedDriverRef = doc(db, "SelectedDriver", rideId);
+        await setDoc(selectedDriverRef, {
+          rideId: rideId,
+          driverId: bestDriver.id,
+          driverInfo: {
+            id: bestDriver.id,
+            name: bestDriver.firstName || bestDriver.userName || bestDriver.name || "Driver",
+            photo: bestDriver.photo || bestDriver.profilePhoto || "",
+            phone: bestDriver.phoneNumber || null,
+            rating: bestDriver.rating || 4.0,
+            driverType: bestDriver.driverType || "standard"
+          },
+          pickupLocation: {
+            latitude: bestDriver.latitude,
+            longitude: bestDriver.longitude
+          },
+          distanceToPickup: bestDriver.distanceToPickup,
+          status: "assigned",
+          assignedAt: serverTimestamp(),
+          countdownExpiryTime: new Date(Date.now() + 20 * 60 * 1000).toISOString() // 20 minutes countdown
+        });
+        
+        console.log('✅ Ride successfully assigned to best driver in SelectedDriver collection');
+        console.log(`🎯 Driver ${bestDriver.id} assigned to ride ${rideId}`);
+        console.log(`📍 Distance: ${bestDriver.distanceToPickup.toFixed(2)}km`);
+        
+        // Send WhatsApp notification to the selected driver
+        try {
+          console.log('📱 Sending WhatsApp notification to selected driver...');
+          
+          // Get the complete ride data for the notification
+          const rideDoc = await getDoc(doc(db, "rideRequests", rideId));
+          if (rideDoc.exists()) {
+            const rideData = rideDoc.data();
+            
+            // Prepare ride info for WhatsApp notification
+            const rideInfo = {
+              pickupAddress: rideData.pickupAddress || 'Adresse de départ',
+              destinationAddress: rideData.destinationAddress || 'Adresse de destination',
+              fare: rideData.fare || 0,
+              estimatedTime: Math.round((bestDriver.distanceToPickup / 30) * 60) || 15
+            };
+            
+            // Send WhatsApp notification
+            await whatsAppService.sendRideAssignmentNotification(bestDriver, rideInfo);
+            console.log('✅ WhatsApp notification sent successfully to driver:', bestDriver.firstName || bestDriver.name);
+          }
+        } catch (whatsappError) {
+          console.error('❌ Error sending WhatsApp notification:', whatsappError);
+          // Don't fail the ride assignment if WhatsApp fails
+          console.log('⚠️ Ride assignment continues despite WhatsApp notification failure');
+        }
+        
+        // If this driver is the current user, immediately show the ride offer
+        if (bestDriver.id === auth.currentUser?.uid) {
+          console.log('🎯 This driver is the current user - immediately showing ride offer');
+          
+          try {
+            // Get the complete ride data to show the offer
+            const rideDoc = await getDoc(doc(db, "rideRequests", rideId));
+            if (rideDoc.exists()) {
+              const rideData = rideDoc.data();
+              
+              // Fetch customer information from rideRequestsDriver collection
+              let customerInfo = null;
+              try {
+                const rideRequestDriverQuery = query(
+                  collection(db, "rideRequestsDriver"),
+                  where("rideRequestId", "==", rideId)
+                );
+                const rideRequestDriverSnapshot = await getDocs(rideRequestDriverQuery);
+                
+                if (!rideRequestDriverSnapshot.empty) {
+                  customerInfo = rideRequestDriverSnapshot.docs[0].data();
+                  console.log('✅ Customer info fetched:', customerInfo);
+                } else {
+                  console.log('⚠️ No customer info found in rideRequestsDriver collection');
+                }
+              } catch (customerError) {
+                console.error('❌ Error fetching customer info:', customerError);
+              }
+              
+              // Create the ride offer object with customer information
+              const rideOffer = {
+                id: rideId,
+                ...rideData,
+                firstName: customerInfo?.firstName || "Customer",
+                lastName: customerInfo?.lastName || "",
+                number: customerInfo?.number || "",
+                photo: customerInfo?.photo || "",
+                customerId: customerInfo?.customerId || customerInfo?.userId || ""
+              };
+              
+              console.log('🎯 Ride offer with customer info:', {
+                firstName: rideOffer.firstName,
+                lastName: rideOffer.lastName,
+                number: rideOffer.number,
+                photo: rideOffer.photo,
+                customerId: rideOffer.customerId
+              });
+              
+              // Set the current ride request to show the modal
+              setCurrentRideRequest(rideOffer);
+              
+              // Start loading address and show modal
+              setIsLoadingAddress(true);
+              
+              try {
+                const pickupLocation = { latitude: rideData.pickupLat, longitude: rideData.pickupLng };
+                const destinationLocation = {
+                  latitude: rideData.destinationLat,
+                  longitude: rideData.destinationLng,
+                };
+                
+                // Calculate distance and time
+                const distance = calculateDistance(pickupLocation, destinationLocation);
+                setRideDistance(distance);
+                const estimatedMinutes = Math.round((distance / 30) * 60);
+                setEstimatedTime(estimatedMinutes);
+                
+                // Get addresses
+                const pickupLoc = await Location.reverseGeocodeAsync(pickupLocation);
+                const pickupAddr = pickupLoc.length > 0
+                  ? `${pickupLoc[0].name || ""} ${pickupLoc[0].street || ""}`
+                  : "Pickup Address Not Found";
+                setPickupAddress(pickupAddr);
+                
+                const destLoc = await Location.reverseGeocodeAsync(destinationLocation);
+                const destAddr = destLoc.length > 0
+                  ? `${destLoc[0].name || ""} ${destLoc[0].street || ""}`
+                  : "Destination Address Not Available";
+                setDestinationAddress(destAddr);
+                
+              } catch (error) {
+                console.error("Error in reverse geocoding:", error);
+                setPickupAddress("Pickup Address Not Available");
+                setDestinationAddress("Destination Address Not Available");
+              } finally {
+                setIsLoadingAddress(false);
+                
+                // Show the modal immediately
+                setIsModalVisible(true);
+                setTimeLeft(20);
+                startTimer();
+                
+                // Start the countdown animation
+                Animated.timing(countdownAnim, {
+                  toValue: 0,
+                  duration: 15000,
+                  useNativeDriver: false,
+                }).start();
+                
+                console.log('✅ Ride offer modal displayed immediately with customer info');
+              }
+            }
+          } catch (error) {
+            console.error('❌ Error showing immediate ride offer:', error);
+          }
+        }
+        
+        return true;
+        
+      } catch (error) {
+        console.error('❌ Error assigning ride to best driver:', error);
+        return false;
+      }
+    };
+
+    // -----------------------------------------------------------------
+    // 16.8.7. Smart Ride Assignment on New Ride Request
+    // -----------------------------------------------------------------
+    const handleNewRideRequest = async (rideId) => {
+      try {
+        console.log('🆕 New ride request received:', rideId);
+        
+        // Automatically assign to best driver
+        const assignmentSuccess = await assignRideToBestDriver(rideId);
+        
+        if (assignmentSuccess) {
+          console.log('✅ Ride automatically assigned to best driver');
+          
+          // Send notification to the selected driver
+          try {
+            const rideDoc = await getDoc(doc(db, "rideRequests", rideId));
+            if (rideDoc.exists()) {
+              const rideData = rideDoc.data();
+              
+              // Check if notifications are properly initialized
+              const hasPermission = await notificationService.requestPermissions();
+              if (hasPermission) {
+                await notificationService.sendLocalNotification(
+                  '🎯 Course assignée!',
+                  `Nouvelle course disponible! Départ: ${rideData.pickupAddress || 'Adresse de départ'}`,
+                  {
+                    type: 'ride_request',
+                    rideId: rideId,
+                    driverId: rideData.selectedDriverId,
+                    fare: rideData.fare?.toString() || '0',
+                    pickupAddress: rideData.pickupAddress || 'Adresse de départ',
+                    destinationAddress: rideData.destinationAddress || 'Adresse de destination',
+                    rideType: rideData.rideType || 'car'
+                  },
+                  'ride-requests'
+                );
+                console.log('✅ Notification sent to selected driver');
+              }
+            }
+          } catch (notificationError) {
+            console.error('❌ Error sending notification:', notificationError);
+          }
+          
+          // Send WhatsApp notification to the selected driver
+          try {
+            const rideDoc = await getDoc(doc(db, "rideRequests", rideId));
+            if (rideDoc.exists()) {
+              const rideData = rideDoc.data();
+              const selectedDriverId = rideData.selectedDriverId;
+              
+              if (selectedDriverId) {
+                // Get driver information
+                const driverDoc = await getDoc(doc(db, "Drivers", selectedDriverId));
+                if (driverDoc.exists()) {
+                  const driverData = driverDoc.data();
+                  
+                  // Prepare ride info for WhatsApp notification
+                  const rideInfo = {
+                    pickupAddress: rideData.pickupAddress || 'Adresse de départ',
+                    destinationAddress: rideData.destinationAddress || 'Adresse de destination',
+                    fare: rideData.fare || 0,
+                    estimatedTime: 15 // Default estimated time
+                  };
+                  
+                  // Send WhatsApp notification
+                  await whatsAppService.sendRideAssignmentNotification(driverData, rideInfo);
+                  console.log('✅ WhatsApp notification sent to automatically assigned driver:', driverData.firstName || driverData.name);
+                }
+              }
+            }
+          } catch (whatsappError) {
+            console.error('❌ Error sending WhatsApp notification for automatic assignment:', whatsappError);
+            // Don't fail the automatic assignment if WhatsApp fails
+            console.log('⚠️ Automatic assignment continues despite WhatsApp notification failure');
+          }
+        } else {
+          console.log('❌ Failed to assign ride to driver');
+        }
+        
+      } catch (error) {
+        console.error('❌ Error handling new ride request:', error);
+      }
+    };
 
     // -----------------------------------------------------------------
     // 17. Render
@@ -3862,6 +4646,18 @@ const HomeScreenWithMap = () => {
                     <Ionicons name="people-outline" size={24} color="#FFFFFF" />
                   </TouchableOpacity>
                   <TouchableOpacity
+                    style={styles.topButton}
+                    onPress={() => {
+                      try {
+                        checkWhatsAppServiceStatus();
+                      } catch (error) {
+                        console.error('❌ WhatsApp status check error:', error);
+                      }
+                    }}
+                  >
+                    <MaterialIcons name="info-outline" size={24} color="#4CAF50" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={styles.settingsButton}
                     onPress={() => {
                       try {
@@ -3920,15 +4716,15 @@ const HomeScreenWithMap = () => {
                     { opacity: fadeAnim }
                   ]}
                 >
-                  <BlurView intensity={80} tint="dark" style={styles.searchingBlur}>
+                  <View style={styles.searchingBlur}>
                     <View style={styles.searchingContent}>
-                      <ActivityIndicator size="small" color="#FF8C00" />
+                      <ActivityIndicator size="small" color="#FFFFFF" />
                       <View style={styles.searchingTextRow}>
-                        <MaterialIcons name="directions-car" size={16} color="#FF8C00" style={styles.searchingIcon} />
+                        <MaterialIcons name="directions-car" size={16} color="#FFFFFF" style={styles.searchingIcon} />
                         <Text style={styles.searchingText}>Nous cherchons des courses, restez sur place et attendez...</Text>
                       </View>
                     </View>
-                  </BlurView>
+                  </View>
                 </Animated.View>
               )}
             </BlurView>
@@ -5187,26 +5983,43 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   searchingContainer: {
-    marginTop: 12,
+    marginTop: 8,
     alignItems: 'center',
     paddingHorizontal: 16,
+    position: 'absolute',
+    top: '50%',
+    left: 0,
+    right: 0,
+    transform: [{ translateY: -25 }],
   },
   searchingBlur: {
-    borderRadius: 12,
+    borderRadius: 8,
     overflow: 'hidden',
-    padding: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    padding: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    maxWidth: 300,
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   searchingContent: {
-    flexDirection: 'column',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
   },
   searchingText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
+    flex: 1,
   },
   topButtonsContainer: {
     flexDirection: 'row',
@@ -5577,10 +6390,10 @@ const styles = StyleSheet.create({
   searchingTextRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 0,
   },
   searchingIcon: {
-    marginRight: 4,
+    marginRight: 0,
   },
 });
 

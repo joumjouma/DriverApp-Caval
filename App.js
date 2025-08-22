@@ -91,21 +91,88 @@ function HomeTabs() {
 const AppContent = () => {
   const { user, loading } = useAuth();
   const [notificationListeners, setNotificationListeners] = useState(null);
+  const navigationRef = React.useRef();
   
   // Initialize notifications when user logs in
   useEffect(() => {
     if (user) {
       const initializeNotifications = async () => {
         try {
+          // Set up navigation ref for background notifications
+          global.navigationRef = navigationRef;
+          
+          console.log('🚀 Initializing notifications for user:', user.uid);
+          
+          // Set up background notification handling
+          const { Notifications } = await import('expo-notifications');
+          
+          // Handle notifications when app is in background
+          Notifications.setNotificationHandler({
+            handleNotification: async (notification) => {
+              console.log('📱 Background notification received:', notification);
+              return {
+                shouldShowAlert: true,
+                shouldPlaySound: true,
+                shouldSetBadge: true,
+              };
+            },
+          });
+          
           const result = await notificationService.initialize();
           if (result.success) {
             setNotificationListeners(result.listeners);
-            console.log('Notifications initialized successfully');
+            console.log('✅ Notifications initialized successfully');
+            
+            // Force update push token to ensure it's saved to Firestore
+            setTimeout(async () => {
+              try {
+                console.log('🔄 Updating push token...');
+                const token = await notificationService.updatePushToken();
+                if (token) {
+                  console.log('✅ Push token updated and saved to Firestore:', token.substring(0, 20) + '...');
+                  
+                  // Verify token was saved by checking Firestore
+                  try {
+                    const { getDoc, doc } = await import('firebase/firestore');
+                    const { db } = await import('./config/firebase');
+                    const driverDoc = await getDoc(doc(db, "Drivers", user.uid));
+                    if (driverDoc.exists()) {
+                      const driverData = driverDoc.data();
+                      if (driverData.expoPushToken) {
+                        console.log('✅ Token verified in Firestore:', driverData.expoPushToken.substring(0, 20) + '...');
+                      } else {
+                        console.log('⚠️ Token not found in Firestore after save');
+                      }
+                    }
+                  } catch (verifyError) {
+                    console.log('⚠️ Could not verify token in Firestore:', verifyError.message);
+                  }
+                } else {
+                  console.log('❌ Failed to get push token');
+                }
+              } catch (tokenError) {
+                console.error('❌ Error updating push token:', tokenError);
+              }
+            }, 2000); // Small delay to ensure auth is fully ready
+            
+            // Set up periodic token refresh (every 5 minutes)
+            const tokenRefreshInterval = setInterval(async () => {
+              try {
+                await notificationService.updatePushToken();
+                console.log('🔄 Periodic push token refresh completed');
+              } catch (refreshError) {
+                console.log('⚠️ Periodic token refresh failed:', refreshError.message);
+              }
+            }, 5 * 60 * 1000); // 5 minutes
+            
+            // Clean up interval on unmount
+            return () => clearInterval(tokenRefreshInterval);
+            
           } else {
-            console.log('Failed to initialize notifications:', result.error);
+            console.log('❌ Failed to initialize notifications:', result.error);
           }
         } catch (error) {
-          console.error('Error initializing notifications:', error);
+          console.error('❌ Error initializing notifications:', error);
         }
       };
 
@@ -116,6 +183,8 @@ const AppContent = () => {
         notificationService.removeNotificationListeners(notificationListeners);
         setNotificationListeners(null);
       }
+      // Clear global navigation ref
+      global.navigationRef = null;
     }
 
     // Cleanup function
@@ -123,6 +192,7 @@ const AppContent = () => {
       if (notificationListeners) {
         notificationService.removeNotificationListeners(notificationListeners);
       }
+      global.navigationRef = null;
     };
   }, [user]);
   
@@ -136,6 +206,7 @@ const AppContent = () => {
 
   return (
     <NavigationContainer
+      ref={navigationRef}
       linking={{
         prefixes: [Linking.createURL('/')],
         config: {

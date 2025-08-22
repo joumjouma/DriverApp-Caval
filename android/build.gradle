@@ -34,5 +34,10 @@ allprojects {
   }
 }
 
+// Override Expo plugin's NDK version
+ext {
+    ndkVersion = "25.1.8937393"
+}
+
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"
