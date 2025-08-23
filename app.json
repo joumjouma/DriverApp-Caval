@@ -2,7 +2,7 @@
   "expo": {
     "name": "Caval Courrier",
     "slug": "Eco-share-new",
-    "owner": "zouhair123",
+    "owner": "zouhair12345",
     "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icone.png",
@@ -79,50 +79,50 @@
       "firebaseAppId": "1:747419763478:android:32f44f9a3306b9c32c8637",
       "firebaseMeasurementId": "G-XXXXXXXXXX",
       "eas": {
-        "projectId": "1e8c2798-d613-4170-935f-9c44dd58f328"
+        "projectId": "0f51e32f-74dd-4db6-ad4e-401b22add579"
       }
-    },
-    "plugins": [
-      "expo-secure-store",
-      "expo-web-browser",
-      "expo-background-fetch",
-      [
-        "expo-location",
-        {
-          "locationAlwaysAndWhenInUsePermission": "Allow Eco-share to use your location to show nearby rides and provide accurate navigation.",
-          "locationAlwaysPermission": "Allow Eco-share to use your location to show nearby rides and provide accurate navigation even when the app is in the background.",
-          "locationWhenInUsePermission": "Allow Eco-share to use your location to show nearby rides and provide accurate navigation."
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/icone.png",
-          "color": "#ffffff"
-        }
-      ],
-      "expo-asset",
-      "expo-font"
-    ],
-    "notification": {
-      "icon": "./assets/icone.png",
-      "color": "#ffffff",
-      "iosDisplayInForeground": true,
-      "androidMode": "default",
-      "androidCollapsedTitle": "New Ride Request",
-      "androidChannelId": "ride-requests",
-      "androidChannelName": "Ride Requests",
-      "androidChannelDescription": "Notifications for new ride offers and assignments",
-      "androidChannelImportance": "max",
-      "androidChannelShowBadge": true,
-      "androidChannelEnableVibration": true,
-      "androidChannelVibrationPattern": [
-        0,
-        250,
-        250,
-        250
-      ],
-      "androidChannelSound": "default"
     }
+  },
+  "plugins": [
+    "expo-secure-store",
+    "expo-web-browser",
+    "expo-background-fetch",
+    [
+      "expo-location",
+      {
+        "locationAlwaysAndWhenInUsePermission": "Allow Eco-share to use your location to show nearby rides and provide accurate navigation.",
+        "locationAlwaysPermission": "Allow Eco-share to use your location to show nearby rides and provide accurate navigation even when the app is in the background.",
+        "locationWhenInUsePermission": "Allow Eco-share to use your location to show nearby rides and provide accurate navigation."
+      }
+    ],
+    [
+      "expo-notifications",
+      {
+        "icon": "./assets/icone.png",
+        "color": "#ffffff"
+      }
+    ],
+    "expo-asset",
+    "expo-font"
+  ],
+  "notification": {
+    "icon": "./assets/icone.png",
+    "color": "#ffffff",
+    "iosDisplayInForeground": true,
+    "androidMode": "default",
+    "androidCollapsedTitle": "New Ride Request",
+    "androidChannelId": "ride-requests",
+    "androidChannelName": "Ride Requests",
+    "androidChannelDescription": "Notifications for new ride offers and assignments",
+    "androidChannelImportance": "max",
+    "androidChannelShowBadge": true,
+    "androidChannelEnableVibration": true,
+    "androidChannelVibrationPattern": [
+      0,
+      250,
+      250,
+      250
+    ],
+    "androidChannelSound": "default"
   }
 }
