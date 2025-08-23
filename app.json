@@ -2,7 +2,7 @@
   "expo": {
     "name": "Caval Courrier",
     "slug": "Eco-share-new",
-    "owner": "zouhair1234",
+    "owner": "zouhair123",
     "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icone.png",
@@ -79,7 +79,7 @@
       "firebaseAppId": "1:747419763478:android:32f44f9a3306b9c32c8637",
       "firebaseMeasurementId": "G-XXXXXXXXXX",
       "eas": {
-        "projectId": "14b90510-8ecb-46b6-9f35-2537774896a1"
+        "projectId": "1e8c2798-d613-4170-935f-9c44dd58f328"
       }
     },
     "plugins": [
