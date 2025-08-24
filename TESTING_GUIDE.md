@@ -4,8 +4,8 @@
 
 ### **Deployed Functions:**
 - ✅ `sendNewRideNotification` - New ride requests
-- ✅ `handleDriverSelection` - 15-second countdown offers
-- ✅ `handleOfferAcceptance` - Accept offers
+- ✅ `selectBestDriverForNewRideRequest` - Enhanced driver selection
+- ✅ `selectBestDriverForRide` - Ride status updates
 - ✅ `handleOfferRejection` - Reject offers
 - ✅ `sendDriverApprovalNotification` - Driver approvals
 - ✅ `updateOnlineDrivers` - Online driver tracking
@@ -81,7 +81,7 @@ curl -X POST https://us-central1-eco-share-92ef1.cloudfunctions.net/testWhatsApp
 2. **Expected Flow**:
    - Cloud function triggers
    - Driver selected
-   - DriverSelection document created
+   - SelectedDriver document created
    - Push notification sent
    - WhatsApp message sent
    - 15-second countdown starts
@@ -109,7 +109,7 @@ curl -X POST https://us-central1-eco-share-92ef1.cloudfunctions.net/testWhatsApp
 npx firebase functions:log
 
 # Specific function
-npx firebase functions:log --only handleDriverSelection
+npx firebase functions:log --only selectBestDriverForNewRideRequest
 
 # Real-time logs
 npx firebase functions:log --follow
@@ -119,7 +119,7 @@ npx firebase functions:log --follow
 1. **Firebase Console** → Firestore Database
 2. **Collections to monitor**:
    - `rideRequests` - Ride status changes
-   - `DriverSelection` - Offer lifecycle
+   - `SelectedDriver` - Offer lifecycle
    - `Drivers` - Driver status updates
    - `OnlineDriver` - Online driver tracking
 
@@ -154,9 +154,9 @@ npx firebase functions:log --follow
 ```
 1. Ride Request Created
    ↓
-2. handleDriverSelection triggers
+2. selectBestDriverForNewRideRequest triggers
    ↓
-3. Driver selected & DriverSelection created
+3. Driver selected & SelectedDriver created
    ↓
 4. Push notification + WhatsApp sent
    ↓

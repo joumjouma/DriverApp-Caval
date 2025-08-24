@@ -24,7 +24,7 @@ const { width: screenWidth } = Dimensions.get('window');
 export default function EarningsScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { colors, isDark } = useTheme();
+  const { colors, isDarkMode } = useTheme();
   const [dailyEarnings, setDailyEarnings] = useState([0, 0, 0, 0, 0, 0, 0]);
   const [totalEarnings, setTotalEarnings] = useState(0);
   const [activeTime, setActiveTime] = useState(route.params?.activeTime || 0);
@@ -183,10 +183,10 @@ export default function EarningsScreen() {
         data: dailyEarnings,
         colors: dailyEarnings.map((_, index) => 
           (opacity = 1) => index === selectedDay && tooltipVisible
-            ? isDark 
+            ? isDarkMode 
               ? `rgba(255, 255, 255, ${opacity})` 
               : `rgba(50, 50, 50, ${opacity})`
-            : isDark 
+            : isDarkMode 
               ? `rgba(200, 200, 255, ${opacity})` 
               : `rgba(94, 132, 226, ${opacity})`
         )
@@ -233,7 +233,7 @@ export default function EarningsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+        <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
         <View style={styles.loadingContainer}>
           <Text style={[styles.loadingText, { color: colors.text }]}>Loading your earnings...</Text>
         </View>
@@ -243,7 +243,7 @@ export default function EarningsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+              <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
       <View style={[styles.header, { borderBottomColor: colors.border, marginTop: Platform.OS === 'android' ? 32 : 0 }]}>
         <TouchableOpacity 
           style={[styles.backButton, { marginTop: Platform.OS === 'android' ? 8 : 0 }]}
@@ -348,18 +348,18 @@ export default function EarningsScreen() {
                   backgroundGradientFrom: colors.card,
                   backgroundGradientTo: colors.card,
                   decimalPlaces: 0,
-                  color: (opacity = 1) => isDark ? 
+                  color: (opacity = 1) => isDarkMode ? 
                     `rgba(255, 255, 255, ${opacity})` : 
                     `rgba(94, 132, 226, ${opacity})`,
                   labelColor: (opacity = 1) => 
-                    `rgba(${isDark ? '255, 255, 255' : '0, 0, 0'}, ${opacity})`,
+                    `rgba(${isDarkMode ? '255, 255, 255' : '0, 0, 0'}, ${opacity})`,
                   style: {
                     borderRadius: 16,
                   },
                   propsForBackgroundLines: {
                     strokeDasharray: '5, 5',
                     strokeWidth: 1,
-                    stroke: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                    stroke: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
                   },
                   barPercentage: 0.7,
                 }}

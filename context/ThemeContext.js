@@ -1,24 +1,60 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const ThemeContext = createContext();
+// Define colors as constants to avoid any potential issues
+const DARK_COLORS = {
+  background: '#1A1A1A',
+  card: '#2E2E2E',
+  text: '#FFFFFF',
+  textSecondary: '#CCCCCC',
+  border: '#404040',
+  primary: '#ff9f43',
+  input: '#333333',
+  inputText: '#FFFFFF',
+  placeholder: '#999999',
+  error: '#FF3B30',
+  errorLight: 'rgba(255, 59, 48, 0.1)',
+};
+
+const LIGHT_COLORS = {
+  background: '#FFFFFF',
+  card: '#F5F5F5',
+  text: '#333333',
+  textSecondary: '#666666',
+  border: '#E0E0E0',
+  primary: '#ff9f43',
+  input: '#FFFFFF',
+  inputText: '#333333',
+  placeholder: '#999999',
+  error: '#FF3B30',
+  errorLight: 'rgba(255, 59, 48, 0.1)',
+};
+
+// Create context with guaranteed default values
+const MainAppThemeContext = createContext({
+  isDarkMode: true,
+  colors: DARK_COLORS,
+  toggleTheme: () => {},
+});
 
 export const ThemeProvider = ({ children }) => {
-  const [isDarkMode, setIsDarkMode] = useState(true); // Default to dark mode
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    // Load theme preference from storage
-    loadThemePreference();
+    loadTheme();
   }, []);
 
-  const loadThemePreference = async () => {
+  const loadTheme = async () => {
     try {
-      const savedTheme = await AsyncStorage.getItem('theme');
-      if (savedTheme !== null) {
+      const savedTheme = await AsyncStorage.getItem('mainAppTheme');
+      if (savedTheme) {
         setIsDarkMode(savedTheme === 'dark');
       }
     } catch (error) {
-      console.error('Error loading theme preference:', error);
+      console.error('Error loading theme:', error);
+    } finally {
+      setIsReady(true);
     }
   };
 
@@ -26,53 +62,43 @@ export const ThemeProvider = ({ children }) => {
     try {
       const newTheme = !isDarkMode;
       setIsDarkMode(newTheme);
-      await AsyncStorage.setItem('theme', newTheme ? 'dark' : 'light');
+      await AsyncStorage.setItem('mainAppTheme', newTheme ? 'dark' : 'light');
     } catch (error) {
-      console.error('Error saving theme preference:', error);
+      console.error('Error saving theme:', error);
     }
   };
 
-  const theme = {
+  // Ensure we always have a valid theme object
+  const themeValue = {
     isDarkMode,
+    colors: isDarkMode ? DARK_COLORS : LIGHT_COLORS,
     toggleTheme,
-    colors: isDarkMode ? {
-      background: '#1A1A1A',
-      card: '#2E2E2E',
-      text: '#FFFFFF',
-      textSecondary: '#CCCCCC',
-      border: '#404040',
-      primary: '#ff9f43',
-      input: '#333333',
-      inputText: '#FFFFFF',
-      placeholder: '#999999',
-      error: '#FF3B30',
-      errorLight: 'rgba(255, 59, 48, 0.1)',
-    } : {
-      background: '#FFFFFF',
-      card: '#F5F5F5',
-      text: '#333333',
-      textSecondary: '#666666',
-      border: '#E0E0E0',
-      primary: '#ff9f43',
-      input: '#FFFFFF',
-      inputText: '#333333',
-      placeholder: '#999999',
-      error: '#FF3B30',
-      errorLight: 'rgba(255, 59, 48, 0.1)',
-    }
   };
+
+  // Don't render until theme is ready
+  if (!isReady) {
+    return null;
+  }
 
   return (
-    <ThemeContext.Provider value={theme}>
+    <MainAppThemeContext.Provider value={themeValue}>
       {children}
-    </ThemeContext.Provider>
+    </MainAppThemeContext.Provider>
   );
 };
 
 export const useTheme = () => {
-  const context = useContext(ThemeContext);
-  if (!context) {
-    throw new Error('useTheme must be used within a ThemeProvider');
+  const context = useContext(MainAppThemeContext);
+  
+  // Always return a valid theme object
+  if (!context || !context.colors) {
+    console.warn('ThemeContext: using fallback theme');
+    return {
+      isDarkMode: true,
+      colors: DARK_COLORS,
+      toggleTheme: () => {},
+    };
   }
+  
   return context;
-}; 
+};

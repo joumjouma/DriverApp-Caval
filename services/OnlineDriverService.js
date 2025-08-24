@@ -147,6 +147,102 @@ class OnlineDriverService {
       };
     }
   }
+
+  /**
+   * Get online duration for a specific driver
+   */
+  static async getDriverOnlineDuration(driverId) {
+    try {
+      const stats = await this.getOnlineDriverStats();
+      
+      if (!stats || !stats.drivers) {
+        return 0;
+      }
+
+      const driver = stats.drivers.find(d => d.id === driverId);
+      return driver ? driver.onlineDuration || 0 : 0;
+    } catch (error) {
+      console.error('Error getting driver online duration:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Get all online drivers with their duration
+   */
+  static async getOnlineDriversWithDuration() {
+    try {
+      const stats = await this.getOnlineDriverStats();
+      
+      if (!stats || !stats.drivers) {
+        return [];
+      }
+
+      return stats.drivers.map(driver => ({
+        ...driver,
+        onlineDuration: driver.onlineDuration || 0,
+        formattedDuration: this.formatDuration(driver.onlineDuration || 0)
+      }));
+    } catch (error) {
+      console.error('Error getting online drivers with duration:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Format duration from seconds to human readable format
+   */
+  static formatDuration(seconds) {
+    if (!seconds || seconds <= 0) return '0s';
+    
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m ${remainingSeconds}s`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${remainingSeconds}s`;
+    } else {
+      return `${remainingSeconds}s`;
+    }
+  }
+
+  /**
+   * Get real-time online duration updates
+   */
+  static subscribeToOnlineDurationUpdates(callback) {
+    try {
+      const unsubscribe = onSnapshot(
+        doc(db, 'OnlineDriver', 'summary'),
+        (doc) => {
+          if (doc.exists()) {
+            const data = doc.data();
+            if (data && data.drivers) {
+              const driversWithDuration = data.drivers.map(driver => ({
+                ...driver,
+                formattedDuration: this.formatDuration(driver.onlineDuration || 0)
+              }));
+              callback(driversWithDuration);
+            } else {
+              callback([]);
+            }
+          } else {
+            callback([]);
+          }
+        },
+        (error) => {
+          console.error('Error listening to online duration updates:', error);
+          callback([]);
+        }
+      );
+
+      return unsubscribe;
+    } catch (error) {
+      console.error('Error setting up online duration subscription:', error);
+      return () => {};
+    }
+  }
 }
 
 export default OnlineDriverService; 

@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import OnlineDriverStats from '../components/OnlineDriverStats';
+import OnlineDriversList from '../components/OnlineDriversList';
 
 const { width, height } = Dimensions.get('window');
 
@@ -12,6 +13,7 @@ const OnlineDriverScreen = () => {
   const { colors } = useTheme();
   const navigation = useNavigation();
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [viewMode, setViewMode] = useState('stats'); // 'stats' or 'list'
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -112,7 +114,63 @@ const OnlineDriverScreen = () => {
 
       {/* Main Content */}
       <SafeAreaView style={{ flex: 1 }}>
-        <OnlineDriverStats fake={true} />
+        {/* View Mode Toggle */}
+        <View style={styles.viewToggleContainer}>
+          <TouchableOpacity
+            style={[
+              styles.viewToggleButton,
+              viewMode === 'stats' && { backgroundColor: colors.primary }
+            ]}
+            onPress={() => setViewMode('stats')}
+            activeOpacity={0.7}
+          >
+            <Ionicons 
+              name="analytics-outline" 
+              size={20} 
+              color={viewMode === 'stats' ? '#fff' : colors.text} 
+            />
+            <Text style={[
+              styles.viewToggleText,
+              { color: viewMode === 'stats' ? '#fff' : colors.text }
+            ]}>
+              Statistiques
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[
+              styles.viewToggleButton,
+              viewMode === 'list' && { backgroundColor: colors.primary }
+            ]}
+            onPress={() => setViewMode('list')}
+            activeOpacity={0.7}
+          >
+            <Ionicons 
+              name="list-outline" 
+              size={20} 
+              color={viewMode === 'list' ? '#fff' : colors.text} 
+            />
+            <Text style={[
+              styles.viewToggleText,
+              { color: viewMode === 'list' ? '#fff' : colors.text }
+            ]}>
+              Liste des chauffeurs
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Content based on view mode */}
+        {viewMode === 'stats' ? (
+          <OnlineDriverStats fake={true} />
+        ) : (
+          <OnlineDriversList 
+            showDetails={true}
+            onDriverPress={(driver) => {
+              console.log('Driver pressed:', driver);
+              // You can add navigation to driver details here
+            }}
+          />
+        )}
       </SafeAreaView>
 
       {/* Floating Action Button */}
@@ -245,6 +303,32 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     marginLeft: 6,
+  },
+  viewToggleContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  viewToggleButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: colors.card,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    gap: 8,
+  },
+  viewToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   fab: {
     position: 'absolute',

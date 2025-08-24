@@ -1,4 +1,5 @@
 const { getDefaultConfig } = require("@expo/metro-config");
+const path = require("path");
 
 const defaultConfig = getDefaultConfig(__dirname);
 
@@ -23,6 +24,11 @@ const config = {
       idb: require.resolve("idb"),
     },
     resolveRequest: (context, moduleName, platform) => {
+      // Exclude caval-driver subdirectory from main app bundling
+      if (moduleName.includes("caval-driver")) {
+        return null;
+      }
+      
       if (moduleName.includes("idb") && !moduleName.endsWith(".js")) {
         try {
           return {
@@ -35,6 +41,11 @@ const config = {
       }
       return context.resolveRequest(context, moduleName, platform);
     },
+    // Exclude caval-driver directory from watchman
+    watchFolders: [
+      path.resolve(__dirname, "node_modules"),
+      // Only watch the main app directory, not caval-driver
+    ],
   },
   transformer: {
     ...defaultConfig.transformer,
@@ -44,6 +55,11 @@ const config = {
         inlineRequires: true,
       },
     }),
+  },
+  // Exclude caval-driver from the main bundle
+  resolver: {
+    ...defaultConfig.resolver,
+    blacklistRE: /caval-driver/,
   },
 };
 

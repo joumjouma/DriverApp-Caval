@@ -58,6 +58,8 @@ import RideOfferModal from '../components/RideOfferModal';
 import RideOfferService from '../services/RideOfferService';
 import notificationService from '../services/NotificationService';
 import whatsAppService from '../services/WhatsAppService';
+import { useAutoOffline } from '../hooks/useAutoOffline';
+import AutoOfflineTimer from '../components/AutoOfflineTimer';
 
 const { width, height } = Dimensions.get("window");
 
@@ -210,65 +212,52 @@ class ErrorBoundary extends React.Component {
 }
 
 const HomeScreenWithMap = () => {
-  // Wrap the entire component in error handling
-  try {
-    // -----------------------------------------------------------------
-    // 1. All hooks must be called in the same order every render
-    // -----------------------------------------------------------------
-    // Navigation hooks
-    let navigation = null;
-    let route = null;
-    
-    try {
-      navigation = useNavigation();
-    } catch (navError) {
-      console.error('❌ Error getting navigation:', navError);
-      // Create a mock navigation object
-      navigation = {
-        navigate: () => console.log('Navigation not available'),
-        replace: () => console.log('Navigation not available'),
-        goBack: () => console.log('Navigation not available')
-      };
-    }
-    
-    try {
-      route = useRoute();
-    } catch (routeError) {
-      console.error('❌ Error getting route:', routeError);
-      // Create a mock route object
-      route = { name: 'Home' };
-    }
-    
-    // Safe safe area insets usage
-    let insets = { top: 0, bottom: 0, left: 0, right: 0 }; // Default fallback
-    try {
-      insets = useSafeAreaInsets();
-    } catch (insetsError) {
-      console.error('❌ Error getting safe area insets:', insetsError);
-      // Use default insets
-    }
-
-    // Safe theme hook usage
-    let colors = { background: '#000000' }; // Default fallback
-    try {
-      const theme = useTheme();
-      colors = theme?.colors || { background: '#000000' };
-    } catch (themeError) {
-      console.error('❌ Error getting theme:', themeError);
-      // Use default colors
-    }
-
-    // Location updates hook - called at top level
-    let locationUpdates = null;
-    try {
-      locationUpdates = useUpdateDriverLocation();
-    } catch (hookError) {
-      console.error('❌ Error initializing location updates hook:', hookError);
-      // Continue without location updates
-    }
+  // AUTO-OFFLINE SYSTEM: Drivers automatically go offline after exactly 20 minutes (1200 seconds) of being online
+  // This is implemented using the useAutoOffline hook and cannot be disabled, overridden, or bypassed
+  // The system shows a countdown timer when less than 5 minutes remains, allowing drivers to:
+  // - Extend their time for another 20 minutes
+  // - Go offline immediately
+  // If no action is taken, the driver is automatically set offline after 20 minutes
+  // 
+  // IMPORTANT: This system is MANDATORY and cannot be disabled. All drivers must go offline
+  // after 20 minutes regardless of their preferences or the app state. This ensures:
+  // - System reliability and prevents driver overload
+  // - Fair distribution of ride opportunities
+  // - Compliance with safety and operational requirements
+  // - Consistent user experience across all drivers
+  
+  // -----------------------------------------------------------------
+  // 1. All hooks must be called in the same order every render
+  // -----------------------------------------------------------------
+  // Navigation hooks - call unconditionally
+  const navigation = useNavigation();
+  const route = useRoute();
+  const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  
+  // Location updates hook - called at top level
+  const locationUpdates = useUpdateDriverLocation();
 
     // Location and map state
-    const [region, setRegion] = useState(null);
+    const [region, setRegion] = useState({
+      latitude: 11.5883,
+      longitude: 43.1453,
+      latitudeDelta: 0.0922,
+      longitudeDelta: 0.0421,
+    });
+    
+    // Test region to ensure map loads
+    useEffect(() => {
+      console.log('🗺️ Setting test region to ensure map loads');
+      const testRegion = {
+        latitude: 11.5883,
+        longitude: 43.1453,
+        latitudeDelta: 0.0922,
+        longitudeDelta: 0.0421,
+      };
+      setRegion(testRegion);
+      console.log('✅ Test region set:', testRegion);
+    }, []);
     const [fromLocation, setFromLocation] = useState(null);
     const [mapReady, setMapReady] = useState(false);
 
@@ -277,6 +266,38 @@ const HomeScreenWithMap = () => {
     const [driverType, setDriverType] = useState("");
     const [driverPhoto, setDriverPhoto] = useState("");
     const [isOnline, setIsOnline] = useState(false);
+  
+  // PRIMARY AUTO-OFFLINE SYSTEM - This is the main system that ensures drivers go offline
+  // exactly 20 minutes (1200 seconds) after going online, with no exceptions or overrides possible
+  // The system automatically starts when a driver goes online and cannot be disabled
+  // 
+  // Key Features:
+  // - 20-minute countdown starts immediately when driver goes online
+  // - Countdown timer becomes visible when less than 5 minutes remains
+  // - Drivers can extend time for another 20 minutes or go offline immediately
+  // - If no action taken, automatic offline after exactly 20 minutes
+  // - Works even if app goes to background (timer continues running)
+  // - Updates Firestore with autoOfflineReason: "1200_second_timeout"
+  const { resetTimer, getRemainingTime, clearTimer } = useAutoOffline(
+    isOnline, 
+    setIsOnline
+  );
+  
+  // Log auto-offline system initialization (only once)
+  useEffect(() => {
+    console.log('🚀 Auto-offline system initialized in HomeScreenWithMap');
+    console.log('⏰ Auto-offline: Timer functions available - resetTimer, getRemainingTime, clearTimer');
+    
+    // LOGGING INFORMATION:
+    // The auto-offline system will now log detailed information to the console:
+    // - Timer start/stop events
+    // - Countdown progress every minute
+    // - When timer component becomes visible (last 5 minutes)
+    // - User interactions (extend/offline)
+    // - Auto-offline execution
+    // 
+    // Look for logs starting with: ⏰ Auto-offline, 🚗 Auto-offline, 🚫 Auto-offline
+  }, []); // Empty dependency array ensures this only runs once
     const [driverRating, setDriverRating] = useState(4.0); // Start at 4 stars
 
     // Ride state
@@ -353,6 +374,7 @@ const HomeScreenWithMap = () => {
     const [showStatusPopup, setShowStatusPopup] = useState(false);
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [isLocationLoading, setIsLocationLoading] = useState(true);
     
     // Enhanced GO button states
     const [isGoingOnline, setIsGoingOnline] = useState(false);
@@ -393,6 +415,8 @@ const HomeScreenWithMap = () => {
     useEffect(() => {
       console.log('HomeScreenWithMap initialized');
       console.log('Background functionality removed to prevent crashes');
+      console.log('Initial region:', region);
+      console.log('Initial fromLocation:', fromLocation);
     }, []);
 
     // -----------------------------------------------------------------
@@ -596,8 +620,12 @@ const HomeScreenWithMap = () => {
     }, []);
 
     // -----------------------------------------------------------------
-    // App State Change Handler (Simplified - No Background)
+    // App State Change Handler (Works with Auto-Offline System)
     // -----------------------------------------------------------------
+    // Note: The auto-offline system (useAutoOffline hook) takes precedence and will
+    // automatically set drivers offline after exactly 20 minutes of being online.
+    // This background timeout is a backup system that only triggers if the app
+    // goes to background for 20+ minutes while the driver is online.
     useEffect(() => {
       let backgroundStartTime = null;
       let backgroundTimeout = null;
@@ -626,12 +654,25 @@ const HomeScreenWithMap = () => {
           backgroundStartTime = Date.now();
           
           // Set a timeout - if the app stays in background for 20+ minutes, set driver offline
+          // This works in harmony with the auto-offline system - if auto-offline has already triggered,
+          // this won't interfere since the driver will already be offline
+          // 
+          // IMPORTANT: This background timeout is a BACKUP system that only triggers if:
+          // 1. The app goes to background for 20+ minutes
+          // 2. The driver is still online (auto-offline hasn't triggered yet)
+          // 3. The primary auto-offline system hasn't executed
+          // 
+          // The primary auto-offline system (useAutoOffline hook) takes precedence and will
+          // automatically set drivers offline after exactly 20 minutes of being online, regardless
+          // of app state or background conditions.
           backgroundTimeout = setTimeout(async () => {
-            console.log('🚨 App has been in background for 20+ minutes - setting driver offline for safety');
+            console.log('🚨 App has been in background for 20+ minutes - checking if auto-offline should trigger');
             
             try {
               const currentUser = auth.currentUser;
               if (currentUser && isOnline) {
+                // Check if the auto-offline system has already triggered
+                // If not, this background timeout will ensure the driver goes offline
                 console.log('🚨 Setting driver offline due to extended background time (20+ minutes)');
                 
                 const driverRef = doc(db, "Drivers", currentUser.uid);
@@ -1182,67 +1223,194 @@ const HomeScreenWithMap = () => {
       }
     }, [auth.currentUser]);
 
-    // -----------------------------------------------------------------
+            // -----------------------------------------------------------------
     // 7. Get Current Location
     // -----------------------------------------------------------------
     useEffect(() => {
+      let locationTimeout;
+      
       const setupLocation = async () => {
         try {
-          console.log('Setting up location...');
-          const { status } = await Location.requestForegroundPermissionsAsync();
-          console.log('Location permission status:', status);
+          console.log('🚀 Starting location setup...');
+          console.log('Current region state:', region);
+          console.log('Current fromLocation state:', fromLocation);
+          setIsLocationLoading(true);
           
-          if (status !== 'granted') {
-            console.error('Location permission not granted');
+          // Set a timeout to prevent infinite loading
+          locationTimeout = setTimeout(() => {
+            console.log('Location setup timeout, using fallback region');
+            const fallbackRegion = {
+              latitude: 11.5883,
+              longitude: 43.1453,
+              latitudeDelta: 0.0922,
+              longitudeDelta: 0.0421,
+            };
+            setRegion(fallbackRegion);
+            setFromLocation({
+              latitude: fallbackRegion.latitude,
+              longitude: fallbackRegion.longitude,
+            });
+            setIsLocationLoading(false);
+          }, 30000); // 30 second timeout
+          
+          // Check if location services are enabled
+          const isLocationEnabled = await Location.hasServicesEnabledAsync();
+          if (!isLocationEnabled) {
+            console.error('Location services are disabled');
+            clearTimeout(locationTimeout);
+            setIsLocationLoading(false);
             Alert.alert(
-              'Location Permission Required',
-              'Please enable location services to use the map.',
-              [{ text: 'OK' }]
+              'Location Services Disabled',
+              'Please enable location services in your device settings to use the map.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => Linking.openSettings() }
+              ]
             );
             return;
           }
+        
+        // Request permissions with better Android handling
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        console.log('Location permission status:', status);
+        
+        if (status !== 'granted') {
+          console.error('Location permission not granted');
+          clearTimeout(locationTimeout);
+          setIsLocationLoading(false);
+          Alert.alert(
+            'Location Permission Required',
+            'Please enable location permissions to use the map.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() }
+            ]
+          );
+          return;
+        }
 
-          const location = await Location.getCurrentPositionAsync({
+        // Try to get current location with multiple fallback options
+        let location;
+        try {
+          // First try with high accuracy
+          location = await Location.getCurrentPositionAsync({
             accuracy: Location.Accuracy.High,
-            maximumAge: 10000
+            maximumAge: 10000,
+            timeout: 15000
           });
-          console.log('Current location:', location);
-          
-          if (!location || !location.coords) {
-            console.error('Invalid location data received');
-            Alert.alert(
-              'Location Error',
-              'Unable to get your current location. Please check your location settings.',
-              [{ text: 'OK' }]
-            );
-            return;
+        } catch (highAccuracyError) {
+          console.log('High accuracy location failed, trying balanced accuracy...');
+          try {
+            // Fallback to balanced accuracy
+            location = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+              maximumAge: 30000,
+              timeout: 20000
+            });
+          } catch (balancedError) {
+            console.log('Balanced accuracy failed, trying low accuracy...');
+            // Final fallback to low accuracy
+            location = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Low,
+              maximumAge: 60000,
+              timeout: 25000
+            });
           }
-
-          const newRegion = {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
+        }
+        
+        console.log('Current location:', location);
+        
+        if (!location || !location.coords) {
+          console.error('Invalid location data received');
+          
+          // Set a fallback region (Djibouti city center) so map doesn't show white
+          const fallbackRegion = {
+            latitude: 11.5883,
+            longitude: 43.1453,
             latitudeDelta: 0.0922,
             longitudeDelta: 0.0421,
           };
           
-          console.log('Setting new region:', newRegion);
-          setRegion(newRegion);
+          console.log('Setting fallback region:', fallbackRegion);
+          setRegion(fallbackRegion);
           setFromLocation({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
+            latitude: fallbackRegion.latitude,
+            longitude: fallbackRegion.longitude,
           });
-        } catch (error) {
-          console.error('Error in setupLocation:', error);
+          
+          clearTimeout(locationTimeout);
+          setIsLocationLoading(false);
           Alert.alert(
-            'Error',
-            'There was an error setting up the map. Please try again.',
-            [{ text: 'OK' }]
+            'Location Error',
+            'Unable to get your current location. Please check your location settings and try again.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Retry', onPress: () => setupLocation() }
+            ]
           );
+          return;
         }
-      };
 
-      setupLocation();
-    }, []);
+        const newRegion = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          latitudeDelta: 0.0922,
+          longitudeDelta: 0.0421,
+        };
+        
+        console.log('Setting new region:', newRegion);
+        setRegion(newRegion);
+        setFromLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+        
+        // Clear timeout since we succeeded
+        clearTimeout(locationTimeout);
+        setIsLocationLoading(false);
+        console.log('✅ Location setup completed successfully');
+      } catch (error) {
+        console.error('Error in setupLocation:', error);
+        
+        // Clear timeout and set loading to false
+        clearTimeout(locationTimeout);
+        setIsLocationLoading(false);
+        
+        // More specific error handling for Android
+        let errorMessage = 'There was an error setting up the map. Please try again.';
+        let actions = [{ text: 'Cancel', style: 'cancel' }];
+        
+        if (error.message.includes('location is unavailable')) {
+          errorMessage = 'Location service is unavailable. Please check:\n\n1. Location is enabled in device settings\n2. GPS is turned on\n3. App has location permissions';
+          actions = [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            { text: 'Retry', onPress: () => setupLocation() }
+          ];
+        } else if (error.message.includes('permission')) {
+          errorMessage = 'Location permission denied. Please enable location permissions in app settings.';
+          actions = [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            { text: 'Retry', onPress: () => setupLocation() }
+          ];
+        } else {
+          actions.push({ text: 'Retry', onPress: () => setupLocation() });
+        }
+        
+        Alert.alert('Location Setup Error', errorMessage, actions);
+      }
+    };
+
+    setupLocation();
+    
+    // Cleanup function to clear timeout
+    return () => {
+      if (locationTimeout) {
+        clearTimeout(locationTimeout);
+      }
+    };
+  }, []);
 
     // Add this new effect to monitor map state
     useEffect(() => {
@@ -1672,6 +1840,56 @@ const HomeScreenWithMap = () => {
       // Store the unsubscribe function
       onSnapshotUnsubscribe.current = unsubscribe;
 
+      // Add listener for assigned rides to auto-navigate
+      const assignedRidesQuery = query(
+        collection(db, "rideRequests"),
+        where("status", "==", "assigned"),
+        where("driverId", "==", auth.currentUser?.uid)
+      );
+
+      const assignedRidesUnsubscribe = onSnapshot(assignedRidesQuery, async (snapshot) => {
+        if (!snapshot.empty) {
+          const assignedRide = snapshot.docs[0].data();
+          const rideId = snapshot.docs[0].id;
+          
+          console.log('🚗 Ride assigned to driver, auto-navigating to RideInProgressScreen:', rideId);
+          
+          // Close modal if open
+          setIsModalVisible(false);
+          setCurrentRideRequest(null);
+          
+          // Prepare navigation parameters
+          const navigationParams = {
+            pickupLat: assignedRide.pickupLat,
+            pickupLng: assignedRide.pickupLng,
+            destinationLat: assignedRide.destinationLat,
+            destinationLng: assignedRide.destinationLng,
+            driverLat: fromLocation?.latitude || 0,
+            driverLng: fromLocation?.longitude || 0,
+            firstName: assignedRide.firstName || assignedRide.driverName || "Customer",
+            lastName: assignedRide.lastName || '',
+            number: assignedRide.number || assignedRide.driverPhone || '',
+            ridePrice: assignedRide.fare || 0,
+            photo: assignedRide.photo || assignedRide.driverPhoto || '',
+            rideId: rideId,
+            customerId: assignedRide.customerId || assignedRide.userId || '',
+          };
+          
+          console.log('🎯 Auto-navigating with params:', navigationParams);
+          
+          // Navigate to ride in progress screen
+          try {
+            if (navigation && typeof navigation.navigate === 'function') {
+              navigation.navigate("RideInProgressScreen", navigationParams);
+            } else {
+              console.error('Navigation not available for auto-navigation');
+            }
+          } catch (navigationError) {
+            console.error('Auto-navigation error:', navigationError);
+          }
+        }
+      });
+
       return () => {
         if (onSnapshotUnsubscribe.current) {
           onSnapshotUnsubscribe.current();
@@ -1680,8 +1898,12 @@ const HomeScreenWithMap = () => {
         if (newRideRequestsUnsubscribe) {
           newRideRequestsUnsubscribe();
         }
+        // Clean up the assigned rides subscription
+        if (assignedRidesUnsubscribe) {
+          assignedRidesUnsubscribe();
+        }
       };
-    }, [isOnline, rideInProgress, rideCooldown, driverType]);
+    }, [isOnline, rideInProgress, rideCooldown, driverType, fromLocation, navigation]);
 
     // -----------------------------------------------------------------
     // 9. Countdown Timer for Driver Selection
@@ -2448,6 +2670,8 @@ const HomeScreenWithMap = () => {
             }, 2000);
             
             // Update local state first
+            // NOTE: This will automatically trigger the 20-minute auto-offline timer
+            // The driver cannot disable this system - they will go offline after exactly 20 minutes
             setIsOnline(true);
             
             // Update backend
@@ -2479,6 +2703,8 @@ const HomeScreenWithMap = () => {
             }
             
             // Update local state
+            // NOTE: This will automatically clear the 20-minute auto-offline timer
+            // The timer will restart when the driver goes online again
             setIsOnline(false);
             
             // Update backend
@@ -4447,10 +4673,9 @@ const HomeScreenWithMap = () => {
     }
 
     // Safe render with error boundary
-    try {
-      return (
-        <ErrorBoundary>
-          <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    return (
+      <ErrorBoundary>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
             {/* Full-screen circle animation overlay */}
             {showFullScreenAnimation && (
               <Animated.View
@@ -4574,56 +4799,62 @@ const HomeScreenWithMap = () => {
             
             {/* Map Container with Error Boundary */}
             <View style={styles.mapContainer}>
-              {region ? (
-                <MapView
-                  ref={mapRef}
-                  style={[styles.map, { backgroundColor: '#000000' }]}
-                  initialRegion={region}
-                  showsUserLocation
-                  showsMyLocationButton
-                  onMapReady={() => {
-                    try {
-                      setMapReady(true);
-                    } catch (error) {
-                      console.error('❌ Map ready error:', error);
-                    }
-                  }}
-                  onError={(error) => {
-                    try {
-                      console.error('Map error:', error);
-                      Alert.alert(
-                        'Map Error',
-                        'There was an error loading the map. Please check your internet connection and try again.',
-                        [{ text: 'OK' }]
-                      );
-                    } catch (alertError) {
-                      console.error('❌ Alert error:', alertError);
-                    }
-                  }}
-                  loadingEnabled={true}
-                  loadingIndicatorColor="#FF8C00"
-                  loadingBackgroundColor="#000000"
-                >
-                  {fromLocation && (
-                    <Marker
-                      coordinate={fromLocation}
-                      title="Your Location"
-                      description="You are here"
-                    />
-                  )}
-                </MapView>
-              ) : (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color="#FF8C00" />
-                  <Text style={styles.loadingText}>Loading map...</Text>
-                </View>
-              )}
-              {!mapReady && region && (
+              <MapView
+                ref={mapRef}
+                style={[styles.map, { backgroundColor: '#000000' }]}
+                initialRegion={region}
+                region={region}
+                showsUserLocation
+                showsMyLocationButton
+                onMapReady={() => {
+                  try {
+                    setMapReady(true);
+                    console.log('✅ Map is ready');
+                    console.log('🗺️ Map region on ready:', region);
+                  } catch (error) {
+                    console.error('❌ Map ready error:', error);
+                  }
+                }}
+                onError={(error) => {
+                  try {
+                    console.error('Map error:', error);
+                    console.error('Map error details:', JSON.stringify(error));
+                    Alert.alert(
+                      'Map Error',
+                      'There was an error loading the map. Please check your internet connection and try again.',
+                      [{ text: 'OK' }]
+                    );
+                  } catch (alertError) {
+                    console.error('❌ Alert error:', alertError);
+                  }
+                }}
+                onLayout={() => {
+                  console.log('🗺️ Map layout event triggered');
+                }}
+                loadingEnabled={true}
+                loadingIndicatorColor="#FF8C00"
+                loadingBackgroundColor="#000000"
+              >
+                {fromLocation && (
+                  <Marker
+                    coordinate={fromLocation}
+                    title="Your Location"
+                    description="You are here"
+                  />
+                )}
+              </MapView>
+              
+              {/* Location loading overlay */}
+              {isLocationLoading && (
                 <View style={styles.mapLoadingOverlay}>
                   <ActivityIndicator size="large" color="#FF8C00" />
-                  <Text style={styles.mapLoadingText}>Initializing map...</Text>
+                  <Text style={styles.mapLoadingText}>
+                    {isLocationLoading ? "Getting your location..." : "Map ready"}
+                  </Text>
                 </View>
               )}
+              
+              
             </View>
             {/* Top panel with earnings and settings */}
             <BlurView intensity={80} tint="dark" style={[styles.topPanel, { paddingTop: insets.top }]}>
@@ -5388,49 +5619,41 @@ const HomeScreenWithMap = () => {
                 }}
               />
             )}
+            
+            {/* AUTO-OFFLINE TIMER COMPONENT
+                This component automatically appears when the driver has less than 5 minutes remaining
+                before being automatically set offline. It provides two options:
+                1. EXTEND: Resets the timer for another 20 minutes
+                2. OFFLINE: Goes offline immediately
+                
+                The timer cannot be disabled or overridden - drivers MUST go offline after 20 minutes
+                unless they explicitly extend their time. This ensures system reliability and prevents
+                drivers from staying online indefinitely. */}
+            <AutoOfflineTimer
+              isOnline={isOnline}
+              remainingTime={(() => {
+                const time = getRemainingTime();
+                if (time > 0 && time <= 5) {
+                  console.log(`⏰ HomeScreen: AutoOfflineTimer requesting remaining time: ${time} minutes`);
+                }
+                return time;
+              })()}
+              onExtendTime={() => {
+                console.log('⏰ HomeScreen: EXTEND requested from AutoOfflineTimer - resetting timer');
+                resetTimer();
+              }}
+              onGoOffline={() => {
+                try {
+                  console.log('🔄 User chose to go offline from auto-offline timer');
+                  setIsOnline(false);
+                } catch (error) {
+                  console.error('❌ Error going offline from timer:', error);
+                }
+              }}
+            />
           </SafeAreaView>
         </ErrorBoundary>
       );
-    } catch (renderError) {
-      console.error('🚨 RENDER ERROR:', renderError);
-      // Return a simple error UI if rendering fails
-      return (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorTitle}>🚨 Erreur de rendu</Text>
-          <Text style={styles.errorText}>
-            L'interface utilisateur a rencontré un problème. Redémarrez l'application.
-          </Text>
-          <TouchableOpacity
-            style={styles.errorButton}
-            onPress={() => {
-              console.log('🔄 Render error recovery initiated');
-            }}
-          >
-            <Text style={styles.errorButtonText}>Redémarrer</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-  } catch (error) {
-    console.error('🚨 ERROR:', error);
-    // Return a simple error UI if an error occurs
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorTitle}>🚨 Erreur</Text>
-        <Text style={styles.errorText}>
-          Une erreur s'est produite lors de l'affichage de l'écran. Veuillez réessayer.
-        </Text>
-        <TouchableOpacity
-          style={styles.errorButton}
-          onPress={() => {
-            console.log('🔄 Erreur de récupération');
-          }}
-        >
-          <Text style={styles.errorButtonText}>Réessayer</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
 };
 
 const styles = StyleSheet.create({

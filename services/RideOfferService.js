@@ -50,11 +50,11 @@ class RideOfferService {
 
       console.log('Starting to listen for ride offers...');
       
-      // Listen to DriverSelection collection for offers to this driver
+      // Listen to SelectedDriver collection for offers to this driver
       const q = query(
-        collection(db, "DriverSelection"),
+        collection(db, "SelectedDriver"),
         where("selectedDriverId", "==", driverId),
-        where("status", "in", ["pending_offer", "offer_sent"])
+        where("status", "in", ["selected", "offer_sent"])
       );
 
       this.offerListener = onSnapshot(q, (snapshot) => {
@@ -172,8 +172,8 @@ class RideOfferService {
 
       console.log(`Accepting offer ${offerId}`);
       
-      // Update the DriverSelection document
-      await updateDoc(doc(db, "DriverSelection", offerId), {
+      // Update the SelectedDriver document
+      await updateDoc(doc(db, "SelectedDriver", offerId), {
         status: "accepted",
         acceptedAt: new Date(),
         countdownSeconds: 0
@@ -208,8 +208,8 @@ class RideOfferService {
 
       console.log(`Rejecting offer ${offerId}`);
       
-      // Update the DriverSelection document
-      await updateDoc(doc(db, "DriverSelection", offerId), {
+      // Update the SelectedDriver document
+      await updateDoc(doc(db, "SelectedDriver", offerId), {
         status: "rejected",
         rejectedAt: new Date(),
         countdownSeconds: 0

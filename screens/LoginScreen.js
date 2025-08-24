@@ -152,7 +152,7 @@ function LoginScreen() {
       // Check approval status and navigate accordingly
       const approvalStatus = await AsyncStorage.getItem('driverApprovalStatus');
       if (approvalStatus === 'approved') {
-        navigation.navigate("HomeScreenWithMap");
+        navigation.navigate("MainApp");
       } else {
         navigation.navigate("ApprovalStatusScreen");
       }
@@ -171,7 +171,7 @@ function LoginScreen() {
         // User has already accepted privacy policy
         if (approvalStatus === 'approved') {
           // User is approved, proceed to home screen
-          navigation.navigate("HomeScreenWithMap");
+          navigation.navigate("MainApp");
         } else {
           // User is not approved, show approval status screen
           navigation.navigate("ApprovalStatusScreen");

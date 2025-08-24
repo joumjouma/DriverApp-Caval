@@ -48,11 +48,11 @@ const RideInProgressScreen = () => {
               // Clean up ride state
               await AsyncStorage.removeItem('currentRide');
               // Navigate back to home
-              navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+navigation.navigate("MainApp", { rideCompleted: true });
             } catch (error) {
               console.error("Error navigating back:", error);
               // Force navigation even if there's an error
-              navigation.navigate("HomeScreenWithMap");
+              navigation.navigate("MainApp");
             }
           }}
           style={{ marginLeft: 15 }}
@@ -340,9 +340,9 @@ const RideInProgressScreen = () => {
           
           // Check if ride is completed - if so, navigate away immediately
           if (rideState.hasDroppedOffCustomer) {
-            console.log('✅ Ride already completed, navigating to HomeScreenWithMap');
+            console.log('✅ Ride already completed, navigating to MainApp');
             await AsyncStorage.removeItem('currentRide');
-            navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+            navigation.navigate("MainApp", { rideCompleted: true });
             return;
           }
           
@@ -405,7 +405,7 @@ const RideInProgressScreen = () => {
       // Clear ride state and navigate back to home screen
       clearRideState();
       AsyncStorage.removeItem('currentRide');
-      navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+      navigation.navigate("MainApp", { rideCompleted: true });
     }
   }, [currentStep]);
 
@@ -451,14 +451,14 @@ const RideInProgressScreen = () => {
       if (doc.exists()) {
         const rideData = doc.data();
         if (rideData.status === "declined") {
-          // Clear ride state and navigate back to home screen
-          clearRideState();
-          navigation.navigate("HomeScreenWithMap");
-        } else if (rideData.status === "completed") {
-          // Ride is completed, navigate away
-          console.log("Ride completed in Firebase, navigating to HomeScreenWithMap");
-          AsyncStorage.removeItem('currentRide');
-          navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+                  // Clear ride state and navigate back to home screen
+        clearRideState();
+        navigation.navigate("MainApp");
+      } else if (rideData.status === "completed") {
+        // Ride is completed, navigate away
+        console.log("Ride completed in Firebase, navigating to MainApp");
+        AsyncStorage.removeItem('currentRide');
+        navigation.navigate("MainApp", { rideCompleted: true });
         }
       }
     });
@@ -610,7 +610,7 @@ const RideInProgressScreen = () => {
               console.error("Ride not found in either collection");
               // Navigate back to home screen since ride doesn't exist
               await AsyncStorage.removeItem('currentRide');
-              navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+              navigation.navigate("MainApp", { rideCompleted: true });
               return;
             }
           } else {
@@ -642,7 +642,7 @@ const RideInProgressScreen = () => {
         // If there's an error, try to navigate back to home
         try {
           await AsyncStorage.removeItem('currentRide');
-          navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+          navigation.navigate("MainApp", { rideCompleted: true });
         } catch (navError) {
           console.error("Error navigating back:", navError);
         }
@@ -1215,7 +1215,7 @@ const RideInProgressScreen = () => {
       console.error("Error updating drop off status:", error);
       // Even if there's an error, try to navigate away
       await AsyncStorage.removeItem('currentRide');
-      navigation.navigate("HomeScreenWithMap", { rideCompleted: true });
+      navigation.navigate("MainApp", { rideCompleted: true });
     }
   };
 
@@ -1322,7 +1322,7 @@ const RideInProgressScreen = () => {
                 });
               }
               await clearRideState();
-              navigation.navigate("HomeScreenWithMap");
+              navigation.navigate("MainApp");
             } catch (error) {
               console.error("Error cancelling ride:", error);
               Alert.alert("Erreur", "Impossible d'annuler la course. Veuillez contacter le support.");
@@ -2517,6 +2517,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
+    elevation: 9999,
   },
   modalContainer: {
     backgroundColor: '#1E1E1E',

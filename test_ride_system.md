@@ -21,7 +21,7 @@
 
 ### **Monitor logs:**
 ```bash
-npx firebase functions:log --only handleDriverSelection
+npx firebase functions:log --only selectBestDriverForNewRideRequest
 ```
 
 **The system is now fully deployed and ready to use!** 🚀 

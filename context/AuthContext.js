@@ -10,10 +10,13 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    console.log('🔐 AuthContext: Setting up auth listener...');
+    
     // Check if user is stored in AsyncStorage
     const checkStoredUser = async () => {
       try {
         const storedUser = await AsyncStorage.getItem('auth');
+        console.log('🔐 AuthContext: Stored user found:', !!storedUser);
         if (storedUser) {
           setUser(JSON.parse(storedUser));
         }
@@ -26,6 +29,7 @@ export const AuthProvider = ({ children }) => {
 
     // Listen for auth state changes
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      console.log('🔐 AuthContext: Auth state changed:', !!currentUser);
       if (currentUser) {
         setUser(currentUser);
         await AsyncStorage.setItem('auth', JSON.stringify(currentUser));
@@ -34,6 +38,7 @@ export const AuthProvider = ({ children }) => {
         await AsyncStorage.removeItem('auth');
       }
       setLoading(false);
+      console.log('🔐 AuthContext: Loading set to false');
     });
 
     return unsubscribe;
@@ -42,15 +47,14 @@ export const AuthProvider = ({ children }) => {
   const login = async (credentials) => {
     setLoading(true);
     try {
-      // Implement your login logic here
-      // For example:
-      // const response = await api.login(credentials);
-      // setUser(response.user);
+      console.log('🔐 Login attempt with credentials:', credentials);
+      // For now, just set loading to false to prevent hanging
+      // You can implement actual login logic here later
+      setLoading(false);
     } catch (error) {
       console.error('Login error:', error);
-      throw error;
-    } finally {
       setLoading(false);
+      throw error;
     }
   };
 

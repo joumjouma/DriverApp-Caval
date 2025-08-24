@@ -23,10 +23,8 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
     
-    // Allow authenticated users to read/write driver selections
-    match /DriverSelection/{selectionId} {
-      allow read, write: if request.auth != null;
-    }
+    // REMOVED: DriverSelection collection is deprecated
+    // Using SelectedDriver collection instead
     
     // Allow authenticated users to read/write online driver data
     match /OnlineDriver/{document} {

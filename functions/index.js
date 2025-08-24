@@ -328,465 +328,15 @@ Merci de votre service!
 Caval Team`;
 };
 
-// Cloud Function to send push notification when a new ride request is created
-exports.sendNewRideNotification = onDocumentUpdated({
-  document: "rideRequests/{rideId}",
-  maxInstances: 10,
-}, async (event) => {
-    const db = getFirestore();
+// REMOVED: Broken sendNewRideNotification function - This was causing duplicate WhatsApp messages
+// Now using only selectBestDriverForNewRideRequest for new rides
 
-    try {
-      const beforeData = event.data && event.data.before ?
-        event.data.before.data() : null;
-      const afterData = event.data && event.data.after ?
-        event.data.after.data() : null;
+// REMOVED: handleDriverSelection function - DriverSelection collection is deprecated
+// Using SelectedDriver collection instead for ride offers
 
-      // Check if a new ride request was created (status changed to "waiting")
-      if ((!beforeData || beforeData.status !== "waiting") &&
-        afterData && afterData.status === "waiting") {
-        console.log("New ride request created, selecting best driver");
 
-        // Send WhatsApp notification to admin/dispatcher
-        try {
-          const adminPhone = "+25377702036";
-          const rideId = event.params.rideId;
-          const customerName = afterData.customerName || "Unknown";
-          const customerPhone = afterData.customerPhone || "Unknown";
-          const origin = afterData.origin && afterData.origin.address ? afterData.origin.address : "Unknown";
-          const destination = afterData.destination && afterData.destination.address ? afterData.destination.address : "Unknown";
-          const adminMessage = `🆕 Nouvelle demande de course !\n\nID: ${rideId}\nClient: ${customerName}\nTéléphone: ${customerPhone}\nDépart: ${origin}\nDestination: ${destination}`;
-          await sendWhatsAppMessage(adminPhone, adminMessage);
-        } catch (err) {
-          console.error("Error sending admin WhatsApp notification:", err);
-        }
-
-        const rideType = afterData.rideType;
-        if (!rideType) {
-          console.log("No ride type specified");
-          return;
-        }
-
-        // Get all online drivers of the same type
-        const driversSnapshot = await db.collection("Drivers")
-          .where("isOnline", "==", true)
-          .where("isAvailable", "!=", false)
-          .where("driverType", "==", rideType)
-          .where("rideInProgress", "==", false)
-          .get();
-
-        const eligibleDrivers = [];
-        driversSnapshot.forEach((doc) => {
-          const driverData = doc.data();
-          if (driverData.latitude && driverData.longitude && !driverData.currentRideId) {
-            eligibleDrivers.push({
-              id: doc.id,
-              expoPushToken: driverData.expoPushToken,
-              latitude: driverData.latitude,
-              longitude: driverData.longitude,
-              firstName: driverData.firstName || "Driver",
-              phoneNumber: driverData.phoneNumber || null,
-            });
-          }
-        });
-
-        console.log(`Found ${eligibleDrivers.length} eligible drivers`);
-        if (eligibleDrivers.length === 0) {
-          console.log("No eligible drivers found");
-          return;
-        }
-
-        // Select the best driver (for now, pick the first; replace with your algorithm)
-        const bestDriver = eligibleDrivers[0];
-        console.log("Selected driver:", bestDriver.id);
-
-        // Add to SelectedDriver collection
-        await db.collection("SelectedDriver").add({
-          rideId: event.params.rideId,
-          selectedDriverId: bestDriver.id,
-          selectedDriverName: bestDriver.firstName,
-          selectedDriverPhone: bestDriver.phoneNumber,
-          createdAt: new Date(),
-        });
-
-        // 1. Send WhatsApp message FIRST if phone number exists
-        if (bestDriver.phoneNumber) {
-          const whatsappMessage =
-            `🚗 *Nouvelle course possible!*
-
-Bonjour ${bestDriver.firstName},
-
-Ouvrez l'application Caval Courrier, vous pourriez recevoir une nouvelle course à accepter.
-
-Merci de votre service!
-Caval Team`;
-          await sendWhatsAppMessage(bestDriver.phoneNumber, whatsappMessage);
-        } else {
-          console.log("Selected driver has no phone number");
-        }
-
-        // 2. Update the ride request with selected driver info
-        await db.collection("rideRequests").doc(event.params.rideId).update({
-          selectedDriverId: bestDriver.id,
-          selectedDriverName: bestDriver.firstName,
-          selectedDriverPhone: bestDriver.phoneNumber,
-        });
-
-        // 3. Wait 3 seconds
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        // 4. Prepare notification data
-        const notificationData = {
-          type: "new_ride_offer",
-          rideId: event.params.rideId,
-          driverId: bestDriver.id,
-          fare: (afterData.fare && afterData.fare.toString()) || "0",
-          pickupAddress: afterData.pickupAddress || "",
-          destinationAddress: afterData.destinationAddress || "",
-          rideType: rideType,
-        };
-
-        // 5. Send push notification if Expo token exists
-        if (bestDriver.expoPushToken) {
-          await sendEnhancedPushNotification(
-            bestDriver.expoPushToken,
-            "🚗 Nouvelle course disponible!",
-            "Une nouvelle demande de course correspond à votre profil. Ouvrez l'app pour voir les détails.",
-            notificationData,
-            bestDriver.id
-          );
-        } else {
-          console.log("Selected driver has no Expo push token");
-        }
-
-        // 6. (Optional) Send WhatsApp ride details as before (if you want both messages)
-        // If you want to keep the detailed WhatsApp message, uncomment below:
-        /*
-        if (bestDriver.phoneNumber) {
-          const whatsappMessage = formatRideOfferMessage({
-            pickupAddress: afterData.pickupAddress || "Adresse non disponible",
-            destinationAddress: afterData.destinationAddress || "Adresse non disponible",
-            fare: afterData.fare || 0,
-            distance: afterData.distance || 5,
-          }, bestDriver.firstName || "Chauffeur");
-
-          await sendWhatsAppMessage(bestDriver.phoneNumber, whatsappMessage);
-        } else {
-          console.log("Selected driver has no phone number");
-        }
-        */
-
-        console.log("Ride offer sent to selected driver only");
-      } else if ((!beforeData || beforeData.status !== "assigned") &&
-        afterData && afterData.status === "assigned" &&
-        afterData.driverId) {
-        console.log("Ride assigned to driver:", afterData.driverId);
-
-        // Get driver's Firestore document
-        const driverDoc = await db.collection("Drivers").doc(afterData.driverId).get();
-        if (!driverDoc.exists) {
-          console.log("Driver document not found");
-          return;
-        }
-
-        const driverData = driverDoc.data();
-        const expoPushToken = driverData.expoPushToken;
-
-        // Send push notification if Expo token exists
-        if (expoPushToken) {
-          const notificationData = {
-            type: "ride_assigned",
-            rideId: event.params.rideId,
-            driverId: afterData.driverId,
-            fare: (afterData.fare && afterData.fare.toString()) || "0",
-            pickupAddress: afterData.pickupAddress || "",
-            destinationAddress: afterData.destinationAddress || "",
-          };
-
-          await sendEnhancedPushNotification(
-            expoPushToken,
-            "🎯 Course assignée!",
-            "Vous avez été sélectionné pour une nouvelle course. " +
-            "Ouvrez l'app pour voir les détails.",
-            notificationData,
-            afterData.driverId
-          );
-        } else {
-          console.log("Driver has no Expo push token");
-        }
-
-        // Always send WhatsApp message if phone number exists
-        try {
-          console.log(`Assignment - Driver ${afterData.driverId} phone number:`, driverData.phoneNumber);
-          if (driverData.phoneNumber) {
-            console.log(`Attempting to send assignment WhatsApp message to driver ${afterData.driverId} at ${driverData.phoneNumber}`);
-            const assignmentMessage = `🎯 *Course assignée!*
-
-Bonjour ${driverData.firstName || "Chauffeur"},
-
-Vous avez été sélectionné pour une nouvelle course!
-
-📍 *Départ:* ${afterData.pickupAddress}
-🎯 *Destination:* ${afterData.destinationAddress}
-💰 *Prix:* Fdj${afterData.fare || "0"}
-
-*Actions requises:*
-1. Ouvrez l'application Caval Courrier
-2. Allez dans l'onglet "Courses en cours"
-3. Suivez les instructions pour récupérer le client
-
-*Merci de votre service!*
-Caval Team`;
-
-            const assignmentResult = await sendWhatsAppMessage(driverData.phoneNumber, assignmentMessage);
-            console.log(`Assignment WhatsApp message sent successfully to driver ${driverData.firstName} (${afterData.driverId}):`, assignmentResult);
-          } else {
-            console.log(`Driver ${afterData.driverId} has no phone number, skipping assignment WhatsApp message`);
-          }
-        } catch (whatsappError) {
-          console.error(`Error sending WhatsApp assignment message to driver ${afterData.driverId}:`, whatsappError);
-          // Don't fail the entire process if WhatsApp fails
-        }
-
-        console.log("Assignment notification sent successfully");
-      }
-    } catch (error) {
-      console.error("Error in sendNewRideNotification:", error);
-    }
-  });
-
-// Cloud Function to handle driver selection and delayed ride offer
-
-exports.handleDriverSelection = onDocumentCreated({
-  document: "rideRequests/{rideId}",
-  maxInstances: 10,
-}, async (event) => {
-  const db = getFirestore();
-  try {
-    const rideData = event.data && event.data.data ? event.data.data() : null;
-    if (!rideData || rideData.status !== "waiting") {
-      console.log("Ride request is not in waiting status, skipping driver selection");
-      return;
-    }
-    const rideType = rideData.rideType;
-    if (!rideType) {
-      console.log("No ride type specified");
-      return;
-    }
-    // Get all online drivers of the same type
-    const driversSnapshot = await db.collection("Drivers")
-      .where("isOnline", "==", true)
-      .where("isAvailable", "!=", false)
-      .where("driverType", "==", rideType)
-      .where("rideInProgress", "==", false)
-      .get();
-    const eligibleDrivers = [];
-    driversSnapshot.forEach((doc) => {
-      const driverData = doc.data();
-      if (driverData.latitude && driverData.longitude && !driverData.currentRideId) {
-        eligibleDrivers.push({
-          id: doc.id,
-          expoPushToken: driverData.expoPushToken,
-          latitude: driverData.latitude,
-          longitude: driverData.longitude,
-          firstName: driverData.firstName || "Driver",
-          phoneNumber: driverData.phoneNumber || null,
-        });
-      }
-    });
-    console.log(`Found ${eligibleDrivers.length} eligible drivers`);
-    if (eligibleDrivers.length === 0) {
-      console.log("No eligible drivers found");
-      return;
-    }
-    // Select the best driver (for now, pick the first; replace with your algorithm)
-    const bestDriver = eligibleDrivers[0];
-    console.log("Selected driver:", bestDriver.id);
-    
-    // Calculate countdown times
-    const now = new Date();
-    const offerExpiryTime = new Date(now.getTime() + 15000); // 15 seconds from now
-    
-    // Create a DriverSelection document with countdown
-    const driverSelectionRef = await db.collection("DriverSelection").add({
-      rideId: event.params.rideId,
-      selectedDriverId: bestDriver.id,
-      selectedDriverName: bestDriver.firstName,
-      selectedDriverPhone: bestDriver.phoneNumber,
-      createdAt: now,
-      offerSentAt: now,
-      offerExpiryTime: offerExpiryTime,
-      status: "pending_offer",
-      countdownSeconds: 15,
-      rideData: {
-        fare: rideData.fare || 0,
-        pickupAddress: rideData.pickupAddress || "",
-        destinationAddress: rideData.destinationAddress || "",
-        rideType: rideType,
-        distance: rideData.distance || 0,
-        customerName: rideData.customerName || "",
-        customerPhone: rideData.customerPhone || "",
-      }
-    });
-    
-    console.log(`DriverSelection created with ID: ${driverSelectionRef.id}, expires at: ${offerExpiryTime}`);
-    
-    // Wait 3 seconds before sending notification
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    // Prepare notification data
-    const notificationData = {
-      type: "new_ride_offer",
-      rideId: event.params.rideId,
-      driverId: bestDriver.id,
-      selectionId: driverSelectionRef.id,
-      fare: (rideData.fare && rideData.fare.toString()) || "0",
-      pickupAddress: rideData.pickupAddress || "",
-      destinationAddress: rideData.destinationAddress || "",
-      rideType: rideType,
-      countdownSeconds: 15,
-      offerExpiryTime: offerExpiryTime.toISOString(),
-    };
-    
-    // Send push notification if Expo token exists
-    if (bestDriver.expoPushToken) {
-      await sendEnhancedPushNotification(
-        bestDriver.expoPushToken,
-        "🚗 Nouvelle course disponible!",
-        "Une nouvelle demande de course correspond à votre profil. Ouvrez l'app pour voir les détails.",
-        notificationData,
-        bestDriver.id
-      );
-    } else {
-      console.log("Selected driver has no Expo push token");
-    }
-    
-    // Send WhatsApp message if phone number exists
-    if (bestDriver.phoneNumber) {
-      const whatsappMessage = formatRideOfferMessage({
-        pickupAddress: rideData.pickupAddress || "Adresse non disponible",
-        destinationAddress: rideData.destinationAddress || "Adresse non disponible",
-        fare: rideData.fare || 0,
-        distance: rideData.distance || 5,
-      }, bestDriver.firstName || "Chauffeur");
-      await sendWhatsAppMessage(bestDriver.phoneNumber, whatsappMessage);
-    } else {
-      console.log("Selected driver has no phone number");
-    }
-    
-    // Update DriverSelection document status
-    await driverSelectionRef.update({ 
-      status: "offer_sent",
-      notificationSentAt: new Date()
-    });
-    
-    console.log("Ride offer sent to selected driver with 15-second countdown");
-    
-    // Schedule countdown expiration check
-    setTimeout(async () => {
-      try {
-        const selectionDoc = await driverSelectionRef.get();
-        if (selectionDoc.exists()) {
-          const selectionData = selectionDoc.data();
-          if (selectionData.status === "offer_sent" || selectionData.status === "pending_offer") {
-            console.log(`Offer expired for ride ${event.params.rideId}, driver ${bestDriver.id}`);
-            
-            // Update status to expired
-            await driverSelectionRef.update({
-              status: "expired",
-              expiredAt: new Date(),
-              countdownSeconds: 0
-            });
-            
-            // Update ride request status to waiting for next driver
-            await db.collection("rideRequests").doc(event.params.rideId).update({
-              status: "waiting_for_next_driver",
-              lastDriverRejected: bestDriver.id,
-              lastDriverRejectedAt: new Date()
-            });
-            
-            console.log(`Offer expired and ride status updated for ${event.params.rideId}`);
-          }
-        }
-      } catch (error) {
-        console.error("Error handling offer expiration:", error);
-      }
-    }, 15000);
-    
-  } catch (error) {
-    console.error("Error in handleDriverSelection:", error);
-  }
-});
-
-// Cloud Function to handle offer acceptance
-exports.handleOfferAcceptance = onDocumentUpdated({
-  document: "DriverSelection/{selectionId}",
-  maxInstances: 10,
-}, async (event) => {
-  const db = getFirestore();
-  try {
-    const beforeData = event.data && event.data.before ? event.data.before.data() : null;
-    const afterData = event.data && event.data.after ? event.data.after.data() : null;
-    
-    // Check if status changed to accepted
-    if ((!beforeData || beforeData.status !== "accepted") && 
-        afterData && afterData.status === "accepted") {
-      
-      console.log(`Driver ${afterData.selectedDriverId} accepted offer for ride ${afterData.rideId}`);
-      
-      // Update ride request
-      await db.collection("rideRequests").doc(afterData.rideId).update({
-        status: "assigned",
-        driverId: afterData.selectedDriverId,
-        driverName: afterData.selectedDriverName,
-        driverPhone: afterData.selectedDriverPhone,
-        assignedAt: new Date(),
-        acceptedAt: new Date()
-      });
-      
-      // Update driver status
-      await db.collection("Drivers").doc(afterData.selectedDriverId).update({
-        rideInProgress: true,
-        currentRideId: afterData.rideId,
-        isAvailable: false,
-        lastRideAcceptedAt: new Date()
-      });
-      
-      console.log(`Ride ${afterData.rideId} assigned to driver ${afterData.selectedDriverId}`);
-    }
-  } catch (error) {
-    console.error("Error in handleOfferAcceptance:", error);
-  }
-});
-
-// Cloud Function to handle offer rejection
-exports.handleOfferRejection = onDocumentUpdated({
-  document: "DriverSelection/{selectionId}",
-  maxInstances: 10,
-}, async (event) => {
-  const db = getFirestore();
-  try {
-    const beforeData = event.data && event.data.before ? event.data.before.data() : null;
-    const afterData = event.data && event.data.after ? event.data.after.data() : null;
-    
-    // Check if status changed to rejected
-    if ((!beforeData || beforeData.status !== "rejected") && 
-        afterData && afterData.status === "rejected") {
-      
-      console.log(`Driver ${afterData.selectedDriverId} rejected offer for ride ${afterData.rideId}`);
-      
-      // Update ride request to look for next driver
-      await db.collection("rideRequests").doc(afterData.rideId).update({
-        status: "waiting_for_next_driver",
-        lastDriverRejected: afterData.selectedDriverId,
-        lastDriverRejectedAt: new Date()
-      });
-      
-      console.log(`Ride ${afterData.rideId} marked for next driver selection`);
-    }
-  } catch (error) {
-    console.error("Error in handleOfferRejection:", error);
-  }
-});
+// REMOVED: handleOfferAcceptance and handleOfferRejection functions - DriverSelection collection is deprecated
+// Using SelectedDriver collection instead for ride offers
 
 // Cloud Function to send approval notification when driver status is updated
 exports.sendDriverApprovalNotification = onDocumentUpdated({
@@ -963,13 +513,37 @@ exports.updateOnlineDrivers = onDocumentUpdated({
 }, async (event) => {
   const db = getFirestore();
   try {
+    const beforeData = event.data && event.data.before ? event.data.before.data() : null;
+    const afterData = event.data && event.data.after ? event.data.after.data() : null;
+    
+    // Check if driver just went online
+    if (beforeData && afterData && !beforeData.isOnline && afterData.isOnline) {
+      console.log(`🚗 Driver ${event.params.driverId} just went online, starting online timer`);
+      
+      // Set the online start time when driver goes online
+      await db.collection("Drivers").doc(event.params.driverId).update({
+        onlineStartTime: new Date(),
+        lastOnlineUpdate: new Date()
+      });
+    }
+    
     // Get all currently online drivers
     const driversSnapshot = await db.collection("Drivers")
       .where("isOnline", "==", true)
       .get();
     const onlineDrivers = [];
+    const currentTime = new Date();
+    
     driversSnapshot.forEach((doc) => {
       const data = doc.data();
+      let onlineDuration = 0;
+      
+      // Calculate online duration if onlineStartTime exists
+      if (data.onlineStartTime) {
+        const startTime = data.onlineStartTime.toDate ? data.onlineStartTime.toDate() : new Date(data.onlineStartTime);
+        onlineDuration = Math.floor((currentTime - startTime) / 1000); // Duration in seconds
+      }
+      
       onlineDrivers.push({
         id: doc.id,
         firstName: data.firstName || "",
@@ -980,13 +554,18 @@ exports.updateOnlineDrivers = onDocumentUpdated({
         longitude: data.longitude || null,
         isAvailable: data.isAvailable || false,
         photo: data.photo || "",
+        onlineStartTime: data.onlineStartTime || null,
+        onlineDuration: onlineDuration, // Duration in seconds
+        lastOnlineUpdate: data.lastOnlineUpdate || null
       });
     });
+    
     // Write/update the OnlineDriver document
     await db.collection("OnlineDriver").doc("summary").set({
       count: onlineDrivers.length,
       drivers: onlineDrivers,
-      updatedAt: new Date(),
+      updatedAt: currentTime,
+      lastDriverStatusChange: new Date()
     });
     console.log(`OnlineDriver document updated with ${onlineDrivers.length} drivers`);
   } catch (error) {
@@ -1004,18 +583,35 @@ exports.maintainOnlineDriverDocument = onDocumentUpdated({
   const db = getFirestore();
 
   try {
+    const beforeData = event.data && event.data.before ? event.data.before.data() : null;
     const afterData = event.data && event.data.after ? event.data.after.data() : null;
-    if (!afterData) return;
-
-    // Only update if driver's online status changed
-    const isOnline = afterData.isOnline === true;
     
-    if (isOnline) {
-      // Simple update - just increment count
+    if (!beforeData || !afterData) return;
+
+    // Check if driver just went online
+    if (!beforeData.isOnline && afterData.isOnline) {
+      console.log(`🚗 Driver ${event.params.driverId} just went online, updating OnlineDriver document`);
+      
+      // Update the OnlineDriver document with new online driver
       const onlineDriverRef = db.collection("OnlineDriver").doc("current");
       await onlineDriverRef.set({
         lastUpdated: new Date(),
-        status: 'active'
+        status: 'active',
+        lastDriverOnline: new Date(),
+        driverId: event.params.driverId
+      }, { merge: true });
+    }
+    
+    // Check if driver just went offline
+    if (beforeData.isOnline && !afterData.isOnline) {
+      console.log(`🚫 Driver ${event.params.driverId} just went offline, updating OnlineDriver document`);
+      
+      // Update the OnlineDriver document
+      const onlineDriverRef = db.collection("OnlineDriver").doc("current");
+      await onlineDriverRef.set({
+        lastUpdated: new Date(),
+        lastDriverOffline: new Date(),
+        driverId: event.params.driverId
       }, { merge: true });
     }
     
@@ -1211,6 +807,212 @@ const {onSchedule} = require("firebase-functions/v2/scheduler");
 //   }
 // });
 
+// Cloud Function to automatically set drivers offline after 1200 seconds (20 minutes)
+exports.autoOfflineDrivers = onSchedule({
+  schedule: "every 1 minutes", // Check every minute for auto-offline
+  maxInstances: 1,
+  memory: "256MiB",
+  timeoutSeconds: 60,
+}, async (event) => {
+  const db = getFirestore();
+  
+  try {
+    console.log("🚫 Running auto-offline check for drivers...");
+    
+    // Get all currently online drivers
+    const driversSnapshot = await db.collection("Drivers")
+      .where("isOnline", "==", true)
+      .get();
+    
+    if (driversSnapshot.empty) {
+      console.log("No online drivers found, skipping auto-offline check");
+      return;
+    }
+    
+    const currentTime = new Date();
+    const offlinePromises = [];
+    const driversToOffline = [];
+    
+    driversSnapshot.forEach((doc) => {
+      const data = doc.data();
+      
+      if (data.onlineStartTime) {
+        const startTime = data.onlineStartTime.toDate ? data.onlineStartTime.toDate() : new Date(data.onlineStartTime);
+        const onlineDuration = Math.floor((currentTime - startTime) / 1000); // Duration in seconds
+        
+        // Check if driver has been online for 1200 seconds (20 minutes) or more
+        if (onlineDuration >= 1200) {
+          console.log(`🚫 Driver ${doc.id} has been online for ${onlineDuration}s - setting offline`);
+          
+          driversToOffline.push({
+            id: doc.id,
+            duration: onlineDuration,
+            startTime: startTime
+          });
+          
+          // Set driver offline
+          offlinePromises.push(
+            db.collection("Drivers").doc(doc.id).update({
+              isOnline: false,
+              isAvailable: false,
+              lastOfflineUpdate: currentTime,
+              autoOfflineReason: "1200_second_timeout",
+              autoOfflineAt: currentTime,
+              totalOnlineTime: onlineDuration
+            })
+          );
+        }
+      }
+    });
+    
+    // Execute all offline updates
+    if (offlinePromises.length > 0) {
+      await Promise.all(offlinePromises);
+      console.log(`✅ Auto-offlined ${offlinePromises.length} drivers after 1200 seconds (20 minutes)`);
+      
+      // Log details of offlined drivers
+      driversToOffline.forEach(driver => {
+        console.log(`📊 Driver ${driver.id} was online for ${driver.duration}s from ${driver.startTime.toLocaleTimeString()}`);
+      });
+    } else {
+      console.log("✅ No drivers exceeded 1200-second (20 minute) limit");
+    }
+    
+    // Update OnlineDriver summary to reflect offline drivers
+    const remainingOnlineDrivers = [];
+    const remainingSnapshot = await db.collection("Drivers")
+      .where("isOnline", "==", true)
+      .get();
+    
+    remainingSnapshot.forEach((doc) => {
+      const data = doc.data();
+      let onlineDuration = 0;
+      
+      if (data.onlineStartTime) {
+        const startTime = data.onlineStartTime.toDate ? data.onlineStartTime.toDate() : new Date(data.onlineStartTime);
+        onlineDuration = Math.floor((currentTime - startTime) / 1000);
+      }
+      
+      remainingOnlineDrivers.push({
+        id: doc.id,
+        firstName: data.firstName || "",
+        lastName: data.lastName || "",
+        phoneNumber: data.phoneNumber || "",
+        driverType: data.driverType || "",
+        latitude: data.latitude || null,
+        longitude: data.longitude || null,
+        isAvailable: data.isAvailable || false,
+        photo: data.photo || "",
+        onlineStartTime: data.onlineStartTime || null,
+        onlineDuration: onlineDuration,
+        lastOnlineUpdate: data.lastOnlineUpdate || null
+      });
+    });
+    
+    await db.collection("OnlineDriver").doc("summary").set({
+      count: remainingOnlineDrivers.length,
+      drivers: remainingOnlineDrivers,
+      updatedAt: currentTime,
+      lastAutoOfflineCheck: currentTime,
+      lastAutoOfflineCount: driversToOffline.length
+    });
+    
+    console.log(`✅ OnlineDriver summary updated - ${remainingOnlineDrivers.length} drivers remaining online`);
+    
+  } catch (error) {
+    console.error("Error in auto-offline function:", error);
+  }
+});
+
+// Cloud Function to periodically update online duration for all online drivers
+exports.updateOnlineDuration = onSchedule({
+  schedule: "every 1 minutes",
+  maxInstances: 1,
+  memory: "256MiB",
+  timeoutSeconds: 60,
+}, async (event) => {
+  const db = getFirestore();
+  
+  try {
+    console.log("🕐 Running scheduled update of online duration...");
+    
+    // Get all currently online drivers
+    const driversSnapshot = await db.collection("Drivers")
+      .where("isOnline", "==", true)
+      .get();
+    
+    if (driversSnapshot.empty) {
+      console.log("No online drivers found, skipping duration update");
+      return;
+    }
+    
+    const currentTime = new Date();
+    const updatePromises = [];
+    
+    driversSnapshot.forEach((doc) => {
+      const data = doc.data();
+      
+      if (data.onlineStartTime) {
+        const startTime = data.onlineStartTime.toDate ? data.onlineStartTime.toDate() : new Date(data.onlineStartTime);
+        const onlineDuration = Math.floor((currentTime - startTime) / 1000); // Duration in seconds
+        
+        // Update the driver's online duration
+        updatePromises.push(
+          db.collection("Drivers").doc(doc.id).update({
+            onlineDuration: onlineDuration,
+            lastOnlineUpdate: currentTime
+          })
+        );
+      }
+    });
+    
+    // Execute all updates
+    if (updatePromises.length > 0) {
+      await Promise.all(updatePromises);
+      console.log(`✅ Updated online duration for ${updatePromises.length} drivers`);
+    }
+    
+    // Also update the OnlineDriver summary document
+    const onlineDrivers = [];
+    driversSnapshot.forEach((doc) => {
+      const data = doc.data();
+      let onlineDuration = 0;
+      
+      if (data.onlineStartTime) {
+        const startTime = data.onlineStartTime.toDate ? data.onlineStartTime.toDate() : new Date(data.onlineStartTime);
+        onlineDuration = Math.floor((currentTime - startTime) / 1000);
+      }
+      
+      onlineDrivers.push({
+        id: doc.id,
+        firstName: data.firstName || "",
+        lastName: data.lastName || "",
+        phoneNumber: data.phoneNumber || "",
+        driverType: data.driverType || "",
+        latitude: data.latitude || null,
+        longitude: data.longitude || null,
+        isAvailable: data.isAvailable || false,
+        photo: data.photo || "",
+        onlineStartTime: data.onlineStartTime || null,
+        onlineDuration: onlineDuration,
+        lastOnlineUpdate: data.lastOnlineUpdate || null
+      });
+    });
+    
+    await db.collection("OnlineDriver").doc("summary").set({
+      count: onlineDrivers.length,
+      drivers: onlineDrivers,
+      updatedAt: currentTime,
+      lastDurationUpdate: currentTime
+    });
+    
+    console.log(`✅ OnlineDriver summary updated with duration data for ${onlineDrivers.length} drivers`);
+    
+  } catch (error) {
+    console.error("Error updating online duration:", error);
+  }
+});
+
 // Very simple test function to verify cloud function setup
 exports.simpleTest = onRequest(async (request, response) => {
   console.log('🧪 Simple test function called');
@@ -1259,8 +1061,351 @@ exports.testCloudFunction = onRequest({
 });
 
 // ============================================================================
-// NEW: Ride Distribution System - Select Best Driver for New Ride Requests
+// ENHANCED: Intelligent Driver Selection System - Select Best Closest Driver
 // ============================================================================
+
+// Cloud Function to continuously monitor and reassign rides to best available drivers
+exports.continuousDriverOptimization = onSchedule({
+  schedule: "every 2 minutes", // Check every 2 minutes for optimization opportunities
+  maxInstances: 1,
+  memory: "256MiB",
+  timeoutSeconds: 120,
+}, async (event) => {
+  console.log('🚀 FUNCTION TRIGGERED: continuousDriverOptimization - START');
+  
+  const db = getFirestore();
+  
+  try {
+    // Find all rides that are waiting for a driver or have been assigned but driver might not be optimal
+    const ridesQuery = db
+      .collection('rideRequests')
+      .where('status', 'in', ['waiting', 'driver_selected'])
+      .limit(50); // Process up to 50 rides at a time
+    
+    const ridesSnapshot = await ridesQuery.get();
+    
+    if (ridesSnapshot.empty) {
+      console.log('✅ No rides need driver optimization');
+      return;
+    }
+    
+    console.log(`🔍 Processing ${ridesSnapshot.size} rides for driver optimization`);
+    
+    let optimizedCount = 0;
+    let reassignedCount = 0;
+    
+    for (const rideDoc of ridesSnapshot.docs) {
+      try {
+        const rideData = rideDoc.data();
+        const rideId = rideDoc.id;
+        
+        // Skip rides without pickup coordinates
+        if (!rideData.pickupLat || !rideData.pickupLng) {
+          console.log(`⏭️ Skipping ride ${rideId} - no pickup coordinates`);
+          continue;
+        }
+        
+        // Find the best available driver for this ride
+        const bestDriver = await findBestAvailableDriver(rideData, null, db);
+        
+        if (!bestDriver) {
+          console.log(`❌ No suitable drivers found for ride ${rideId}`);
+          continue;
+        }
+        
+        // Check if current driver assignment is optimal
+        if (rideData.selectedDriverId && rideData.selectedDriverId === bestDriver.id) {
+          console.log(`✅ Ride ${rideId} already has optimal driver ${bestDriver.id}`);
+          optimizedCount++;
+          continue;
+        }
+        
+        // Check if we should reassign to a better driver
+        let shouldReassign = false;
+        
+        if (!rideData.selectedDriverId) {
+          // No driver assigned yet
+          shouldReassign = true;
+          console.log(`🆕 Ride ${rideId} has no driver assigned, assigning best driver ${bestDriver.id}`);
+        } else if (rideData.status === 'driver_selected') {
+          // Driver was selected but might not be optimal
+          const currentDriverScore = rideData.driverScore || 0;
+          const currentDriverDistance = rideData.driverDistance || 999;
+          
+          // Reassign if new driver is significantly better (20% better score or 2km closer)
+          if (bestDriver.score > currentDriverScore * 1.2 || 
+              bestDriver.distance < currentDriverDistance - 2) {
+            shouldReassign = true;
+            console.log(`🔄 Ride ${rideId} can be optimized: Current (Score: ${currentDriverScore}, Distance: ${currentDriverDistance}km) vs New (Score: ${bestDriver.score}, Distance: ${bestDriver.distance.toFixed(2)}km)`);
+          }
+        }
+        
+        if (shouldReassign) {
+          try {
+            // Reassign to better driver
+            await reassignRideToBetterDriver(rideId, rideData, bestDriver, db);
+            reassignedCount++;
+            console.log(`✅ Ride ${rideId} reassigned to better driver ${bestDriver.id}`);
+          } catch (reassignError) {
+            console.error(`❌ Error reassigning ride ${rideId}:`, reassignError);
+          }
+        }
+        
+      } catch (rideError) {
+        console.error(`❌ Error processing ride ${rideDoc.id}:`, rideError);
+      }
+    }
+    
+    console.log(`🎯 Driver optimization completed: ${optimizedCount} rides already optimal, ${reassignedCount} rides reassigned`);
+    
+    // Update optimization metrics
+    await db.collection('SystemMetrics').doc('driverOptimization').set({
+      lastOptimizationRun: new Date(),
+      ridesProcessed: ridesSnapshot.size,
+      ridesOptimized: optimizedCount,
+      ridesReassigned: reassignedCount,
+      totalRuns: increment(1)
+    }, { merge: true });
+    
+  } catch (error) {
+    console.error('❌ Error in continuousDriverOptimization:', error);
+  }
+});
+
+// Helper function to reassign ride to a better driver
+async function reassignRideToBetterDriver(rideId, rideData, newDriver, db) {
+  try {
+    const now = new Date();
+    const countdownExpiryTime = new Date(now.getTime() + 15000); // 15 seconds
+    
+    // Update ride request with new driver
+    await db.collection("rideRequests").doc(rideId).update({
+      selectedDriverId: newDriver.id,
+      driverSelectedAt: now,
+      countdownExpiryTime: countdownExpiryTime,
+      driverScore: newDriver.score,
+      driverDistance: newDriver.distance,
+      lastOptimizationAt: now,
+      optimizationReason: 'better_driver_found'
+    });
+    
+    // Update SelectedDriver collection
+    await db.collection("SelectedDriver").doc(rideId).set({
+      rideId: rideId,
+      selectedDriverId: newDriver.id,
+      status: 'selected',
+      timestamp: now,
+      countdownStartedAt: now,
+      countdownExpiryTime: countdownExpiryTime,
+      countdownSeconds: 15,
+      isCountdownActive: true,
+      driverScore: newDriver.score,
+      driverDistance: newDriver.distance,
+      optimizationReason: 'better_driver_found'
+    }, { merge: true });
+    
+    // Send notification to new driver
+    if (newDriver.expoPushToken) {
+      try {
+        const notificationData = {
+          type: "ride_reassigned",
+          rideId: rideId,
+          driverId: newDriver.id,
+          fare: (rideData.fare && rideData.fare.toString()) || "0",
+          pickupAddress: rideData.pickupAddress || "",
+          destinationAddress: rideData.destinationAddress || "",
+          rideType: rideData.rideType,
+          countdownSeconds: 15,
+          priority: "high",
+          sound: "default",
+          badge: 1,
+          driverScore: newDriver.score,
+          driverDistance: newDriver.distance
+        };
+        
+        await sendEnhancedPushNotification(
+          newDriver.expoPushToken,
+          "🎯 Course réassignée!",
+          `Une course vous a été réassignée! Départ: ${rideData.pickupAddress || 'Adresse de départ'} (15s pour répondre)`,
+          notificationData,
+          newDriver.id
+        );
+        
+        console.log(`📱 Notification sent to newly assigned driver ${newDriver.id}`);
+      } catch (notificationError) {
+        console.error(`❌ Error sending notification to new driver ${newDriver.id}:`, notificationError);
+      }
+    }
+    
+    // Set up countdown timer for new driver
+    setTimeout(async () => {
+      try {
+        const currentRideDoc = await db.collection("rideRequests").doc(rideId).get();
+        if (!currentRideDoc.exists) return;
+        
+        const currentRideData = currentRideDoc.data();
+        
+        if (currentRideData.status === 'driver_selected') {
+          console.log(`⏰ Driver ${newDriver.id} didn't accept ride ${rideId} within 15s, finding next best driver...`);
+          
+          const nextBestDriver = await findBestAvailableDriver(currentRideData, newDriver.id, db);
+          
+          if (nextBestDriver) {
+            await reassignRideToBetterDriver(rideId, currentRideData, nextBestDriver, db);
+            console.log(`🔄 Ride ${rideId} reassigned to next best driver ${nextBestDriver.id}`);
+          } else {
+            await markRideAsNoDriversAvailable(rideId, currentRideData, db);
+            console.log(`❌ No other drivers available for ride ${rideId}`);
+          }
+        }
+      } catch (error) {
+        console.error(`❌ Error in optimization countdown timer for ride ${rideId}:`, error);
+      }
+    }, 15000);
+    
+  } catch (error) {
+    console.error(`❌ Error reassigning ride ${rideId} to better driver:`, error);
+    throw error;
+  }
+}
+
+// Utility function to calculate distance between two coordinates (Haversine formula)
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+// Enhanced driver scoring algorithm
+function calculateDriverScore(driver, pickupLat, pickupLng, rideType) {
+  let score = 0;
+  
+  // Distance score (closer = higher score) - 60% weight
+  if (driver.latitude && driver.longitude) {
+    const distance = calculateDistance(pickupLat, pickupLng, driver.latitude, driver.longitude);
+    const distanceScore = Math.max(0, 100 - (distance * 10)); // 100 points for 0km, 0 points for 10km+
+    score += distanceScore * 0.6;
+  }
+  
+  // Rating score - 20% weight
+  if (driver.rating) {
+    const ratingScore = (driver.rating / 5) * 100; // Convert 5-star rating to 100 points
+    score += ratingScore * 0.2;
+  }
+  
+  // Activity score (more recent = higher score) - 15% weight
+  if (driver.lastOnlineUpdate) {
+    const timeDiff = Date.now() - driver.lastOnlineUpdate.toDate();
+    const hoursSinceOnline = timeDiff / (1000 * 60 * 60);
+    const activityScore = Math.max(0, 100 - (hoursSinceOnline * 10)); // 100 points for 0 hours, 0 points for 10+ hours
+    score += activityScore * 0.15;
+  }
+  
+  // Fairness score (lower ride count = higher score) - 5% weight
+  if (driver.totalRides) {
+    const fairnessScore = Math.max(0, 100 - (driver.totalRides * 2)); // 100 points for 0 rides, 0 points for 50+ rides
+    score += fairnessScore * 0.05;
+  }
+  
+  return Math.round(score * 100) / 100; // Round to 2 decimal places
+}
+
+// Enhanced function to find the best available driver
+async function findBestAvailableDriver(rideData, excludedDriverId = null, db) {
+  try {
+    const { rideType, pickupLat, pickupLng } = rideData;
+    
+    if (!pickupLat || !pickupLng) {
+      console.log('❌ No pickup coordinates provided for distance calculation');
+      return null;
+    }
+    
+    console.log(`🔍 Finding best driver for ride type: ${rideType}`);
+    console.log(`📍 Pickup coordinates: ${pickupLat}, ${pickupLng}`);
+    
+    // Get all online drivers of the specified type from OnlineDriver collection
+    const onlineDriverDoc = await db.collection('OnlineDriver').doc('summary').get();
+    
+    if (!onlineDriverDoc.exists) {
+      console.log('❌ No OnlineDriver summary document found');
+      return null;
+    }
+    
+    const onlineDriverData = onlineDriverDoc.data();
+    if (!onlineDriverData.drivers || onlineDriverData.drivers.length === 0) {
+      console.log('❌ No online drivers found in summary document');
+      return null;
+    }
+    
+    // Filter drivers by type and availability
+    const eligibleDrivers = onlineDriverData.drivers.filter(driver => 
+      driver.driverType === rideType && 
+      driver.isAvailable !== false && 
+      !driver.rideInProgress &&
+      driver.latitude && 
+      driver.longitude
+    );
+    
+    if (eligibleDrivers.length === 0) {
+      console.log(`❌ No eligible drivers found for ride type: ${rideType}`);
+      return null;
+    }
+    
+    console.log(`🔍 Found ${eligibleDrivers.length} eligible drivers`);
+    
+    // Calculate scores for each driver
+    const driversWithScores = eligibleDrivers.map(driver => {
+      const driverScore = calculateDriverScore(driver, pickupLat, pickupLng, rideType);
+      const distance = calculateDistance(pickupLat, pickupLng, driver.latitude, driver.longitude);
+      
+      return {
+        id: driver.id,
+        firstName: driver.firstName || "Driver",
+        lastName: driver.lastName || "",
+        phoneNumber: driver.phoneNumber || "",
+        photo: driver.photo || "",
+        rating: driver.rating || 0,
+        totalRides: driver.totalRides || 0,
+        latitude: driver.latitude,
+        longitude: driver.longitude,
+        expoPushToken: driver.expoPushToken,
+        lastOnlineUpdate: driver.lastOnlineUpdate,
+          score: driverScore,
+        distance: distance
+      };
+    });
+    
+    // Sort by score (highest first), then by distance (closest first) as tiebreaker
+    driversWithScores.sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      return a.distance - b.distance;
+    });
+    
+    // Log top 3 drivers for debugging
+    console.log('🏆 Top 3 drivers by score:');
+    driversWithScores.slice(0, 3).forEach((driver, index) => {
+      console.log(`${index + 1}. ${driver.firstName} (${driver.id}) - Score: ${driver.score}, Distance: ${driver.distance.toFixed(2)}km`);
+    });
+    
+    const bestDriver = driversWithScores[0];
+    console.log(`✅ Best driver selected: ${bestDriver.firstName} (${bestDriver.id})`);
+    console.log(`📊 Final score: ${bestDriver.score}, Distance: ${bestDriver.distance.toFixed(2)}km`);
+    
+    return bestDriver;
+    
+  } catch (error) {
+    console.error('❌ Error finding best available driver:', error);
+    return null;
+  }
+}
 
 // Function that triggers when a NEW ride request is created
 exports.selectBestDriverForNewRideRequest = onDocumentCreated({
@@ -1301,52 +1446,48 @@ exports.selectBestDriverForNewRideRequest = onDocumentCreated({
     
     console.log('🔍 Looking for available drivers...');
     
-    // Efficient driver selection with proper index
-    const driversQuery = db
-      .collection('Drivers')
-      .where('isOnline', '==', true)
-      .where('driverType', '==', rideData.rideType)
-      .where('isAvailable', '!=', false)
-      .where('rideInProgress', '==', false)
-      .limit(1);
+    // Use enhanced driver selection algorithm
+    console.log('🔍 Using enhanced driver selection algorithm...');
     
-    console.log('🔍 Drivers query created, executing...');
+    const bestDriver = await findBestAvailableDriver(rideData, null, db);
     
-    const driversSnapshot = await driversQuery.get();
-    
-    console.log(`🔍 Found ${driversSnapshot.size} drivers in snapshot`);
-    
-    if (driversSnapshot.empty) {
-      console.log(`❌ No drivers found for type: ${rideData.rideType}`);
+    if (!bestDriver) {
+      console.log(`❌ No suitable drivers found for ride type: ${rideData.rideType}`);
       console.log('🔍 Available driver types in system:');
       
-      // Let's check what driver types exist
+      // Let's check what driver types exist in OnlineDriver collection
       try {
-        const allDriversSnapshot = await db.collection('Drivers').get();
+        const onlineDriverDoc = await db.collection('OnlineDriver').doc('summary').get();
+        if (onlineDriverDoc.exists) {
+          const onlineDriverData = onlineDriverDoc.data();
+          if (onlineDriverData.drivers && onlineDriverData.drivers.length > 0) {
         const driverTypes = new Set();
-        allDriversSnapshot.forEach(doc => {
-          const data = doc.data();
-          if (data.driverType) {
-            driverTypes.add(data.driverType);
+            onlineDriverData.drivers.forEach(driver => {
+              if (driver.driverType) {
+                driverTypes.add(driver.driverType);
+              }
+            });
+            console.log('🔍 Available driver types in OnlineDriver:', Array.from(driverTypes));
+            console.log(`🔍 Total online drivers: ${onlineDriverData.drivers.length}`);
+          } else {
+            console.log('🔍 No drivers in OnlineDriver summary');
           }
-        });
-        console.log('🔍 Available driver types:', Array.from(driverTypes));
+        } else {
+          console.log('🔍 No OnlineDriver summary document found');
+        }
       } catch (error) {
-        console.log('❌ Could not check available driver types:', error);
+        console.log('❌ Could not check OnlineDriver collection:', error);
       }
       return;
     }
     
-    const driverDoc = driversSnapshot.docs[0];
-    const driverData = driverDoc.data();
-    
-    console.log(`✅ Driver selected: ${driverDoc.id} (${driverData.firstName || 'Unknown'})`);
-    console.log(`📱 Driver push token: ${driverData.expoPushToken ? 'Present' : 'MISSING'}`);
     console.log(`🔍 Driver data:`, {
-      isOnline: driverData.isOnline,
-      driverType: driverData.driverType,
-      isAvailable: driverData.isAvailable,
-      rideInProgress: driverData.rideInProgress
+      id: bestDriver.id,
+      firstName: bestDriver.firstName,
+      score: bestDriver.score,
+      distance: bestDriver.distance,
+      rating: bestDriver.rating,
+      totalRides: bestDriver.totalRides
     });
     
     // Calculate countdown times
@@ -1358,13 +1499,15 @@ exports.selectBestDriverForNewRideRequest = onDocumentCreated({
     // Store selection data with countdown
     await db.collection("SelectedDriver").doc(rideId).set({
       rideId: rideId,
-      selectedDriverId: driverDoc.id,
+      selectedDriverId: bestDriver.id,
       status: 'selected',
       timestamp: now,
       countdownStartedAt: now,
       countdownExpiryTime: countdownExpiryTime,
       countdownSeconds: 15,
-      isCountdownActive: true
+      isCountdownActive: true,
+      driverScore: bestDriver.score,
+      driverDistance: bestDriver.distance
     });
     
     console.log('✅ SelectedDriver document created successfully');
@@ -1373,53 +1516,26 @@ exports.selectBestDriverForNewRideRequest = onDocumentCreated({
     
     // Update ride request
     await db.collection("rideRequests").doc(rideId).update({
-      selectedDriverId: driverDoc.id,
+      selectedDriverId: bestDriver.id,
       status: 'driver_selected',
       driverSelectedAt: now,
-      countdownExpiryTime: countdownExpiryTime
+      countdownExpiryTime: countdownExpiryTime,
+      driverScore: bestDriver.score,
+      driverDistance: bestDriver.distance
     });
     
     console.log('✅ Ride request updated successfully');
     
-    console.log(`🎯 Ride ${rideId} assigned to driver ${driverDoc.id} with 15s countdown`);
+    console.log(`🎯 Ride ${rideId} assigned to driver ${bestDriver.id} with 15s countdown`);
     
-    // Send push notification to the selected driver
-    try {
-      if (driverData.expoPushToken) {
-        console.log(`📱 Sending push notification to driver ${driverDoc.id}...`);
+    // Send WhatsApp message immediately after driver selection
+    if (bestDriver.phoneNumber) {
+      try {
+        console.log(`📱 Sending WhatsApp message to driver ${bestDriver.id}...`);
         
-        const notificationData = {
-          type: "new_ride_offer",
-          rideId: rideId,
-          driverId: driverDoc.id,
-          fare: (rideData.fare && rideData.fare.toString()) || "0",
-          pickupAddress: rideData.pickupAddress || "",
-          destinationAddress: rideData.destinationAddress || "",
-          rideType: rideData.rideType,
-          countdownSeconds: 15,
-          priority: "high",
-          sound: "default",
-          badge: 1
-        };
-        
-        // Send push notification with enhanced data
-        const notificationResult = await sendEnhancedPushNotification(
-          driverData.expoPushToken,
-          "🎯 Course assignée!",
-          `Nouvelle course disponible! Départ: ${rideData.pickupAddress || 'Adresse de départ'} (15s pour répondre)`,
-          notificationData,
-          driverDoc.id
-        );
-        
-        if (notificationResult.success) {
-          console.log(`✅ Push notification sent successfully to driver ${driverDoc.id} via ${notificationResult.method}`);
-          
-          // Also send WhatsApp message if phone number exists
-          if (driverData.phoneNumber) {
-            try {
-              const whatsappMessage = `🚗 *Nouvelle course disponible!*
+        const whatsappMessage = `🚗 *Nouvelle course disponible!*
 
-Bonjour ${driverData.firstName || "Chauffeur"},
+Bonjour ${bestDriver.firstName || "Chauffeur"},
 
 Une nouvelle course vous attend dans l'application Caval Courrier!
 
@@ -1431,44 +1547,79 @@ Une nouvelle course vous attend dans l'application Caval Courrier!
 *Ouvrez l'application maintenant pour accepter la course!*
 
 Caval Team`;
-              
-              await sendWhatsAppMessage(driverData.phoneNumber, whatsappMessage);
-              console.log(`📱 WhatsApp message sent to driver ${driverDoc.id}`);
-            } catch (whatsappError) {
-              console.error(`❌ Error sending WhatsApp message to driver ${driverDoc.id}:`, whatsappError);
-              // Don't fail the process if WhatsApp fails
-            }
-          }
+        
+        await sendWhatsAppMessage(bestDriver.phoneNumber, whatsappMessage);
+        console.log(`✅ WhatsApp message sent successfully to driver ${bestDriver.id}`);
+      } catch (whatsappError) {
+        console.error(`❌ Error sending WhatsApp message to driver ${bestDriver.id}:`, whatsappError);
+        // Don't fail the process if WhatsApp fails
+      }
+    } else {
+      console.log(`⚠️ Driver ${bestDriver.id} has no phone number for WhatsApp message`);
+    }
+    
+    // Send push notification to the selected driver
+    try {
+      if (bestDriver.expoPushToken) {
+        console.log(`📱 Sending push notification to driver ${bestDriver.id}...`);
+        
+        const notificationData = {
+          type: "new_ride_offer",
+          rideId: rideId,
+          driverId: bestDriver.id,
+          fare: (rideData.fare && rideData.fare.toString()) || "0",
+          pickupAddress: rideData.pickupAddress || "",
+          destinationAddress: rideData.destinationAddress || "",
+          rideType: rideData.rideType,
+          countdownSeconds: 15,
+          priority: "high",
+          sound: "default",
+          badge: 1,
+          driverScore: bestDriver.score,
+          driverDistance: bestDriver.distance
+        };
+        
+        // Send push notification with enhanced data
+        const notificationResult = await sendEnhancedPushNotification(
+          bestDriver.expoPushToken,
+          "🎯 Course assignée!",
+          `Nouvelle course disponible! Départ: ${rideData.pickupAddress || 'Adresse de départ'} (15s pour répondre)`,
+          notificationData,
+          bestDriver.id
+        );
+        
+        if (notificationResult.success) {
+          console.log(`✅ Push notification sent successfully to driver ${bestDriver.id} via ${notificationResult.method}`);
         } else {
-          console.error(`❌ Push notification failed for driver ${driverDoc.id}:`, notificationResult.error);
+          console.error(`❌ Push notification failed for driver ${bestDriver.id}:`, notificationResult.error);
           
           // Try to send a simple notification as fallback
           try {
             const simpleNotification = await sendExpoPushNotification(
-              driverData.expoPushToken,
+              bestDriver.expoPushToken,
               "🎯 Course assignée!",
               "Nouvelle course disponible! Ouvrez l'app maintenant.",
               { type: "ride_offer", rideId: rideId }
             );
-            console.log(`🔄 Fallback notification sent to driver ${driverDoc.id}`);
+            console.log(`🔄 Fallback notification sent successfully to driver ${bestDriver.id}`);
           } catch (fallbackError) {
-            console.error(`❌ Fallback notification also failed for driver ${driverDoc.id}:`, fallbackError);
+            console.error(`❌ Fallback notification also failed for driver ${bestDriver.id}:`, fallbackError);
           }
         }
       } else {
-        console.log(`⚠️ Driver ${driverDoc.id} has no Expo push token - they won't receive notifications`);
+        console.log(`⚠️ Driver ${bestDriver.id} has no Expo push token - they won't receive notifications`);
         
         // Try to get the token from a different field
-        const alternativeToken = driverData.pushToken || driverData.fcmToken || driverData.token;
+        const alternativeToken = bestDriver.pushToken || bestDriver.fcmToken || bestDriver.token;
         if (alternativeToken) {
-          console.log(`🔄 Found alternative token for driver ${driverDoc.id}, attempting notification...`);
+          console.log(`🔄 Found alternative token for driver ${bestDriver.id}, attempting notification...`);
           try {
             await sendEnhancedPushNotification(
               alternativeToken,
               "🎯 Course assignée!",
               "Nouvelle course disponible! Ouvrez l'app maintenant.",
               { type: "ride_offer", rideId: rideId },
-              driverDoc.id
+              bestDriver.id
             );
           } catch (altError) {
             console.error(`❌ Alternative token notification failed:`, altError);
@@ -1476,7 +1627,7 @@ Caval Team`;
         }
       }
     } catch (notificationError) {
-      console.error(`❌ Critical error sending notification to driver ${driverDoc.id}:`, notificationError);
+      console.error(`❌ Critical error sending notification to driver ${bestDriver.id}:`, notificationError);
       // Continue with the process even if notification fails
     }
     
@@ -1498,15 +1649,15 @@ Caval Team`;
         
         // If status is still 'driver_selected', driver didn't accept - reassign
         if (currentRideData.status === 'driver_selected') {
-          console.log(`⏰ Driver ${driverDoc.id} didn't accept ride ${rideId} within 15s, reassigning...`);
+          console.log(`⏰ Driver ${bestDriver.id} didn't accept ride ${rideId} within 15s, reassigning...`);
           
-          // Find next available driver
-          const nextDriver = await findNextAvailableDriver(currentRideData, driverDoc.id, db);
+          // Find next available driver using enhanced algorithm
+          const nextDriver = await findBestAvailableDriver(currentRideData, bestDriver.id, db);
           
           if (nextDriver) {
             // Reassign to next driver
             await reassignRideToNextDriver(rideId, nextDriver, currentRideData, db);
-            console.log(`🔄 Ride ${rideId} reassigned to next driver ${nextDriver.id}`);
+            console.log(`🔄 Ride ${rideId} reassigned to next driver ${nextDriver.id} (Score: ${nextDriver.score}, Distance: ${nextDriver.distance.toFixed(2)}km)`);
           } else {
             // No other drivers available
             await markRideAsNoDriversAvailable(rideId, currentRideData, db);
@@ -1529,219 +1680,9 @@ Caval Team`;
   }
 });
 
-// Function that triggers when a ride request is UPDATED (for status changes)
-exports.selectBestDriverForRide = onDocumentUpdated({
-  document: "rideRequests/{rideId}",
-  maxInstances: 1,
-  memory: "128MiB",
-  timeoutSeconds: 30,
-}, async (event) => {
-  const db = getFirestore();
-  
-  try {
-    const beforeData = event.data && event.data.before ? event.data.before.data() : null;
-    const afterData = event.data && event.data.after ? event.data.after.data() : null;
-    
-    // Only process when status changes to 'waiting' (new ride request)
-    if ((!beforeData || beforeData.status !== 'waiting') && 
-        afterData && afterData.status === 'waiting') {
-      
-      const rideId = event.params.rideId;
-      console.log(`🚨 RIDE STATUS UPDATED TO WAITING: Processing ride ${rideId} for type: ${afterData.rideType}`);
-      
-      // Simple driver selection - just get the first available driver
-      const driversQuery = db
-        .collection('Drivers')
-        .where('isOnline', '==', true)
-        .where('driverType', '==', afterData.rideType)
-        .where('isAvailable', '!=', false)
-        .where('rideInProgress', '==', false)
-        .limit(1);
-      
-      const driversSnapshot = await driversQuery.get();
-      
-      if (driversSnapshot.empty) {
-        console.log(`❌ No drivers found for type: ${afterData.rideType}`);
-        return;
-      }
-      
-      const driverDoc = driversSnapshot.docs[0];
-      const driverData = driverDoc.data();
-      
-      console.log(`✅ Driver selected: ${driverDoc.id} (${driverData.firstName || 'Unknown'})`);
-      console.log(`📱 Driver push token: ${driverData.expoPushToken ? 'Present' : 'MISSING'}`);
-      
-      // Calculate countdown times
-      const now = new Date();
-      const countdownExpiryTime = new Date(now.getTime() + 15000); // 15 seconds from now
-      
-      // Store selection data with countdown
-      await db.collection("SelectedDriver").doc(rideId).set({
-        rideId: rideId,
-        selectedDriverId: driverDoc.id,
-        status: 'selected',
-        timestamp: now,
-        countdownStartedAt: now,
-        countdownExpiryTime: countdownExpiryTime,
-        countdownSeconds: 15,
-        isCountdownActive: true
-      });
-      
-      // Update ride request
-      await db.collection("rideRequests").doc(rideId).update({
-        selectedDriverId: driverDoc.id,
-        status: 'driver_selected',
-        driverSelectedAt: now,
-        countdownExpiryTime: countdownExpiryTime
-      });
-      
-      console.log(`🎯 Ride ${rideId} assigned to driver ${driverDoc.id} with 15s countdown`);
-      
-      // Send push notification to the selected driver
-      try {
-        if (driverData.expoPushToken) {
-          console.log(`📱 Sending push notification to driver ${driverDoc.id}...`);
-          
-          const notificationData = {
-            type: "new_ride_offer",
-            rideId: rideId,
-            driverId: driverDoc.id,
-            fare: (afterData.fare && afterData.fare.toString()) || "0",
-            pickupAddress: afterData.pickupAddress || "",
-            destinationAddress: afterData.destinationAddress || "",
-            rideType: afterData.rideType,
-            countdownSeconds: 15,
-            priority: "high",
-            sound: "default",
-            badge: 1
-          };
-          
-          // Send push notification with enhanced data
-          const notificationResult = await sendEnhancedPushNotification(
-            driverData.expoPushToken,
-            "🎯 Course assignée!",
-            `Nouvelle course disponible! Départ: ${afterData.pickupAddress || 'Adresse de départ'} (15s pour répondre)`,
-            notificationData,
-            driverDoc.id
-          );
-          
-          if (notificationResult.success) {
-            console.log(`✅ Push notification sent successfully to driver ${driverDoc.id} via ${notificationResult.method}`);
-            
-            // Also send WhatsApp message if phone number exists
-            if (driverData.phoneNumber) {
-              try {
-                const whatsappMessage = `🚗 *Nouvelle course disponible!*
 
-Bonjour ${driverData.firstName || "Chauffeur"},
 
-Une nouvelle course vous attend dans l'application Caval Courrier!
 
-📍 *Départ:* ${afterData.pickupAddress || "Adresse de départ"}
-🎯 *Destination:* ${afterData.destinationAddress || "Adresse de destination"}
-💰 *Prix:* Fdj${afterData.fare || "0"}
-⏰ *Temps de réponse:* 15 secondes
-
-*Ouvrez l'application maintenant pour accepter la course!*
-
-Caval Team`;
-                
-                await sendWhatsAppMessage(driverData.phoneNumber, whatsappMessage);
-                console.log(`📱 WhatsApp message sent to driver ${driverDoc.id}`);
-              } catch (whatsappError) {
-                console.error(`❌ Error sending WhatsApp message to driver ${driverDoc.id}:`, whatsappError);
-                // Don't fail the process if WhatsApp fails
-              }
-            }
-          } else {
-            console.error(`❌ Push notification failed for driver ${driverDoc.id}:`, notificationResult.error);
-            
-            // Try to send a simple notification as fallback
-            try {
-              const simpleNotification = await sendExpoPushNotification(
-                driverData.expoPushToken,
-                "🎯 Course assignée!",
-                "Nouvelle course disponible! Ouvrez l'app maintenant.",
-                { type: "ride_offer", rideId: rideId }
-              );
-              console.log(`🔄 Fallback notification sent to driver ${driverDoc.id}`);
-            } catch (fallbackError) {
-              console.error(`❌ Fallback notification also failed for driver ${driverDoc.id}:`, fallbackError);
-            }
-          }
-        } else {
-          console.log(`⚠️ Driver ${driverDoc.id} has no Expo push token - they won't receive notifications`);
-          
-          // Try to get the token from a different field
-          const alternativeToken = driverData.pushToken || driverData.fcmToken || driverData.token;
-          if (alternativeToken) {
-            console.log(`🔄 Found alternative token for driver ${driverDoc.id}, attempting notification...`);
-            try {
-              await sendEnhancedPushNotification(
-                alternativeToken,
-                "🎯 Course assignée!",
-                "Nouvelle course disponible! Ouvrez l'app maintenant.",
-                { type: "ride_offer", rideId: rideId },
-                driverDoc.id
-              );
-            } catch (altError) {
-              console.error(`❌ Alternative token notification failed:`, altError);
-            }
-          }
-        }
-      } catch (notificationError) {
-        console.error(`❌ Critical error sending notification to driver ${driverDoc.id}:`, notificationError);
-        // Continue with the process even if notification fails
-      }
-      
-      // Start countdown timer for auto-reassignment
-      setTimeout(async () => {
-        try {
-          console.log(`⏰ Countdown expired for ride ${rideId}, checking if driver accepted...`);
-          
-          // Check if the ride status has changed from 'driver_selected' to 'assigned'
-          const rideDoc = await db.collection("rideRequests").doc(rideId).get();
-          if (!rideDoc.exists) {
-            console.log(`❌ Ride ${rideId} no longer exists, skipping countdown check`);
-            return;
-          }
-          
-          const currentRideData = rideDoc.data();
-          
-          // If status is still 'driver_selected', driver didn't accept - reassign
-          if (currentRideData.status === 'driver_selected') {
-            console.log(`⏰ Driver ${driverDoc.id} didn't accept ride ${rideId} within 15s, reassigning...`);
-            
-            // Find next available driver
-            const nextDriver = await findNextAvailableDriver(currentRideData, driverDoc.id, db);
-            
-            if (nextDriver) {
-              // Reassign to next driver
-              await reassignRideToNextDriver(rideId, nextDriver, currentRideData, db);
-              console.log(`🔄 Ride ${rideId} reassigned to next driver ${nextDriver.id}`);
-            } else {
-              // No other drivers available
-              await markRideAsNoDriversAvailable(rideId, currentRideData, db);
-              console.log(`❌ No other drivers available for ride ${rideId}`);
-            }
-          } else {
-            console.log(`✅ Ride ${rideId} status changed to ${currentRideData.status}, countdown no longer needed`);
-          }
-          
-        } catch (error) {
-          console.error(`❌ Error in countdown timer for ride ${rideId}:`, error);
-        }
-      }, 15000);
-      
-    } else {
-      // This is not a new ride request, skip processing
-      console.log(`⏭️ Skipping ride ${event.params.rideId} - status: ${afterData?.status || 'unknown'}`);
-    }
-    
-  } catch (error) {
-    console.error(`❌ Error in selectBestDriverForRide:`, error);
-  }
-});
 
 // ============================================================================
 // NEW: Ride Status Change Handler - Minimal Version
@@ -1811,38 +1752,27 @@ async function findNextAvailableDriver(rideData, excludedDriverId, db) {
   try {
     const { rideType } = rideData;
     
-    // Get all online drivers of the specified type, excluding the declined driver
-    const driversQuery = db
-      .collection('Drivers')
-      .where('isOnline', '==', true)
-      .where('driverType', '==', rideType)
-      .limit(5); // Limit to 5 to avoid quota issues
+    // Get all online drivers of the specified type from OnlineDriver collection, excluding the declined driver
+    const onlineDriverDoc = await db.collection('OnlineDriver').doc('summary').get();
     
-    const driversSnapshot = await driversQuery.get();
-    
-    if (driversSnapshot.empty) {
-      console.log(`No online drivers found for type: ${rideType}`);
+    if (!onlineDriverDoc.exists) {
+      console.log('No OnlineDriver summary document found');
       return null;
     }
     
-    const eligibleDrivers = [];
+    const onlineDriverData = onlineDriverDoc.data();
+    if (!onlineDriverData.drivers || onlineDriverData.drivers.length === 0) {
+      console.log('No online drivers found in summary document');
+      return null;
+    }
     
-    driversSnapshot.forEach(doc => {
-      const driverData = doc.data();
-      
-      // Exclude the declined driver
-      if (doc.id !== excludedDriverId) {
-        eligibleDrivers.push({
-          id: doc.id,
-          firstName: driverData.firstName || "Driver",
-          lastName: driverData.lastName || "",
-          phoneNumber: driverData.phoneNumber || "",
-          photo: driverData.photo || "",
-          rating: driverData.rating || 0,
-          rideCount: driverData.rideCount || 0
-        });
-      }
-    });
+    // Filter drivers by type and availability, excluding the declined driver
+    const eligibleDrivers = onlineDriverData.drivers.filter(driver => 
+      driver.driverType === rideType && 
+      driver.isAvailable !== false && 
+      !driver.rideInProgress &&
+      driver.id !== excludedDriverId
+    );
     
     if (eligibleDrivers.length === 0) {
       console.log('No other eligible drivers found');
@@ -1939,23 +1869,10 @@ async function reassignRideToNextDriver(rideId, nextDriver, rideData, db) {
         
         const currentRideData = rideDoc.data();
         
-        // If status is still 'driver_selected', driver didn't accept - try one more time
+        // If status is still 'driver_selected', driver didn't accept - mark as no drivers available
         if (currentRideData.status === 'driver_selected') {
-          const reassignmentAttempts = currentRideData.reassignmentAttempts || 1;
-          
-          if (reassignmentAttempts < 3) { // Max 3 attempts
-            console.log(`Driver ${nextDriver.id} didn't accept ride ${rideId}, trying one more reassignment...`);
-            
-            const finalDriver = await findNextAvailableDriver(currentRideData, nextDriver.id, db);
-            if (finalDriver) {
-              await reassignRideToNextDriver(rideId, finalDriver, currentRideData, db);
-            } else {
+          console.log(`Driver ${nextDriver.id} didn't accept ride ${rideId}, marking as no drivers available`);
               await markRideAsNoDriversAvailable(rideId, currentRideData, db);
-            }
-          } else {
-            console.log(`Max reassignment attempts reached for ride ${rideId}`);
-            await markRideAsNoDriversAvailable(rideId, currentRideData, db);
-          }
         }
         
       } catch (error) {

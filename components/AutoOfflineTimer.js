@@ -8,13 +8,28 @@ import { Ionicons } from '@expo/vector-icons';
 const AutoOfflineTimer = ({ isOnline, remainingTime, onExtendTime, onGoOffline }) => {
   const [showTimer, setShowTimer] = useState(false);
 
-  // Show timer when driver has less than 5 minutes remaining
+  // Show timer when driver has less than 5 minutes remaining (300 seconds)
   useEffect(() => {
-    setShowTimer(isOnline && remainingTime <= 5 && remainingTime > 0);
-  }, [isOnline, remainingTime]);
+    const shouldShow = isOnline && remainingTime <= 5 && remainingTime > 0;
+    
+    if (shouldShow && !showTimer) {
+      console.log(`⏰ AutoOfflineTimer: TIMER VISIBLE - ${remainingTime} minutes remaining before auto-offline`);
+      setShowTimer(true);
+    } else if (!shouldShow && showTimer) {
+      console.log('⏰ AutoOfflineTimer: Timer hidden (driver offline or time extended)');
+      setShowTimer(false);
+    }
+    
+    // Log timer state changes
+    if (shouldShow) {
+      console.log(`⏰ AutoOfflineTimer: Countdown active - ${remainingTime} minutes remaining`);
+    }
+  }, [isOnline, remainingTime, showTimer]);
 
   // Handle extending time
   const handleExtendTime = () => {
+    console.log('⏰ AutoOfflineTimer: User chose to EXTEND time for another 20 minutes');
+    
     Alert.alert(
       "⏰ Extend Online Time",
       "Do you want to stay online for another 20 minutes?",
@@ -24,6 +39,7 @@ const AutoOfflineTimer = ({ isOnline, remainingTime, onExtendTime, onGoOffline }
           text: "Extend", 
           style: "default",
           onPress: () => {
+            console.log('⏰ AutoOfflineTimer: EXTEND confirmed - resetting timer for another 20 minutes (1200 seconds)');
             if (onExtendTime) {
               onExtendTime();
             }
@@ -35,6 +51,8 @@ const AutoOfflineTimer = ({ isOnline, remainingTime, onExtendTime, onGoOffline }
 
   // Handle going offline now
   const handleGoOffline = () => {
+    console.log('⏰ AutoOfflineTimer: User chose to go OFFLINE immediately');
+    
     Alert.alert(
       "🔄 Go Offline Now",
       "Are you sure you want to go offline now?",
@@ -44,6 +62,7 @@ const AutoOfflineTimer = ({ isOnline, remainingTime, onExtendTime, onGoOffline }
           text: "Go Offline", 
           style: "destructive",
           onPress: () => {
+            console.log('⏰ AutoOfflineTimer: OFFLINE confirmed - setting driver offline now');
             if (onGoOffline) {
               onGoOffline();
             }
@@ -56,6 +75,8 @@ const AutoOfflineTimer = ({ isOnline, remainingTime, onExtendTime, onGoOffline }
   if (!showTimer) {
     return null;
   }
+
+  console.log(`⏰ AutoOfflineTimer: Rendering timer with ${remainingTime} minutes remaining`);
 
   return (
     <View style={styles.container}>

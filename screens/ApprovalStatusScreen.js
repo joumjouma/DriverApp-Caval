@@ -92,7 +92,7 @@ function ApprovalStatusScreen() {
           title: 'Compte Approuvé!',
           message: 'Votre compte a été approuvé avec succès. Vous pouvez maintenant commencer à travailler.',
           color: '#4CAF50',
-          action: () => navigation.navigate('HomeScreenWithMap'),
+          action: () => navigation.navigate('MainApp'),
           actionText: 'Commencer à travailler',
         };
       case 'rejected':
