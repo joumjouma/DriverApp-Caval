@@ -202,7 +202,7 @@ function LoginScreen() {
             console.log("Driver document exists:", driverDoc.exists());
             
             if (!driverDoc.exists()) {
-              navigation.navigate("RegisterScreen");
+              navigation.navigate("Register");
               setLoading(false);
               return;
             }
@@ -387,7 +387,7 @@ function LoginScreen() {
           <TouchableOpacity
             style={[styles.registerButton, { borderColor: colors.primary }]}
             activeOpacity={0.85}
-            onPress={() => navigation.navigate("RegisterScreen")}
+            onPress={() => navigation.navigate("Register")}
           >
             <View style={styles.registerButtonContent}>
               <Ionicons name="person-add-outline" size={20} color={colors.primary} style={{ marginRight: 8 }} />

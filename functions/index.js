@@ -1725,6 +1725,105 @@ exports.handleRideStatusChange = onDocumentUpdated({
       }
     }
     
+    // Handle driver arrival
+    if (newStatus === 'driver_arrived') {
+      console.log(`Driver arrived for ride ${rideId}, sending notifications to passenger`);
+      try {
+        // Get passenger information
+        const passengerId = afterData.passengerId || afterData.userId;
+        if (passengerId) {
+          // Send notifications to passenger using the dedicated function
+          const notificationResult = await sendPassengerNotification(passengerId, rideId, "driver_arrived", db);
+          
+          if (notificationResult.success) {
+            console.log(`✅ Passenger notifications sent successfully for ride ${rideId}`);
+          } else {
+            console.log(`⚠️ Some passenger notifications failed for ride ${rideId}:`, notificationResult.error);
+          }
+          
+          // Update SelectedDriver collection
+          await db.collection("SelectedDriver").doc(rideId).update({
+            status: "driver_arrived",
+            driverArrivedAt: new Date(),
+            passengerNotifiedAt: new Date(),
+            notificationStatus: notificationResult
+          });
+          console.log(`SelectedDriver collection updated to driver_arrived status for ride ${rideId}`);
+          
+        } else {
+          console.log(`⚠️ No passenger ID found in ride data for ride ${rideId}`);
+        }
+      } catch (error) {
+        console.error(`Error handling driver_arrived status for ride ${rideId}:`, error);
+      }
+    }
+    
+    // Handle ride started
+    if (newStatus === 'ride_started') {
+      console.log(`Ride ${rideId} started, sending notifications to passenger`);
+      try {
+        // Get passenger information
+        const passengerId = afterData.passengerId || afterData.userId;
+        if (passengerId) {
+          // Send notifications to passenger using the dedicated function
+          const notificationResult = await sendPassengerNotification(passengerId, rideId, "ride_started", db);
+          
+          if (notificationResult.success) {
+            console.log(`✅ Ride started notifications sent successfully for ride ${rideId}`);
+          } else {
+            console.log(`⚠️ Some ride started notifications failed for ride ${rideId}:`, notificationResult.error);
+          }
+          
+          // Update SelectedDriver collection
+          await db.collection("SelectedDriver").doc(rideId).update({
+            status: "ride_started",
+            rideStartedAt: new Date(),
+            passengerNotifiedAt: new Date(),
+            notificationStatus: notificationResult
+          });
+          console.log(`SelectedDriver collection updated to ride_started status for ride ${rideId}`);
+          
+        } else {
+          console.log(`⚠️ No passenger ID found in ride data for ride ${rideId}`);
+        }
+      } catch (error) {
+        console.error(`Error handling ride_started status for ride ${rideId}:`, error);
+      }
+    }
+    
+    // Handle passenger ready
+    if (newStatus === 'passenger_ready') {
+      console.log(`Passenger ready for ride ${rideId}, sending notifications to driver`);
+      try {
+        // Get driver information
+        const driverId = afterData.selectedDriverId || afterData.driverId;
+        if (driverId) {
+          // Send notifications to driver using the dedicated function
+          const notificationResult = await sendDriverNotification(driverId, rideId, "passenger_ready", db);
+          
+          if (notificationResult.success) {
+            console.log(`✅ Driver notifications sent successfully for ride ${rideId}`);
+          } else {
+            console.log(`⚠️ Some driver notifications failed for ride ${rideId}:`, notificationResult.error);
+          }
+          
+          // Update SelectedDriver collection
+          await db.collection("SelectedDriver").doc(rideId).update({
+            status: "passenger_ready",
+            passengerReadyAt: new Date(),
+            driverNotifiedAt: new Date(),
+            notificationStatus: notificationResult
+          });
+          console.log(`SelectedDriver collection updated to passenger_ready status for ride ${rideId}`);
+          
+        } else {
+          console.log(`⚠️ No driver ID found in ride data for ride ${rideId}`);
+        }
+      } catch (error) {
+        console.error(`Error handling passenger_ready status for ride ${rideId}:`, error);
+      }
+    }
+    
     // Handle ride completion
     if (newStatus === 'completed') {
       console.log(`Ride ${rideId} completed, updating SelectedDriver collection`);
@@ -1736,6 +1835,40 @@ exports.handleRideStatusChange = onDocumentUpdated({
         console.log(`SelectedDriver collection updated to completed status for ride ${rideId}`);
       } catch (error) {
         console.error(`Error updating SelectedDriver for completed ride ${rideId}:`, error);
+      }
+    }
+    
+    // Handle ride cancellation
+    if (newStatus === 'cancelled') {
+      console.log(`Ride ${rideId} cancelled, sending notifications to driver`);
+      try {
+        // Get driver information
+        const driverId = afterData.selectedDriverId || afterData.driverId;
+        if (driverId) {
+          // Send notifications to driver using the dedicated function
+          const notificationResult = await sendDriverNotification(driverId, rideId, "ride_cancelled", db);
+          
+          if (notificationResult.success) {
+            console.log(`✅ Driver cancellation notifications sent successfully for ride ${rideId}`);
+          } else {
+            console.log(`⚠️ Some driver cancellation notifications failed for ride ${rideId}:`, notificationResult.error);
+          }
+          
+          // Update SelectedDriver collection
+          await db.collection("SelectedDriver").doc(rideId).update({
+            status: "cancelled",
+            cancelledAt: new Date(),
+            driverNotifiedAt: new Date(),
+            cancellationReason: afterData.cancellationReason || "Cancelled by passenger",
+            notificationStatus: notificationResult
+          });
+          console.log(`SelectedDriver collection updated to cancelled status for ride ${rideId}`);
+          
+        } else {
+          console.log(`⚠️ No driver ID found in ride data for ride ${rideId}`);
+        }
+      } catch (error) {
+        console.error(`Error handling cancelled status for ride ${rideId}:`, error);
       }
     }
     
@@ -1968,3 +2101,294 @@ exports.ensureDriverAvailability = onDocumentUpdated({
     console.error('Error in ensureDriverAvailability:', error);
   }
 });
+
+// Function to send passenger notification (push + WhatsApp)
+const sendPassengerNotification = async (passengerId, rideId, notificationType, db) => {
+  try {
+    // Get passenger details from Users collection
+    const passengerDoc = await db.collection("Users").doc(passengerId).get();
+    if (!passengerDoc.exists) {
+      console.log(`⚠️ Passenger document not found for ID: ${passengerId}`);
+      return { success: false, error: 'Passenger not found' };
+    }
+    
+    const passengerData = passengerDoc.data();
+    const passengerPhone = passengerData.phoneNumber;
+    const passengerName = passengerData.firstName || passengerData.name || "Passager";
+    
+    // Get ride details
+    const rideDoc = await db.collection("rideRequests").doc(rideId).get();
+    if (!rideDoc.exists) {
+      console.log(`⚠️ Ride document not found for ID: ${rideId}`);
+      return { success: false, error: 'Ride not found' };
+    }
+    
+    const rideData = rideDoc.data();
+    
+    // Get driver information
+    const driverId = rideData.selectedDriverId || rideData.driverId;
+    let driverName = "Chauffeur";
+    if (driverId) {
+      const driverDoc = await db.collection("Drivers").doc(driverId).get();
+      if (driverDoc.exists) {
+        const driverData = driverDoc.data();
+        driverName = driverData.firstName || driverData.name || "Chauffeur";
+      }
+    }
+    
+    let notificationSent = false;
+    let whatsappSent = false;
+    
+    // Send push notification to passenger if they have a push token
+    if (passengerData.expoPushToken || passengerData.pushToken) {
+      const pushToken = passengerData.expoPushToken || passengerData.pushToken;
+      console.log(`📱 Sending push notification to passenger ${passengerId}...`);
+      
+      const notificationData = {
+        type: notificationType,
+        rideId: rideId,
+        driverId: driverId,
+        driverName: driverName,
+        pickupAddress: rideData.pickupAddress || "",
+        destinationAddress: rideData.destinationAddress || "",
+        priority: "high",
+        sound: "default",
+        badge: 1
+      };
+      
+      try {
+        await sendEnhancedPushNotification(
+          pushToken,
+          "🚗 Chauffeur arrivé!",
+          `Votre chauffeur ${driverName} est arrivé au point de départ.`,
+          notificationData,
+          passengerId
+        );
+        console.log(`✅ Push notification sent successfully to passenger ${passengerId}`);
+        notificationSent = true;
+      } catch (pushError) {
+        console.error(`❌ Error sending push notification to passenger ${passengerId}:`, pushError);
+      }
+    } else {
+      console.log(`⚠️ Passenger ${passengerId} has no push token`);
+    }
+    
+    // Send WhatsApp message to passenger
+    if (passengerPhone) {
+      console.log(`📱 Sending WhatsApp message to passenger ${passengerId} at ${passengerPhone}...`);
+      
+      let whatsappMessage = "";
+      
+      if (notificationType === "driver_arrived") {
+        whatsappMessage = `🚗 *Chauffeur arrivé!*
+
+Bonjour ${passengerName},
+
+Votre chauffeur ${driverName} est arrivé au point de départ!
+
+📍 *Point de départ:* ${rideData.pickupAddress || "Adresse de départ"}
+🎯 *Destination:* ${rideData.destinationAddress || "Adresse de destination"}
+💰 *Prix:* Fdj${rideData.fare || "0"}
+
+⏰ *Temps de trajet estimé:* ~${Math.round((rideData.distance || 5) / 30 * 60)} min
+
+*Veuillez vous diriger vers le point de départ pour commencer votre trajet.*
+
+Caval Team`;
+      } else if (notificationType === "ride_started") {
+        whatsappMessage = `🚗 *Trajet commencé!*
+
+Bonjour ${passengerName},
+
+Votre trajet avec ${driverName} a commencé!
+
+📍 *Point de départ:* ${rideData.pickupAddress || "Adresse de départ"}
+🎯 *Destination:* ${rideData.destinationAddress || "Adresse de destination"}
+💰 *Prix:* Fdj${rideData.fare || "0"}
+
+*Bon voyage! 🚗✨*
+
+Caval Team`;
+      }
+      
+      if (whatsappMessage) {
+        try {
+          await sendWhatsAppMessage(passengerPhone, whatsappMessage);
+          console.log(`✅ WhatsApp message sent successfully to passenger ${passengerId}`);
+          whatsappSent = true;
+        } catch (whatsappError) {
+          console.error(`❌ Error sending WhatsApp message to passenger ${passengerId}:`, whatsappError);
+        }
+      }
+    } else {
+      console.log(`⚠️ Passenger ${passengerId} has no phone number for WhatsApp message`);
+    }
+    
+    // Log notification status
+    const status = {
+      success: notificationSent || whatsappSent,
+      pushNotification: notificationSent,
+      whatsappMessage: whatsappSent,
+      passengerId: passengerId,
+      rideId: rideId,
+      notificationType: notificationType
+    };
+    
+    console.log(`📊 Passenger notification status:`, status);
+    return status;
+    
+  } catch (error) {
+    console.error(`❌ Error in sendPassengerNotification for passenger ${passengerId}:`, error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Function to send driver notification (push + WhatsApp)
+const sendDriverNotification = async (driverId, rideId, notificationType, db) => {
+  try {
+    // Get driver details from Drivers collection
+    const driverDoc = await db.collection("Drivers").doc(driverId).get();
+    if (!driverDoc.exists) {
+      console.log(`⚠️ Driver document not found for ID: ${driverId}`);
+      return { success: false, error: 'Driver not found' };
+    }
+    
+    const driverData = driverDoc.data();
+    const driverPhone = driverData.phoneNumber;
+    const driverName = driverData.firstName || driverData.name || "Chauffeur";
+    
+    // Get ride details
+    const rideDoc = await db.collection("rideRequests").doc(rideId).get();
+    if (!rideDoc.exists) {
+      console.log(`⚠️ Ride document not found for ID: ${rideId}`);
+      return { success: false, error: 'Ride not found' };
+    }
+    
+    const rideData = rideDoc.data();
+    
+    // Get passenger information
+    const passengerId = rideData.passengerId || rideData.userId;
+    let passengerName = "Passager";
+    if (passengerId) {
+      const passengerDoc = await db.collection("Users").doc(passengerId).get();
+      if (passengerDoc.exists) {
+        const passengerData = passengerDoc.data();
+        passengerName = passengerData.firstName || passengerData.name || "Passager";
+      }
+    }
+    
+    let notificationSent = false;
+    let whatsappSent = false;
+    
+    // Send push notification to driver if they have a push token
+    if (driverData.expoPushToken || driverData.pushToken) {
+      const pushToken = driverData.expoPushToken || driverData.pushToken;
+      console.log(`📱 Sending push notification to driver ${driverId}...`);
+      
+      let notificationTitle = "";
+      let notificationBody = "";
+      
+      if (notificationType === "passenger_ready") {
+        notificationTitle = "👤 Passager prêt!";
+        notificationBody = `Le passager ${passengerName} est prêt à partir.`;
+      } else if (notificationType === "ride_cancelled") {
+        notificationTitle = "❌ Course annulée";
+        notificationBody = `La course a été annulée par le passager.`;
+      }
+      
+      const notificationData = {
+        type: notificationType,
+        rideId: rideId,
+        driverId: driverId,
+        passengerId: passengerId,
+        passengerName: passengerName,
+        pickupAddress: rideData.pickupAddress || "",
+        destinationAddress: rideData.destinationAddress || "",
+        priority: "high",
+        sound: "default",
+        badge: 1
+      };
+      
+      try {
+        await sendEnhancedPushNotification(
+          pushToken,
+          notificationTitle,
+          notificationBody,
+          notificationData,
+          driverId
+        );
+        console.log(`✅ Push notification sent successfully to driver ${driverId}`);
+        notificationSent = true;
+      } catch (pushError) {
+        console.error(`❌ Error sending push notification to driver ${driverId}:`, pushError);
+      }
+    } else {
+      console.log(`⚠️ Driver ${driverId} has no push token`);
+    }
+    
+    // Send WhatsApp message to driver
+    if (driverPhone) {
+      console.log(`📱 Sending WhatsApp message to driver ${driverId} at ${driverPhone}...`);
+      
+      let whatsappMessage = "";
+      
+      if (notificationType === "passenger_ready") {
+        whatsappMessage = `👤 *Passager prêt!*
+
+Bonjour ${driverName},
+
+Le passager ${passengerName} est prêt à partir!
+
+📍 *Point de départ:* ${rideData.pickupAddress || "Adresse de départ"}
+🎯 *Destination:* ${rideData.destinationAddress || "Adresse de destination"}
+💰 *Prix:* Fdj${rideData.fare || "0"}
+
+*Vous pouvez maintenant commencer le trajet.*
+
+Caval Team`;
+      } else if (notificationType === "ride_cancelled") {
+        whatsappMessage = `❌ *Course annulée*
+
+Bonjour ${driverName},
+
+La course ${rideId} a été annulée par le passager.
+
+📍 *Point de départ:* ${rideData.pickupAddress || "Adresse de départ"}
+🎯 *Destination:* ${rideData.destinationAddress || "Adresse de destination"}
+
+*Vous pouvez maintenant accepter d'autres courses.*
+
+Caval Team`;
+      }
+      
+      if (whatsappMessage) {
+        try {
+          await sendWhatsAppMessage(driverPhone, whatsappMessage);
+          console.log(`✅ WhatsApp message sent successfully to driver ${driverId}`);
+          whatsappSent = true;
+        } catch (whatsappError) {
+          console.error(`❌ Error sending WhatsApp message to driver ${driverId}:`, whatsappError);
+        }
+      }
+    } else {
+      console.log(`⚠️ Driver ${driverId} has no phone number for WhatsApp message`);
+    }
+    
+    // Log notification status
+    const status = {
+      success: notificationSent || whatsappSent,
+      pushNotification: notificationSent,
+      whatsappMessage: whatsappSent,
+      driverId: driverId,
+      rideId: rideId,
+      notificationType: notificationType
+    };
+    
+    console.log(`📊 Driver notification status:`, status);
+    return status;
+    
+  } catch (error) {
+    console.error(`❌ Error in sendDriverNotification for driver ${driverId}:`, error);
+    return { success: false, error: error.message };
+  }
+};
