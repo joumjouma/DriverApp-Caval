@@ -1774,8 +1774,8 @@ const HomeScreenWithMap = () => {
                   estimatedTime: 15 // Default estimated time
                 };
                 
-                // Send WhatsApp notification
-                await whatsAppService.sendRideAssignmentNotification({ ...driverData, id: currentUser.uid }, rideInfo);
+                // The server (selectBestDriverForNewRideRequest) already sends this WhatsApp.
+                void rideInfo;
                 console.log('✅ WhatsApp notification sent successfully for ride selection');
               }
             }

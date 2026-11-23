@@ -25,6 +25,9 @@ const ULTRAMSG_TOKEN = defineSecret("ULTRAMSG_TOKEN");
 const ULTRAMSG_INSTANCE = "instance131940";
 const ULTRAMSG_BASE = `https://api.ultramsg.com/${ULTRAMSG_INSTANCE}`;
 
+// Drivers store phoneNumber; customers store number.
+const phoneOf = (data) => (data && (data.phoneNumber || data.number || data.phone)) || null;
+
 // Function to send Expo push notification with platform-specific configurations
 const sendExpoPushNotification = async (pushToken, title, body, data) => {
   const message = {
@@ -1824,7 +1827,7 @@ exports.handleRideStatusChange = onDocumentUpdated({
     }
     
     // Handle ride started
-    if (newStatus === 'ride_started') {
+    if (newStatus === 'ride_started' || newStatus === 'picked_up') {
       console.log(`Ride ${rideId} started, sending notifications to passenger`);
       try {
         // Get passenger information
@@ -2223,15 +2226,16 @@ exports.ensureDriverAvailability = onDocumentUpdated({
 // Function to send passenger notification (push + WhatsApp)
 const sendPassengerNotification = async (passengerId, rideId, notificationType, db) => {
   try {
-    // Get passenger details from Users collection
-    const passengerDoc = await db.collection("Users").doc(passengerId).get();
+    // Customers are stored in Customers (the customer app); Users is legacy.
+    let passengerDoc = await db.collection("Customers").doc(passengerId).get();
+    if (!passengerDoc.exists) passengerDoc = await db.collection("Users").doc(passengerId).get();
     if (!passengerDoc.exists) {
       console.log(`⚠️ Passenger document not found for ID: ${passengerId}`);
       return { success: false, error: 'Passenger not found' };
     }
     
     const passengerData = passengerDoc.data();
-    const passengerPhone = passengerData.phoneNumber;
+    const passengerPhone = phoneOf(passengerData);
     const passengerName = passengerData.firstName || passengerData.name || "Passager";
     
     // Get ride details
@@ -2388,7 +2392,8 @@ const sendDriverNotification = async (driverId, rideId, notificationType, db) =>
     const passengerId = rideData.passengerId || rideData.userId;
     let passengerName = "Passager";
     if (passengerId) {
-      const passengerDoc = await db.collection("Users").doc(passengerId).get();
+      let passengerDoc = await db.collection("Customers").doc(passengerId).get();
+      if (!passengerDoc.exists) passengerDoc = await db.collection("Users").doc(passengerId).get();
       if (passengerDoc.exists) {
         const passengerData = passengerDoc.data();
         passengerName = passengerData.firstName || passengerData.name || "Passager";
@@ -2549,7 +2554,6 @@ const driverRideMessage = (type, driverName, fare) => {
     "*Cette offre expire dans 15 secondes!*\n\nMerci de votre service!\nCaval Team";
 };
 
-const phoneOf = (data) => (data && (data.phoneNumber || data.number || data.phone)) || null;
 
 exports.sendWhatsAppNotification = onCall({
   secrets: [ULTRAMSG_TOKEN],
