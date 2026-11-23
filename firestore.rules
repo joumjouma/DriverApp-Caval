@@ -1,45 +1,186 @@
 rules_version = '2';
+
+// Caval Firestore rules — shared by the driver app (DriverApp-Caval),
+// the customer app (Caval-Customer-Clean) and Cloud Functions.
+// Cloud Functions use the Admin SDK and bypass these rules entirely.
+// Driver approval is done by an admin in the Firebase Console, which also
+// bypasses these rules (see ADMIN_APPROVAL_INSTRUCTIONS.md).
+//
+// Phase 1: lock down ownership and admin-only fields without changing app
+// behaviour. Ride assignment and earnings are still computed client-side by
+// the driver app, so drivers keep broad write access to rideRequests and
+// SelectedDriver. Moving those to Cloud Functions is phase 2.
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // DEVELOPMENT RULES - Very permissive for testing
-    // TODO: Make more restrictive for production
-    
-    // Allow all authenticated users to read/write all documents
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+
+    // ---------- helpers ----------
+    function signedIn() { return request.auth != null; }
+    function isSelf(id) { return signedIn() && request.auth.uid == id; }
+    function isDriver() {
+      return signedIn() && exists(/databases/$(database)/documents/Drivers/$(request.auth.uid));
     }
-    
-    // Specific rules for better security (commented out for development)
-    /*
-    // Allow authenticated users to read/write their own driver data
+    function isCustomer() {
+      return signedIn() && exists(/databases/$(database)/documents/Customers/$(request.auth.uid));
+    }
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+    function onlyChanges(keys) { return changedKeys().hasOnly(keys); }
+    function noChangesTo(keys) { return !changedKeys().hasAny(keys); }
+
+    // Fields only an admin (Console) or Cloud Functions may set on a driver.
+    function driverAdminFields() {
+      return ['isApproved', 'approvalStatus', 'approvalDate', 'approvedBy',
+              'documentsVerified',
+              'earnings', 'totalEarnings', 'weeklyEarnings', 'dailyEarnings',
+              'ratings', 'averageRating', 'totalRatings'];
+    }
+
+    // ---------- Drivers ----------
     match /Drivers/{driverId} {
-      allow read, write: if request.auth != null && request.auth.uid == driverId;
-      // Allow reading other drivers for ride matching
-      allow read: if request.auth != null;
+      // Customers need driver name/photo/car; drivers need each other for assignment.
+      allow read: if signedIn();
+
+      // A driver can only register themselves, and only as pending.
+      allow create: if isSelf(driverId)
+        && request.resource.data.get('isApproved', false) == false
+        && request.resource.data.get('approvalStatus', 'pending') == 'pending'
+        && request.resource.data.get('approvedBy', null) == null
+        && request.resource.data.get('documentsVerified', false) == false
+        && request.resource.data.get('earnings', 0) == 0
+        && request.resource.data.get('totalEarnings', 0) == 0
+        && request.resource.data.get('weeklyEarnings', 0) == 0
+        && request.resource.data.get('dailyEarnings', 0) == 0;
+
+      allow update: if
+        // Driver edits own profile/status/location, but never approval or money fields.
+        (isSelf(driverId) && noChangesTo(driverAdminFields()))
+        // Customer submits a rating (DriverFoundScreen) — rating fields only.
+        || (isCustomer() && !isSelf(driverId)
+            && onlyChanges(['ratings', 'averageRating', 'totalRatings']));
+
+      allow delete: if isSelf(driverId);   // account deletion (SettingsScreen)
     }
-    
-    // Allow authenticated users to read/write ride requests
+
+    // ---------- Customers ----------
+    match /Customers/{customerId} {
+      allow read, create, update, delete: if isSelf(customerId);
+    }
+
+    // ---------- Users (legacy profile docs) ----------
+    match /Users/{userId} {
+      allow read, write: if isSelf(userId);
+    }
+
+    // ---------- rideRequests ----------
     match /rideRequests/{rideId} {
-      allow read, write: if request.auth != null;
+      allow read: if isDriver()
+        || (signedIn() && resource.data.userId == request.auth.uid);
+
+      // Customers create their own ride request, unassigned.
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        // RideOptionsScreen sends status 'waiting'; HomeScreenWithMap sends none.
+        && request.resource.data.get('status', 'waiting') == 'waiting'
+        && request.resource.data.get('driverId', null) == null;
+
+      allow update: if
+        // Drivers run assignment / ride progress client-side (phase 1),
+        // but can't rewrite who booked it, the price, or the route.
+        (isDriver() && noChangesTo(['userId', 'fare', 'rideType', 'paymentMethod',
+                                     'pickupLat', 'pickupLng',
+                                     'destinationLat', 'destinationLng', 'createdAt']))
+        // Customers can only cancel their own ride.
+        || (signedIn() && resource.data.userId == request.auth.uid
+            && onlyChanges(['status', 'cancelledAt', 'cancelledBy',
+                            'cancellationReason', 'updatedAt'])
+            && request.resource.data.status in ['declined', 'cancelled']);
+
+      allow delete: if false;
     }
-    
-    // REMOVED: DriverSelection collection is deprecated
-    // Using SelectedDriver collection instead
-    
-    // Allow authenticated users to read/write online driver data
-    match /OnlineDriver/{document} {
-      allow read, write: if request.auth != null;
+
+    // Customer contact info attached to a ride, read by the assigned driver.
+    match /rideRequestsDriver/{docId} {
+      function rideOwner(rideRequestId) {
+        return get(/databases/$(database)/documents/rideRequests/$(rideRequestId)).data.userId;
+      }
+      allow read: if isDriver()
+        || (signedIn() && rideOwner(resource.data.rideRequestId) == request.auth.uid);
+      allow create: if signedIn()
+        && rideOwner(request.resource.data.rideRequestId) == request.auth.uid;
+      allow update, delete: if false;
     }
-    
-    // Allow authenticated users to read/write money by rider data
-    match /moneyByRider/{document} {
-      allow read, write: if request.auth != null;
+
+    // ---------- SelectedDriver (ride offers) ----------
+    match /SelectedDriver/{rideId} {
+      allow read, write: if isDriver();
     }
-    
-    // Allow authenticated users to read/write conversations
+
+    // ---------- OnlineDriver summary (written by Cloud Functions) ----------
+    match /OnlineDriver/{docId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // ---------- Driver-private data ----------
+    match /Earnings/{driverId}         { allow read, write: if isSelf(driverId); }
+    match /PaymentMethods/{driverId}   { allow read, write: if isSelf(driverId); }
+    match /driverStats/{driverId}      { allow read, write: if isSelf(driverId); }
+    match /DriverPushTokens/{driverId} { allow read, write: if isSelf(driverId); }
+
+    // Daily earnings ledger: doc id is `${driverId}_${YYYYMMDD}`.
+    match /moneyByRider/{docId} {
+      allow read: if signedIn() && docId.matches(request.auth.uid + '_[0-9]{8}');
+      allow create, update: if signedIn()
+        && docId.matches(request.auth.uid + '_[0-9]{8}')
+        && request.resource.data.driverId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ---------- Customer payment methods ----------
+    match /paymentMethods/{docId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create, update: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // ---------- Ratings: doc id is `${rideId}_${customerUid}` ----------
+    match /driverRatings/{ratingId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && ratingId.matches('.+_' + request.auth.uid);
+      allow update, delete: if false;
+    }
+
+    // ---------- Conversations ----------
     match /conversations/{conversationId} {
-      allow read, write: if request.auth != null;
+      function isParticipant(data) {
+        return signedIn() && (
+          request.auth.uid == data.get('customerId', null)
+          || request.auth.uid == data.get('driverId', null)
+          || request.auth.uid in data.get('participants', [])
+        );
+      }
+
+      allow read: if isParticipant(resource.data);
+      allow create: if isParticipant(request.resource.data);
+      allow update: if isParticipant(resource.data)
+        && noChangesTo(['customerId', 'driverId', 'participants']);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        function parent() {
+          return get(/databases/$(database)/documents/conversations/$(conversationId)).data;
+        }
+        allow read, create, update: if isParticipant(parent());
+        allow delete: if false;
+      }
     }
-    */
+
+    // Everything else (test, SystemMetrics, legacy `drivers`, …) is
+    // Cloud-Functions / Console only.
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
-} 
+}
