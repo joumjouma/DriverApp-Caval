@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.misscoding.Eco-Share",
+      "bundleIdentifier": "com.habib.caval.driver",
       "googleServicesFile": "./GoogleService-Info.plist",
       "newArchEnabled": true,
       "buildNumber": "47",
