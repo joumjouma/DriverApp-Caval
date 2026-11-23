@@ -50,5 +50,8 @@
           "EXPO_PUBLIC_TEST_MODE": "true"
         }
       }
-    }
+    },
+  "submit": {
+    "production": {}
   }
+}
