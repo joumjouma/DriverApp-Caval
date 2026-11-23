@@ -1,7 +1,7 @@
 {
     "cli": {
       "version": ">= 5.9.1",
-      "appVersionSource": "local",
+      "appVersionSource": "remote",
       "requireCommit": true
     },
     "build": {
@@ -23,6 +23,7 @@
         }
       },
       "production": {
+        "autoIncrement": true,
         "android": {
           "buildType": "app-bundle"
         },
@@ -49,6 +50,12 @@
           "EXPO_PUBLIC_TEST_MODE": "true"
         }
       }
+    },
+    "submit": {
+      "production": {
+        "ios": {
+          "appleTeamId": "4K52RVK52S"
+        }
+      }
     }
   }
-  
