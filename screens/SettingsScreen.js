@@ -609,7 +609,7 @@ function SettingsScreen() {
           {renderStars()}
           <TouchableOpacity
             style={[styles.editProfileButton, { backgroundColor: colors.primaryLight }]}
-            onPress={() => navigation.navigate("EditProfile")}
+            onPress={() => navigation.navigate("ModifyInfo")}
           >
             <Text style={[styles.editProfileText, { color: colors.primary }]}>
             </Text>

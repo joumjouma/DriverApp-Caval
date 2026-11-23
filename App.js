@@ -21,6 +21,9 @@ import EarningsScreen from "./screens/EarningsScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import PaymentScreen from "./screens/PaymentScreen";
 import ModifyInfo from "./screens/ModifyInfo";
+import ApprovalStatusScreen from "./screens/ApprovalStatusScreen";
+import DriverInboxScreen from "./screens/DriverInboxScreen";
+import OnlineDriverScreen from "./screens/OnlineDriverScreen";
 import "react-native-get-random-values";
 
 const Stack = createStackNavigator();
@@ -120,6 +123,10 @@ const AppContent = () => {
               <Stack.Screen name="ModifyInfo" component={ModifyInfo} />
         <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
         <Stack.Screen name="SettingsScreen" component={SettingsScreen} />
+      {/* These were navigated to (Login/Register/notifications, ride chat) but never registered */}
+      <Stack.Screen name="ApprovalStatusScreen" component={ApprovalStatusScreen} />
+      <Stack.Screen name="DriverInboxScreen" component={DriverInboxScreen} />
+      <Stack.Screen name="OnlineDriverScreen" component={OnlineDriverScreen} />
     </Stack.Navigator>
   );
 };
