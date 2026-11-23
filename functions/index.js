@@ -12,7 +12,7 @@ const {onDocumentCreated} = require("firebase-functions/v2/firestore");
 const {onRequest, onCall, HttpsError} = require("firebase-functions/v2/https");
 const {defineSecret} = require("firebase-functions/params");
 const {initializeApp} = require("firebase-admin/app");
-const {getFirestore} = require("firebase-admin/firestore");
+const {getFirestore, FieldValue} = require("firebase-admin/firestore");
 const {getMessaging} = require("firebase-admin/messaging");
 
 // Initialize Firebase Admin
@@ -1325,6 +1325,42 @@ function calculateDriverScore(driver, pickupLat, pickupLng, rideType) {
 }
 
 // Enhanced function to find the best available driver
+// ---------------------------------------------------------------------------
+// Server-side pricing. The customer app shows an estimate, but the price that
+// counts is computed here, so a modified app can't book a ride at any price.
+// Same formula as the customer app (RideOptionsScreen.calculateFare).
+// ---------------------------------------------------------------------------
+const FARE_TABLE = {
+  "Caval Privé": {base: 400, includedKm: 3, perKm: 150},
+  "Caval moto": {base: 150, includedKm: 3, perKm: 150},
+};
+
+const straightLineKm = (lat1, lng1, lat2, lng2) => {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
+// Road distance can't be shorter than the straight line, and is rarely more
+// than ~2.5x it. The client's route distance is accepted only inside that
+// range; otherwise the straight line x1.3 is used.
+const computeServerFare = (ride) => {
+  const table = FARE_TABLE[ride.rideType];
+  const coords = [ride.pickupLat, ride.pickupLng, ride.destinationLat, ride.destinationLng].map(Number);
+  if (!table || coords.some((n) => !Number.isFinite(n))) return null;
+  const straight = straightLineKm(...coords);
+  const clientKm = Number(ride.distance);
+  const km = Number.isFinite(clientKm) && clientKm >= straight && clientKm <= Math.max(straight * 2.5, straight + 2) ?
+    clientKm : straight * 1.3;
+  const extraKm = Math.max(0, km - table.includedKm);
+  const fare = Math.round((table.base + extraKm * table.perKm) / 50) * 50;
+  return {fare, km: Math.round(km * 100) / 100};
+};
+
 async function findBestAvailableDriver(rideData, excludedDriverId = null, db) {
   try {
     const { rideType, pickupLat, pickupLng } = rideData;
@@ -1352,10 +1388,12 @@ async function findBestAvailableDriver(rideData, excludedDriverId = null, db) {
     }
     
     // Filter drivers by type and availability
+    const excluded = new Set([...(rideData.declinedDrivers || []), excludedDriverId].filter(Boolean));
     const eligibleDrivers = onlineDriverData.drivers.filter(driver => 
       driver.driverType === rideType && 
       driver.isAvailable !== false && 
       !driver.rideInProgress &&
+      !excluded.has(driver.id) &&
       driver.latitude && 
       driver.longitude
     );
@@ -1446,6 +1484,23 @@ exports.selectBestDriverForNewRideRequest = onDocumentCreated({
     
     const rideId = event.params.rideId;
     console.log(`🚨 NEW RIDE REQUEST CREATED: Processing ride ${rideId} for type: ${rideData.rideType}`);
+
+    // Server-side price: overwrite whatever fare the app sent.
+    const priced = computeServerFare(rideData);
+    if (!priced) {
+      console.log(`❌ Ride ${rideId} has an invalid ride type or coordinates, cancelling`);
+      await db.collection("rideRequests").doc(rideId).update({
+        status: "cancelled", cancelledBy: "system", cancellationReason: "invalid_ride_request",
+      });
+      return;
+    }
+    await db.collection("rideRequests").doc(rideId).update({
+      fare: priced.fare,
+      fareSource: "server",
+      billedDistanceKm: priced.km,
+      clientFare: rideData.fare === undefined ? null : rideData.fare,
+    });
+    rideData.fare = priced.fare;
     
     // Check if we have a rideType
     if (!rideData.rideType) {
@@ -1835,6 +1890,14 @@ exports.handleRideStatusChange = onDocumentUpdated({
     }
     
     // Handle ride completion
+    if (newStatus === 'completed' && previousStatus !== 'completed') {
+      try {
+        await recordDriverEarnings(db, rideId);
+      } catch (error) {
+        console.error(`Error recording earnings for ride ${rideId}:`, error);
+      }
+    }
+
     if (newStatus === 'completed') {
       console.log(`Ride ${rideId} completed, updating SelectedDriver collection`);
       try {
@@ -1943,9 +2006,10 @@ async function reassignRideToNextDriver(rideId, nextDriver, rideData, db) {
     // Update the ride request with the new driver
     await db.collection("rideRequests").doc(rideId).update({
       selectedDriverId: nextDriver.id,
+      status: "driver_selected",
       driverSelectedAt: now,
       countdownExpiryTime: countdownExpiryTime,
-      reassignmentAttempts: increment(1),
+      reassignmentAttempts: FieldValue.increment(1),
       lastReassignmentTime: now
     });
     
@@ -1955,7 +2019,7 @@ async function reassignRideToNextDriver(rideId, nextDriver, rideData, db) {
       selectedDriverId: nextDriver.id,
       reassignedAt: now,
       reassignedToDriver: nextDriver.id,
-      reassignmentAttempt: increment(1),
+      reassignmentAttempt: FieldValue.increment(1),
       countdownStartedAt: now,
       countdownExpiryTime: countdownExpiryTime,
       countdownSeconds: 15,
@@ -2057,6 +2121,50 @@ async function markRideAsNoDriversAvailable(rideId, rideData, db) {
   } catch (error) {
     console.error('Error marking ride as no drivers available:', error);
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// Driver earnings are written only here, once per completed ride, using the
+// server-computed fare. The driver app can read them but not write them.
+//   moneyByRider/{driverId}_{YYYYMMDD}  (Djibouti date, read by EarningsScreen)
+//   Earnings/{driverId}.dailyBreakdown[YYYY-MM-DD].total  (read by PaymentScreen)
+// ---------------------------------------------------------------------------
+const djiboutiDate = (d) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Djibouti", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d); // YYYY-MM-DD
+  return parts;
+};
+
+async function recordDriverEarnings(db, rideId) {
+  const rideRef = db.collection("rideRequests").doc(rideId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(rideRef);
+    if (!snap.exists) return;
+    const ride = snap.data();
+    if (ride.earningsRecordedAt) return; // already counted
+    const driverId = ride.driverId;
+    const fare = Number(ride.fare);
+    if (!driverId || !Number.isFinite(fare) || fare <= 0) return;
+
+    const now = new Date();
+    const day = djiboutiDate(now);
+    const moneyRef = db.collection("moneyByRider").doc(`${driverId}_${day.replace(/-/g, "")}`);
+    const earningsRef = db.collection("Earnings").doc(driverId);
+
+    tx.set(moneyRef, {
+      driverId,
+      total: FieldValue.increment(fare),
+      trips: FieldValue.arrayUnion({rideId, fare, timestamp: now.toISOString()}),
+    }, {merge: true});
+    tx.set(earningsRef, {
+      totalEarnings: FieldValue.increment(fare),
+      dailyBreakdown: {[day]: {total: FieldValue.increment(fare), trips: FieldValue.increment(1)}},
+      updatedAt: now,
+    }, {merge: true});
+    tx.update(rideRef, {earningsRecordedAt: now});
+  });
 }
 
 // Helper function to increment values
@@ -2519,4 +2627,54 @@ exports.sendWhatsAppNotification = onCall({
 
   const result = await sendWhatsAppMessage(to, body);
   return {sent: true, result};
+});
+
+// ---------------------------------------------------------------------------
+// declineRide — the selected driver turns down a ride offer. The server picks
+// the next driver (drivers can no longer assign rides from the app).
+// data: { rideId }
+// ---------------------------------------------------------------------------
+exports.declineRide = onCall({maxInstances: 5, memory: "256MiB", timeoutSeconds: 30}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const {rideId} = request.data || {};
+  if (typeof rideId !== "string" || !rideId) throw new HttpsError("invalid-argument", "rideId required.");
+
+  const db = getFirestore();
+  const rideRef = db.collection("rideRequests").doc(rideId);
+
+  const rideData = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(rideRef);
+    if (!snap.exists) throw new HttpsError("not-found", "Ride not found.");
+    const ride = snap.data();
+    if (ride.selectedDriverId !== uid || ride.status !== "driver_selected") {
+      throw new HttpsError("failed-precondition", "This ride is not currently offered to you.");
+    }
+    const declinedDrivers = [...new Set([...(ride.declinedDrivers || []), uid])];
+    tx.update(rideRef, {
+      declinedDrivers,
+      status: "waiting",
+      selectedDriverId: null,
+      driverId: null,
+      lastDeclinedBy: uid,
+      lastDeclinedAt: new Date(),
+    });
+    return {...ride, declinedDrivers};
+  });
+
+  try {
+    await db.collection("SelectedDriver").doc(rideId).set({
+      status: "declined", declinedBy: uid, declinedAt: new Date(),
+    }, {merge: true});
+  } catch (e) {
+    console.error(`SelectedDriver update failed for ${rideId}:`, e);
+  }
+
+  const nextDriver = await findBestAvailableDriver(rideData, uid, db);
+  if (nextDriver) {
+    await reassignRideToNextDriver(rideId, nextDriver, rideData, db);
+    return {reassigned: true};
+  }
+  await markRideAsNoDriversAvailable(rideId, rideData, db);
+  return {reassigned: false};
 });

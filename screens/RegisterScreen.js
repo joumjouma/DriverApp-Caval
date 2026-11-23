@@ -261,8 +261,6 @@ function RegisterScreen() {
         isAvailable: false, // New drivers start as unavailable until they go online
         driverType: typeDeVehicule,
         photo: facePhotoURL,
-        carteGrisePhoto: carteGrisePhotoURL,
-        paymentMethods: paymentMethods,
         documentsVerified: false,
         isApproved: false,
         approvalStatus: 'pending', // pending, approved, rejected
@@ -271,6 +269,13 @@ function RegisterScreen() {
       };
       try {
         await setDoc(doc(db, "Drivers", user.uid), driverData);
+        // Documents and payout details are private: only the driver (and admins
+        // in the Console / Cloud Functions) can read them, not other users.
+        await setDoc(doc(db, "Drivers", user.uid, "private", "profile"), {
+          carteGrisePhoto: carteGrisePhotoURL,
+          paymentMethods: paymentMethods,
+          createdAt: new Date(),
+        });
         await AsyncStorage.setItem('driverInfo', JSON.stringify(driverData));
         
         // Show success message about approval process

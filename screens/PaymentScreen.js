@@ -61,23 +61,13 @@ function PaymentScreen() {
   };
 
   const handleTransfer = async () => {
-    if (!defaultCardId) { Alert.alert("Error", "Please select a default payment method first."); return; }
-    const amount = parseFloat(transferAmount);
-    if (isNaN(amount) || amount <= 0) { Alert.alert("Error", "Please enter a valid amount."); return; }
-    if (amount > earnings) { Alert.alert("Error", "Insufficient funds."); return; }
-    try {
-      setSaving(true);
-      const currentUser = auth.currentUser,
-            earningsDocRef = doc(db, "Earnings", currentUser.uid);
-      await updateDoc(earningsDocRef, { totalEarnings: earnings - amount });
-      setEarnings(earnings - amount);
-      setTransferAmount('');
-      setShowTransferModal(false);
-      Alert.alert("Success", "Transfer completed successfully.");
-    } catch (error) {
-      console.error("Error processing transfer:", error);
-      Alert.alert("Error", "Failed to process transfer. Please try again.");
-    } finally { setSaving(false); }
+    // Payouts aren't automated: earnings are recorded by the server and paid
+    // out by Caval. (The old code only lowered a number and showed "Success".)
+    setShowTransferModal(false);
+    Alert.alert(
+      "Virement",
+      "Les virements sont effectués par l'équipe Caval. Contactez le support pour demander un paiement de vos gains."
+    );
   };
 
   const handleCardNumberChange = text => {
@@ -114,7 +104,7 @@ function PaymentScreen() {
       // Log the raw card details for debugging
       console.log('Raw card details:', {
         cardholderName: cardDetails.cardholderName,
-        cardNumber: cardDetails.cardNumber,
+        cardNumber: `•••• ${String(cardDetails.cardNumber).replace(/\s/g, '').slice(-4)}`,
         expiryDate: cardDetails.expiryDate,
         cvv: cardDetails.cvv ? '***' : 'missing',
         bankName: cardDetails.bankName,
@@ -144,7 +134,7 @@ function PaymentScreen() {
       
       // Log the formatted details
       console.log('Formatted card details:', {
-        cardNumber: cardNumber,
+        cardNumber: `•••• ${cardNumber.slice(-4)}`,
         expMonth: expMonth,
         expYear: expYear,
         cvv: cardDetails.cvv ? '***' : 'missing'

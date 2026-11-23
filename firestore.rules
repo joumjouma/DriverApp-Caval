@@ -6,10 +6,9 @@ rules_version = '2';
 // Driver approval is done by an admin in the Firebase Console, which also
 // bypasses these rules (see ADMIN_APPROVAL_INSTRUCTIONS.md).
 //
-// Phase 1: lock down ownership and admin-only fields without changing app
-// behaviour. Ride assignment and earnings are still computed client-side by
-// the driver app, so drivers keep broad write access to rideRequests and
-// SelectedDriver. Moving those to Cloud Functions is phase 2.
+// Pricing, ride assignment and driver earnings are done by Cloud Functions
+// (selectBestDriverForNewRideRequest, declineRide, handleRideStatusChange).
+// The apps can't set a ride's price, assign a ride, or write earnings.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -29,6 +28,16 @@ service cloud.firestore {
     function onlyChanges(keys) { return changedKeys().hasOnly(keys); }
     function noChangesTo(keys) { return !changedKeys().hasAny(keys); }
 
+    // Ride fields only Cloud Functions may set.
+    function rideServerFields() {
+      return ['fareSource', 'billedDistanceKm', 'clientFare', 'earningsRecordedAt',
+              'lastDeclinedBy', 'lastDeclinedAt'];
+    }
+
+    // Private driver data lives in Drivers/{id}/private/profile, not on the
+    // driver doc that every signed-in user can read.
+    function driverPrivateFields() { return ['carteGrisePhoto', 'paymentMethods']; }
+
     // Fields only an admin (Console) or Cloud Functions may set on a driver.
     function driverAdminFields() {
       return ['isApproved', 'approvalStatus', 'approvalDate', 'approvedBy',
@@ -44,6 +53,7 @@ service cloud.firestore {
 
       // A driver can only register themselves, and only as pending.
       allow create: if isSelf(driverId)
+        && !request.resource.data.keys().hasAny(driverPrivateFields())
         && request.resource.data.get('isApproved', false) == false
         && request.resource.data.get('approvalStatus', 'pending') == 'pending'
         && request.resource.data.get('approvedBy', null) == null
@@ -55,12 +65,19 @@ service cloud.firestore {
 
       allow update: if
         // Driver edits own profile/status/location, but never approval or money fields.
-        (isSelf(driverId) && noChangesTo(driverAdminFields()))
+        (isSelf(driverId) && noChangesTo(driverAdminFields())
+            && !request.resource.data.diff(resource.data).addedKeys().hasAny(driverPrivateFields())
+            && !request.resource.data.diff(resource.data).changedKeys().hasAny(driverPrivateFields()))
         // Customer submits a rating (DriverFoundScreen) — rating fields only.
         || (isCustomer() && !isSelf(driverId)
             && onlyChanges(['ratings', 'averageRating', 'totalRatings']));
 
       allow delete: if isSelf(driverId);   // account deletion (SettingsScreen)
+
+      // Registration documents and payout details: owner only.
+      match /private/{docId} {
+        allow read, write: if isSelf(driverId);
+      }
     }
 
     // ---------- Customers ----------
@@ -83,14 +100,23 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         // RideOptionsScreen sends status 'waiting'; HomeScreenWithMap sends none.
         && request.resource.data.get('status', 'waiting') == 'waiting'
-        && request.resource.data.get('driverId', null) == null;
+        && request.resource.data.get('driverId', null) == null
+        && request.resource.data.get('selectedDriverId', null) == null
+        && !request.resource.data.keys().hasAny(rideServerFields());
 
       allow update: if
-        // Drivers run assignment / ride progress client-side (phase 1),
-        // but can't rewrite who booked it, the price, or the route.
-        (isDriver() && noChangesTo(['userId', 'fare', 'rideType', 'paymentMethod',
-                                     'pickupLat', 'pickupLng',
-                                     'destinationLat', 'destinationLng', 'createdAt']))
+        // Only the driver the ride is offered to / assigned to can update it
+        // (accept, progress, complete). They can't reassign it, re-price it,
+        // or change who booked it or the route.
+        (isDriver()
+            && request.auth.uid in [resource.data.get('driverId', null),
+                                    resource.data.get('selectedDriverId', null)]
+            && noChangesTo(['userId', 'fare', 'rideType', 'paymentMethod', 'distance',
+                            'pickupLat', 'pickupLng', 'destinationLat', 'destinationLng',
+                            'createdAt', 'selectedDriverId', 'declinedDrivers'])
+            && noChangesTo(rideServerFields())
+            && (!changedKeys().hasAny(['driverId'])
+                || request.resource.data.driverId == request.auth.uid))
         // Customers can only cancel their own ride.
         || (signedIn() && resource.data.userId == request.auth.uid
             && onlyChanges(['status', 'cancelledAt', 'cancelledBy',
@@ -112,9 +138,14 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // ---------- SelectedDriver (ride offers) ----------
+    // ---------- SelectedDriver (ride offers, created by Cloud Functions) ----------
     match /SelectedDriver/{rideId} {
-      allow read, write: if isDriver();
+      allow read: if isDriver();
+      // The offered driver can mark it accepted/assigned/rejected.
+      allow update: if signedIn()
+        && resource.data.get('selectedDriverId', null) == request.auth.uid
+        && noChangesTo(['selectedDriverId', 'rideId']);
+      allow create, delete: if false;
     }
 
     // ---------- OnlineDriver summary (written by Cloud Functions) ----------
@@ -124,18 +155,17 @@ service cloud.firestore {
     }
 
     // ---------- Driver-private data ----------
-    match /Earnings/{driverId}         { allow read, write: if isSelf(driverId); }
+    // Earnings are written only by Cloud Functions (on ride completion).
+    match /Earnings/{driverId}         { allow read: if isSelf(driverId); allow write: if false; }
     match /PaymentMethods/{driverId}   { allow read, write: if isSelf(driverId); }
     match /driverStats/{driverId}      { allow read, write: if isSelf(driverId); }
     match /DriverPushTokens/{driverId} { allow read, write: if isSelf(driverId); }
 
     // Daily earnings ledger: doc id is `${driverId}_${YYYYMMDD}`.
+    // Written only by Cloud Functions; the driver can read their own.
     match /moneyByRider/{docId} {
       allow read: if signedIn() && docId.matches(request.auth.uid + '_[0-9]{8}');
-      allow create, update: if signedIn()
-        && docId.matches(request.auth.uid + '_[0-9]{8}')
-        && request.resource.data.driverId == request.auth.uid;
-      allow delete: if false;
+      allow write: if false;
     }
 
     // ---------- Customer payment methods ----------

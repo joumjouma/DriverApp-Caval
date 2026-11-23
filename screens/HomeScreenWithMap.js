@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { getApp } from 'firebase/app';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   SafeAreaView,
   View,
@@ -1959,6 +1961,9 @@ const HomeScreenWithMap = () => {
     };
 
     const findNextAvailableDriver = async () => {
+      // Reassignment after a timeout is handled by the server countdown.
+      return;
+      // eslint-disable-next-line no-unreachable
       if (!currentRideRequest) return;
       
       try {
@@ -3349,30 +3354,7 @@ const HomeScreenWithMap = () => {
           }
         }
         
-        // Update money tracking
-        try {
-          const today = new Date();
-          const year = today.getFullYear();
-          const month = (today.getMonth() + 1).toString().padStart(2, "0");
-          const day = today.getDate().toString().padStart(2, "0");
-          const docId = `${driverId}_${year}${month}${day}`;
-          const moneyDocRef = doc(db, "moneyByRider", docId);
-          await setDoc(
-            moneyDocRef,
-            {
-              driverId,
-              total: increment(currentRideRequest.fare || 0),
-              trips: arrayUnion({
-                fare: currentRideRequest.fare || 0,
-                timestamp: today.toISOString(),
-              }),
-            },
-            { merge: true }
-          );
-        } catch (moneyError) {
-          console.error('Error updating money tracking:', moneyError);
-          // Continue with ride acceptance even if money tracking fails
-        }
+        // Earnings (moneyByRider / Earnings) are recorded by Cloud Functions when the ride is completed.
         
         // Update ride count
         try {
@@ -3488,144 +3470,9 @@ const HomeScreenWithMap = () => {
           throw new Error("Invalid ride request ID");
         }
         
-        // First, try to find another available driver instead of immediately declining
-        console.log('Looking for another available driver before declining...');
-        
-        try {
-          // Get all available drivers of the same type
-          const driversQuery = query(
-            collection(db, "Drivers"),
-            where("isOnline", "==", true),
-            where("isAvailable", "==", true),
-            where("driverType", "==", currentRideRequest.rideType || "standard")
-          );
-          
-          const driversSnapshot = await getDocs(driversQuery);
-          const availableDrivers = [];
-          
-          driversSnapshot.forEach((doc) => {
-            const driverData = doc.data();
-            // Exclude the current driver and previously declined drivers
-            if (doc.id !== auth.currentUser?.uid && 
-                !currentRideRequest.declinedDrivers?.includes(doc.id)) {
-              availableDrivers.push({
-                id: doc.id,
-                ...driverData
-              });
-            }
-          });
-          
-          if (availableDrivers.length > 0) {
-            console.log(`Found ${availableDrivers.length} other available drivers, reassigning ride`);
-            
-            // Sort drivers by distance to pickup location
-            const sortedDrivers = availableDrivers.sort((a, b) => {
-              if (!a.latitude || !a.longitude || !b.latitude || !b.longitude) return 0;
-              
-              const distanceA = calculateDistance(
-                { latitude: a.latitude, longitude: a.longitude },
-                { latitude: currentRideRequest.pickupLat, longitude: currentRideRequest.pickupLng }
-              );
-              const distanceB = calculateDistance(
-                { latitude: b.latitude, longitude: b.longitude },
-                { latitude: currentRideRequest.pickupLat, longitude: currentRideRequest.pickupLng }
-              );
-              
-              return distanceA - distanceB;
-            });
-            
-            // Select the closest available driver
-            const nextDriver = sortedDrivers[0];
-            console.log('Reassigning ride to driver:', nextDriver.id);
-            
-            // Update the ride request to assign it to the next driver
-            await updateDoc(doc(db, "rideRequests", currentRideRequest.id), {
-              driverId: nextDriver.id,
-              driverName: nextDriver.userName || nextDriver.name || "Driver",
-              driverPhoto: nextDriver.profilePhoto || "",
-              driverPhone: nextDriver.phoneNumber || null,
-              lastDriverAssignment: serverTimestamp(),
-              reassignmentAttempts: increment(1),
-              lastReassignmentTime: serverTimestamp()
-            });
-            
-            // Also update the SelectedDriver collection for reassignment
-            try {
-              await updateDoc(doc(db, "SelectedDriver", currentRideRequest.id), {
-                status: "reassigned",
-                reassignedAt: new Date(),
-                reassignedToDriver: nextDriver.id,
-                reassignedFromDriver: auth.currentUser?.uid,
-                reassignmentAttempt: increment(1)
-              });
-              console.log('SelectedDriver collection updated to reassigned status');
-            } catch (selectedDriverError) {
-              console.error('Error updating SelectedDriver collection for reassignment:', selectedDriverError);
-              // Continue with reassignment even if SelectedDriver update fails
-            }
-            
-            console.log('Ride successfully reassigned to next available driver');
-            
-            // Close modal and reset state
-            setIsModalVisible(false);
-            setCurrentRideRequest(null);
-            
-            // Set cooldown to prevent immediate new requests
-            setRideCooldown(true);
-            setTimeout(() => setRideCooldown(false), 5000);
-            
-            return; // Exit early since ride was reassigned
-          }
-          
-        } catch (reassignmentError) {
-          console.error('Error trying to reassign ride:', reassignmentError);
-          // Continue to decline if reassignment fails
-        }
-        
-        // If no other drivers are available, then mark the ride as declined
-        console.log('No other available drivers found, marking ride as declined');
-        
-        // Update ride request status to declined
-        try {
-          await updateDoc(doc(db, "rideRequests", currentRideRequest.id), {
-            status: "declined",
-          });
-          console.log("Ride declined successfully:", currentRideRequest.id);
-          
-          // Also update the SelectedDriver collection status
-          try {
-            await updateDoc(doc(db, "SelectedDriver", currentRideRequest.id), {
-              status: "declined",
-              declinedAt: new Date(),
-              declinedByDriver: auth.currentUser?.uid
-            });
-            console.log('SelectedDriver collection updated to declined status');
-          } catch (selectedDriverError) {
-            console.error('Error updating SelectedDriver collection:', selectedDriverError);
-            // Continue with ride decline even if SelectedDriver update fails
-          }
-          
-        } catch (updateError) {
-          console.error('Error updating ride request status:', updateError);
-          throw new Error("Failed to decline ride");
-        }
-        
-        // Update ride request to add current driver to declined list
-        try {
-          const currentUser = auth.currentUser;
-          if (!currentUser) {
-            throw new Error("No authenticated user found");
-          }
-          
-          await updateDoc(doc(db, "rideRequests", currentRideRequest.id), {
-            declinedDrivers: arrayUnion(currentUser.uid),
-            lastDriverDecline: serverTimestamp()
-          });
-          console.log("Driver added to declined list for ride:", currentRideRequest.id);
-        } catch (updateError) {
-          console.error('Error updating ride request:', updateError);
-          throw new Error("Failed to update ride request");
-        }
+        // The server picks the next driver (drivers can't assign rides from the app).
+        await httpsCallable(getFunctions(getApp()), 'declineRide')({ rideId: currentRideRequest.id });
+        console.log("Ride declined:", currentRideRequest.id);
         
         // Close modal and reset state
         setIsModalVisible(false);
@@ -4382,6 +4229,11 @@ const HomeScreenWithMap = () => {
     // 16.8.6. Assign Ride to Best Driver in SelectedDriver Collection
     // -----------------------------------------------------------------
     const assignRideToBestDriver = async (rideId) => {
+      // Ride assignment now runs only in Cloud Functions
+      // (selectBestDriverForNewRideRequest / declineRide). Firestore rules
+      // block drivers from assigning rides, so this is intentionally a no-op.
+      return false;
+      // eslint-disable-next-line no-unreachable
       try {
         console.log('🚀 Assigning ride to best driver:', rideId);
         

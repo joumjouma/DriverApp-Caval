@@ -38,6 +38,10 @@ beforeEach(async () => {
     await setDoc(doc(a, 'Customers', CUSTOMER2), { firstName: 'C2' });
     await setDoc(doc(a, 'rideRequests', 'ride1'), {
       userId: CUSTOMER, status: 'waiting', fare: 20, rideType: 'standard', driverId: null });
+    await setDoc(doc(a, 'rideRequests', 'ride2'), {
+      userId: CUSTOMER, status: 'driver_selected', fare: 900, rideType: 'Caval Privé',
+      selectedDriverId: DRIVER, driverId: null, fareSource: 'server' });
+    await setDoc(doc(a, 'SelectedDriver', 'ride2'), { rideId: 'ride2', selectedDriverId: DRIVER, status: 'selected' });
     await setDoc(doc(a, 'conversations', 'conv1'), {
       customerId: CUSTOMER, driverId: DRIVER, participants: [CUSTOMER, DRIVER] });
     await setDoc(doc(a, 'conversations', 'conv2'), { customerId: CUSTOMER, driverId: DRIVER }); // driver-created shape
@@ -54,6 +58,15 @@ test('driver can register as pending (RegisterScreen)', async () => {
   await assertSucceeds(setDoc(doc(db('new'), 'Drivers', 'new'), {
     firstName: 'N', isApproved: false, approvalStatus: 'pending', approvedBy: null,
     documentsVerified: false, earnings: 0, totalEarnings: 0, weeklyEarnings: 0, dailyEarnings: 0 }));
+});
+
+test('driver documents live in a private subdoc only the driver can read', async () => {
+  await assertFails(setDoc(doc(db('new'), 'Drivers', 'new'), { isApproved: false, carteGrisePhoto: 'https://x' }));
+  await assertSucceeds(setDoc(doc(db(DRIVER), 'Drivers', DRIVER, 'private', 'profile'), { carteGrisePhoto: 'https://x' }));
+  await assertSucceeds(getDoc(doc(db(DRIVER), 'Drivers', DRIVER, 'private', 'profile')));
+  await assertFails(getDoc(doc(db(CUSTOMER), 'Drivers', DRIVER, 'private', 'profile')));
+  await assertFails(getDoc(doc(db(DRIVER2), 'Drivers', DRIVER, 'private', 'profile')));
+  await assertFails(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER), { carteGrisePhoto: 'https://x' }));
 });
 
 test('driver cannot register pre-approved', async () => {
@@ -134,16 +147,35 @@ test('customer cannot mark own ride completed', async () => {
   await assertFails(updateDoc(doc(db(CUSTOMER), 'rideRequests', 'ride1'), { status: 'completed' }));
 });
 
-test('driver can assign and progress a ride (HomeScreenWithMap / RideInProgress)', async () => {
-  await assertSucceeds(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride1'),
-    { driverId: DRIVER2, selectedDriverId: DRIVER2, status: 'driver_selected', reassignmentAttempts: increment(1) }));
-  await assertSucceeds(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride1'),
-    { status: 'completed', completedAt: new Date(), declinedDrivers: arrayUnion(DRIVER) }));
+test('offered driver can accept and progress the ride (acceptRide / RideInProgress)', async () => {
+  await assertSucceeds(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride2'),
+    { status: 'assigned', driverId: DRIVER, driverName: 'D', driverPhone: '1' }));
+  await assertSucceeds(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride2'),
+    { status: 'completed', completedAt: new Date() }));
 });
 
-test('driver cannot change fare or customer', async () => {
-  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride1'), { fare: 500 }));
-  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride1'), { userId: DRIVER }));
+test('drivers cannot assign rides (assignment is server-only)', async () => {
+  // not offered to them
+  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride1'),
+    { driverId: DRIVER, selectedDriverId: DRIVER, status: 'driver_selected' }));
+  await assertFails(updateDoc(doc(db(DRIVER2), 'rideRequests', 'ride2'), { status: 'assigned', driverId: DRIVER2 }));
+  // offered to them, but can't hand it to someone else
+  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride2'), { driverId: DRIVER2 }));
+  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride2'), { selectedDriverId: DRIVER2 }));
+  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride2'), { declinedDrivers: arrayUnion(DRIVER2) }));
+});
+
+test('driver cannot change fare, customer, or server fields', async () => {
+  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride2'), { fare: 5000 }));
+  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride2'), { userId: DRIVER }));
+  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride2'), { earningsRecordedAt: new Date() }));
+});
+
+test('customer cannot pre-set server-only ride fields', async () => {
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'),
+    { userId: CUSTOMER, status: 'waiting', fare: 1, fareSource: 'server' }));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'),
+    { userId: CUSTOMER, status: 'waiting', selectedDriverId: DRIVER }));
 });
 
 test('nobody can delete rides', async () => {
@@ -158,22 +190,30 @@ test('customer attaches contact info to own ride only', async () => {
 });
 
 // ---------- SelectedDriver ----------
-test('only drivers touch SelectedDriver', async () => {
-  await assertSucceeds(setDoc(doc(db(DRIVER), 'SelectedDriver', 'ride1'), { rideId: 'ride1', driverId: DRIVER2 }));
-  await assertFails(getDoc(doc(db(CUSTOMER), 'SelectedDriver', 'ride1')));
+test('SelectedDriver: offered driver updates status only; nobody creates offers', async () => {
+  await assertSucceeds(updateDoc(doc(db(DRIVER), 'SelectedDriver', 'ride2'), { status: 'assigned', assignedAt: new Date() }));
+  await assertFails(updateDoc(doc(db(DRIVER), 'SelectedDriver', 'ride2'), { selectedDriverId: DRIVER2 }));
+  await assertFails(updateDoc(doc(db(DRIVER2), 'SelectedDriver', 'ride2'), { status: 'assigned' }));
+  await assertFails(setDoc(doc(db(DRIVER), 'SelectedDriver', 'ride1'), { rideId: 'ride1', selectedDriverId: DRIVER }));
+  await assertFails(getDoc(doc(db(CUSTOMER), 'SelectedDriver', 'ride2')));
 });
 
 // ---------- money ----------
-test('moneyByRider: own ledger only', async () => {
+test('moneyByRider: read own ledger, nobody writes from the app', async () => {
   const id = `${DRIVER}_20261122`;
-  await assertSucceeds(setDoc(doc(db(DRIVER), 'moneyByRider', id), { driverId: DRIVER, total: increment(20) }, { merge: true }));
+  await assertFails(setDoc(doc(db(DRIVER), 'moneyByRider', id), { driverId: DRIVER, total: increment(20) }, { merge: true }));
   await assertSucceeds(getDoc(doc(db(DRIVER), 'moneyByRider', `${DRIVER}_20261101`))); // missing day still readable
-  await assertFails(setDoc(doc(db(DRIVER2), 'moneyByRider', id), { driverId: DRIVER2, total: 1 }));
   await assertFails(getDoc(doc(db(DRIVER2), 'moneyByRider', id)));
 });
 
-test('Earnings / PaymentMethods / driverStats are owner-only', async () => {
-  for (const c of ['Earnings', 'PaymentMethods', 'driverStats', 'DriverPushTokens']) {
+test('Earnings: read own, nobody writes from the app', async () => {
+  await assertSucceeds(getDoc(doc(db(DRIVER), 'Earnings', DRIVER)));
+  await assertFails(setDoc(doc(db(DRIVER), 'Earnings', DRIVER), { totalEarnings: 999999 }));
+  await assertFails(getDoc(doc(db(DRIVER2), 'Earnings', DRIVER)));
+});
+
+test('PaymentMethods / driverStats / push tokens are owner-only', async () => {
+  for (const c of ['PaymentMethods', 'driverStats', 'DriverPushTokens']) {
     await assertSucceeds(setDoc(doc(db(DRIVER), c, DRIVER), { x: 1 }));
     await assertFails(getDoc(doc(db(DRIVER2), c, DRIVER)));
   }
