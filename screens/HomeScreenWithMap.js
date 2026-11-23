@@ -1765,6 +1765,7 @@ const HomeScreenWithMap = () => {
                 
                 // Prepare ride info for WhatsApp notification
                 const rideInfo = {
+                  id: ride.id,
                   pickupAddress: ride.pickupAddress || 'Adresse de départ',
                   destinationAddress: ride.destinationAddress || 'Adresse de destination',
                   fare: ride.fare || 0,
@@ -1772,7 +1773,7 @@ const HomeScreenWithMap = () => {
                 };
                 
                 // Send WhatsApp notification
-                await whatsAppService.sendRideAssignmentNotification(driverData, rideInfo);
+                await whatsAppService.sendRideAssignmentNotification({ ...driverData, id: currentUser.uid }, rideInfo);
                 console.log('✅ WhatsApp notification sent successfully for ride selection');
               }
             }
@@ -4440,6 +4441,7 @@ const HomeScreenWithMap = () => {
             
             // Prepare ride info for WhatsApp notification
             const rideInfo = {
+              id: rideId,
               pickupAddress: rideData.pickupAddress || 'Adresse de départ',
               destinationAddress: rideData.destinationAddress || 'Adresse de destination',
               fare: rideData.fare || 0,
@@ -4629,6 +4631,7 @@ const HomeScreenWithMap = () => {
                   
                   // Prepare ride info for WhatsApp notification
                   const rideInfo = {
+                    id: rideId,
                     pickupAddress: rideData.pickupAddress || 'Adresse de départ',
                     destinationAddress: rideData.destinationAddress || 'Adresse de destination',
                     fare: rideData.fare || 0,
@@ -4636,7 +4639,7 @@ const HomeScreenWithMap = () => {
                   };
                   
                   // Send WhatsApp notification
-                  await whatsAppService.sendRideAssignmentNotification(driverData, rideInfo);
+                  await whatsAppService.sendRideAssignmentNotification({ ...driverData, id: selectedDriverId }, rideInfo);
                   console.log('✅ WhatsApp notification sent to automatically assigned driver:', driverData.firstName || driverData.name);
                 }
               }

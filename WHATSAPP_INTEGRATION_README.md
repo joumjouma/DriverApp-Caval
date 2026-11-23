@@ -78,7 +78,7 @@ Caval Team
 
 The service is already configured with your UltraMsg credentials:
 - **Instance ID**: `instance131940`
-- **Token**: `8eoza1gyk2md4sic`
+- **Token**: `<stored in Firebase Secret Manager as ULTRAMSG_TOKEN>`
 - **API URL**: `api.ultramsg.com`
 
 ### 2. Driver Phone Numbers

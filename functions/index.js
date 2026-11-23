@@ -9,13 +9,21 @@
 
 const {onDocumentUpdated} = require("firebase-functions/v2/firestore");
 const {onDocumentCreated} = require("firebase-functions/v2/firestore");
-const {onRequest} = require("firebase-functions/v2/https");
+const {onRequest, onCall, HttpsError} = require("firebase-functions/v2/https");
+const {defineSecret} = require("firebase-functions/params");
 const {initializeApp} = require("firebase-admin/app");
 const {getFirestore} = require("firebase-admin/firestore");
 const {getMessaging} = require("firebase-admin/messaging");
 
 // Initialize Firebase Admin
 initializeApp();
+
+// UltraMsg WhatsApp credentials. The token lives in Secret Manager:
+//   firebase functions:secrets:set ULTRAMSG_TOKEN
+// Every function that can send WhatsApp must list it in `secrets`.
+const ULTRAMSG_TOKEN = defineSecret("ULTRAMSG_TOKEN");
+const ULTRAMSG_INSTANCE = "instance131940";
+const ULTRAMSG_BASE = `https://api.ultramsg.com/${ULTRAMSG_INSTANCE}`;
 
 // Function to send Expo push notification with platform-specific configurations
 const sendExpoPushNotification = async (pushToken, title, body, data) => {
@@ -237,7 +245,7 @@ const sendWhatsAppMessageUltraMsg = async (phoneNumber, message) => {
     
     // Using UltraMsg free WhatsApp API
     const response = await fetch(
-      "https://api.ultramsg.com/instance131940/messages/chat",
+      `${ULTRAMSG_BASE}/messages/chat`,
       {
         method: "POST",
         headers: {
@@ -246,7 +254,7 @@ const sendWhatsAppMessageUltraMsg = async (phoneNumber, message) => {
         body: JSON.stringify({
           to: formattedPhone,
           body: message,
-          token: "8eoza1gyk2md4sic",
+          token: ULTRAMSG_TOKEN.value(),
         }),
       },
     );
@@ -1410,6 +1418,7 @@ async function findBestAvailableDriver(rideData, excludedDriverId = null, db) {
 // Function that triggers when a NEW ride request is created
 exports.selectBestDriverForNewRideRequest = onDocumentCreated({
   document: "rideRequests/{rideId}",
+  secrets: [ULTRAMSG_TOKEN],
   maxInstances: 1,
   memory: "128MiB",
   timeoutSeconds: 30,
@@ -1690,6 +1699,7 @@ Caval Team`;
 
 exports.handleRideStatusChange = onDocumentUpdated({
   document: "rideRequests/{rideId}",
+  secrets: [ULTRAMSG_TOKEN],
   maxInstances: 1,
   memory: "128MiB",
   timeoutSeconds: 30,
@@ -2392,3 +2402,121 @@ Caval Team`;
     return { success: false, error: error.message };
   }
 };
+
+// ---------------------------------------------------------------------------
+// sendWhatsAppNotification — the only way the apps can send WhatsApp.
+// The apps never see the UltraMsg token. The server picks the recipient and
+// the message text from Firestore, so a caller can't message arbitrary
+// numbers or send arbitrary text through our UltraMsg account.
+//
+// data: { type, rideId?, driverId? }
+//   Customer app: ride_received | driver_found | driver_arrived  (own ride)
+//   Driver app:   ride_assignment | ride_offer (to driverId)  | test (own phone)
+//                 status (UltraMsg instance status)
+// ---------------------------------------------------------------------------
+const CUSTOMER_MESSAGES = {
+  ride_received: "Votre commande de course a été reçue ! Nous cherchons un chauffeur pour vous.",
+  driver_found: "Un chauffeur a été trouvé pour votre course !",
+  driver_arrived: "Votre chauffeur est arrivé à votre point de départ.",
+};
+
+const driverRideMessage = (type, driverName, fare) => {
+  const price = `💰 *Prix:* Fdj${Number(fare || 0).toFixed(2)}`;
+  if (type === "ride_assignment") {
+    return `🎯 *Course assignée!*\n\nBonjour ${driverName},\n\n` +
+      `Vous avez été sélectionné pour une nouvelle course!\n\n${price}\n\n` +
+      "⚡ *URGENT - Ouvrez l'application maintenant!*\n" +
+      "Vous n'avez que 15 secondes pour accepter cette course!\n\n" +
+      "*Actions requises:*\n1. Ouvrez IMMÉDIATEMENT l'application Caval Driver\n" +
+      "2. Allez dans l'onglet \"Courses en cours\"\n" +
+      "3. Suivez les instructions pour récupérer le client\n\n" +
+      "*Merci de votre service!*\nCaval Team";
+  }
+  return `🚗 *Nouvelle course disponible!*\n\nBonjour ${driverName},\n\n` +
+    `Une nouvelle demande de course correspond à votre profil:\n\n${price}\n\n` +
+    "⚡ *URGENT - Ouvrez l'application maintenant!*\n" +
+    "Vous n'avez que 15 secondes pour accepter cette course!\n\n" +
+    "*Pour accepter cette course:*\n1. Ouvrez IMMÉDIATEMENT l'application Caval Driver\n" +
+    "2. Allez dans l'onglet \"Courses\"\n3. Cliquez sur \"Accepter\"\n\n" +
+    "*Cette offre expire dans 15 secondes!*\n\nMerci de votre service!\nCaval Team";
+};
+
+const phoneOf = (data) => (data && (data.phoneNumber || data.number || data.phone)) || null;
+
+exports.sendWhatsAppNotification = onCall({
+  secrets: [ULTRAMSG_TOKEN],
+  maxInstances: 5,
+  memory: "128MiB",
+  timeoutSeconds: 30,
+}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+
+  const {type, rideId, driverId} = request.data || {};
+  const db = getFirestore();
+
+  const callerIsDriver = async () => (await db.collection("Drivers").doc(uid).get()).exists;
+  const getRide = async () => {
+    if (typeof rideId !== "string" || !rideId) throw new HttpsError("invalid-argument", "rideId required.");
+    const snap = await db.collection("rideRequests").doc(rideId).get();
+    if (!snap.exists) throw new HttpsError("not-found", "Ride not found.");
+    return snap.data();
+  };
+
+  let to; let body; let targetUid;
+
+  if (CUSTOMER_MESSAGES[type]) {
+    const ride = await getRide();
+    if (ride.userId !== uid) throw new HttpsError("permission-denied", "Not your ride.");
+    if (type !== "ride_received" && !ride.driverId) {
+      throw new HttpsError("failed-precondition", "No driver assigned yet.");
+    }
+    const customer = await db.collection("Customers").doc(uid).get();
+    to = phoneOf(customer.data());
+    body = CUSTOMER_MESSAGES[type];
+    targetUid = uid;
+  } else if (type === "ride_assignment" || type === "ride_offer") {
+    if (!(await callerIsDriver())) throw new HttpsError("permission-denied", "Drivers only.");
+    if (typeof driverId !== "string" || !driverId) throw new HttpsError("invalid-argument", "driverId required.");
+    const ride = await getRide();
+    if (type === "ride_assignment" && ride.driverId !== driverId) {
+      throw new HttpsError("failed-precondition", "Ride is not assigned to that driver.");
+    }
+    const driver = await db.collection("Drivers").doc(driverId).get();
+    if (!driver.exists) throw new HttpsError("not-found", "Driver not found.");
+    const d = driver.data();
+    to = phoneOf(d);
+    body = driverRideMessage(type, d.firstName || d.name || "Chauffeur", ride.fare);
+    targetUid = driverId;
+  } else if (type === "test") {
+    if (!(await callerIsDriver())) throw new HttpsError("permission-denied", "Drivers only.");
+    const me = await db.collection("Drivers").doc(uid).get();
+    to = phoneOf(me.data());
+    body = "🧪 *Test WhatsApp Integration*\n\nCeci est un test de l'intégration WhatsApp pour Caval Driver.\n\n" +
+      "*Test réussi si vous recevez ce message!*\n\nCaval Team";
+  } else if (type === "status") {
+    if (!(await callerIsDriver())) throw new HttpsError("permission-denied", "Drivers only.");
+    const res = await fetch(`${ULTRAMSG_BASE}/instance/me?token=${encodeURIComponent(ULTRAMSG_TOKEN.value())}`);
+    const result = await res.json().catch(() => ({}));
+    return {active: res.ok && !result.error, instanceId: ULTRAMSG_INSTANCE, data: result};
+  } else {
+    throw new HttpsError("invalid-argument", `Unknown type: ${type}`);
+  }
+
+  if (!to) throw new HttpsError("failed-precondition", "Recipient has no phone number.");
+
+  // One message per ride/type/recipient, so retries and duplicate listeners
+  // don't spam people. create() fails if the log entry already exists.
+  if (targetUid) {
+    try {
+      await db.collection("whatsappLog").doc(`${rideId}_${type}_${targetUid}`)
+          .create({type, rideId, targetUid, sentBy: uid, sentAt: new Date()});
+    } catch (e) {
+      if (e.code === 6) return {skipped: true, reason: "already_sent"}; // ALREADY_EXISTS
+      throw e;
+    }
+  }
+
+  const result = await sendWhatsAppMessage(to, body);
+  return {sent: true, result};
+});

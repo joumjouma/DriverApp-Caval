@@ -5,7 +5,7 @@ const https = require('https');
 
 // Your UltraMsg credentials
 const INSTANCE_ID = "instance131940";
-const TOKEN = "8eoza1gyk2md4sic";
+const TOKEN = process.env.ULTRAMSG_TOKEN; // run: ULTRAMSG_TOKEN=... node test-whatsapp.js
 
 // Test function
 async function testWhatsAppMessage(phoneNumber) {

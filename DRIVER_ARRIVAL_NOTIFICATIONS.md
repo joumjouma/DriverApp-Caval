@@ -134,7 +134,7 @@ Caval Team
 ### WhatsApp Integration (UltraMsg)
 
 **API Endpoint:** `https://api.ultramsg.com/instance131940/messages/chat`
-**Token:** `8eoza1gyk2md4sic`
+**Token:** `<stored in Firebase Secret Manager as ULTRAMSG_TOKEN>`
 **Instance ID:** `instance131940`
 
 **Features:**
@@ -196,7 +196,7 @@ grep "❌" firebase-debug.log
 ### UltraMsg Settings
 - **Instance:** #131940
 - **API URL:** `https://api.ultramsg.com/instance131940`
-- **Token:** `8eoza1gyk2md4sic`
+- **Token:** `<stored in Firebase Secret Manager as ULTRAMSG_TOKEN>`
 - **Daily Limit:** 100 messages (demo version)
 
 ### Push Notification Settings
