@@ -92,11 +92,11 @@ test('driver cannot edit another driver', async () => {
   await assertFails(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER2), { isOnline: false }));
 });
 
-test('customer can rate a driver (DriverFoundScreen) but nothing else', async () => {
-  await assertSucceeds(updateDoc(doc(db(CUSTOMER), 'Drivers', DRIVER),
-    { ratings: [5, 4], averageRating: 4.5, totalRatings: 2 }));
+test('customers cannot edit drivers or write ratings directly (rateDriver function only)', async () => {
+  await assertFails(updateDoc(doc(db(CUSTOMER), 'Drivers', DRIVER), { ratings: [5, 4], averageRating: 4.5, totalRatings: 2 }));
   await assertFails(updateDoc(doc(db(CUSTOMER), 'Drivers', DRIVER), { isApproved: false }));
-  await assertFails(updateDoc(doc(db(CUSTOMER), 'Drivers', DRIVER), { averageRating: 5, isOnline: false }));
+  await assertFails(setDoc(doc(db(CUSTOMER), 'driverRatings', `ride1_${CUSTOMER}`), { rating: 5, driverId: DRIVER, customerId: CUSTOMER }));
+  await assertFails(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER), { averageRating: 5 }));
 });
 
 test('driver can query online drivers (assignment)', async () => {

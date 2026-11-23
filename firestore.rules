@@ -31,7 +31,7 @@ service cloud.firestore {
     // Ride fields only Cloud Functions may set.
     function rideServerFields() {
       return ['fareSource', 'billedDistanceKm', 'clientFare', 'earningsRecordedAt',
-              'lastDeclinedBy', 'lastDeclinedAt'];
+              'lastDeclinedBy', 'lastDeclinedAt', 'replacedBy', 'retryOf', 'customerDeletedAt'];
     }
 
     // Private driver data lives in Drivers/{id}/private/profile, not on the
@@ -64,13 +64,11 @@ service cloud.firestore {
         && request.resource.data.get('dailyEarnings', 0) == 0;
 
       allow update: if
-        // Driver edits own profile/status/location, but never approval or money fields.
-        (isSelf(driverId) && noChangesTo(driverAdminFields())
+        // Driver edits own profile/status/location, but never approval,
+        // money or rating fields. (Ratings go through the rateDriver function.)
+        isSelf(driverId) && noChangesTo(driverAdminFields())
             && !request.resource.data.diff(resource.data).addedKeys().hasAny(driverPrivateFields())
-            && !request.resource.data.diff(resource.data).changedKeys().hasAny(driverPrivateFields()))
-        // Customer submits a rating (DriverFoundScreen) — rating fields only.
-        || (isCustomer() && !isSelf(driverId)
-            && onlyChanges(['ratings', 'averageRating', 'totalRatings']));
+            && !request.resource.data.diff(resource.data).changedKeys().hasAny(driverPrivateFields());
 
       allow delete: if isSelf(driverId);   // account deletion (SettingsScreen)
 
@@ -175,11 +173,11 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.userId == request.auth.uid;
     }
 
-    // ---------- Ratings: doc id is `${rideId}_${customerUid}` ----------
+    // ---------- Ratings: written by the rateDriver function ----------
     match /driverRatings/{ratingId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && ratingId.matches('.+_' + request.auth.uid);
-      allow update, delete: if false;
+      allow read: if signedIn()
+        && request.auth.uid in [resource.data.get('driverId', null), resource.data.get('customerId', null)];
+      allow write: if false;
     }
 
     // ---------- Conversations ----------

@@ -14,6 +14,8 @@ const {defineSecret} = require("firebase-functions/params");
 const {initializeApp} = require("firebase-admin/app");
 const {getFirestore, FieldValue} = require("firebase-admin/firestore");
 const {getMessaging} = require("firebase-admin/messaging");
+const {getAuth} = require("firebase-admin/auth");
+const {getStorage} = require("firebase-admin/storage");
 
 // Initialize Firebase Admin
 initializeApp();
@@ -2681,4 +2683,155 @@ exports.declineRide = onCall({maxInstances: 5, memory: "256MiB", timeoutSeconds:
   }
   await markRideAsNoDriversAvailable(rideId, rideData, db);
   return {reassigned: false};
+});
+
+// ===========================================================================
+// Customer app callables
+// ===========================================================================
+
+// Fields copied when a ride is re-requested. Everything else (driver,
+// status, fare) is recomputed by selectBestDriverForNewRideRequest.
+const RIDE_COPY_FIELDS = [
+  "userId", "rideType", "pickupLat", "pickupLng", "destinationLat", "destinationLng",
+  "pickupAddress", "destinationAddress", "distance", "duration", "paymentMethod",
+];
+const RETRYABLE = new Set(["no_drivers_available", "cancelled_by_driver"]);
+
+// retryRide — the customer asks to search again after "no drivers" or the
+// driver cancelled. Creates a fresh ride request (which triggers pricing and
+// assignment) and links the old one to it.  data: { rideId } → { rideId }
+exports.retryRide = onCall({maxInstances: 5, memory: "256MiB", timeoutSeconds: 30}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const {rideId} = request.data || {};
+  if (typeof rideId !== "string" || !rideId) throw new HttpsError("invalid-argument", "rideId required.");
+
+  const db = getFirestore();
+  const oldRef = db.collection("rideRequests").doc(rideId);
+  const snap = await oldRef.get();
+  if (!snap.exists) throw new HttpsError("not-found", "Ride not found.");
+  const old = snap.data();
+  if (old.userId !== uid) throw new HttpsError("permission-denied", "Not your ride.");
+  const retryable = RETRYABLE.has(old.status) || (old.status === "cancelled" && old.cancelledBy !== "customer");
+  if (!retryable) throw new HttpsError("failed-precondition", `Ride can't be retried from status ${old.status}.`);
+  if (old.replacedBy) return {rideId: old.replacedBy};
+
+  const fresh = {};
+  for (const f of RIDE_COPY_FIELDS) if (old[f] !== undefined) fresh[f] = old[f];
+  Object.assign(fresh, {
+    status: "waiting", driverId: null, selectedDriverId: null,
+    retryOf: rideId, createdAt: FieldValue.serverTimestamp(),
+  });
+  const newRef = db.collection("rideRequests").doc();
+
+  // Customer contact card that the assigned driver reads
+  const contact = await db.collection("rideRequestsDriver").where("rideRequestId", "==", rideId).limit(1).get();
+
+  const batch = db.batch();
+  batch.set(newRef, fresh);
+  if (!contact.empty) {
+    batch.set(db.collection("rideRequestsDriver").doc(), {
+      ...contact.docs[0].data(), rideRequestId: newRef.id, createdAt: FieldValue.serverTimestamp(),
+    });
+  }
+  batch.update(oldRef, {replacedBy: newRef.id});
+  await batch.commit();
+  return {rideId: newRef.id};
+});
+
+// rateDriver — one rating per completed ride, averaged on the server.
+// data: { rideId, rating: 1..5, comments?: string[] }
+exports.rateDriver = onCall({maxInstances: 5, memory: "256MiB", timeoutSeconds: 30}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const {rideId, rating, comments} = request.data || {};
+  if (typeof rideId !== "string" || !rideId) throw new HttpsError("invalid-argument", "rideId required.");
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    throw new HttpsError("invalid-argument", "rating must be an integer from 1 to 5.");
+  }
+  const cleanComments = Array.isArray(comments) ?
+    comments.filter((c) => typeof c === "string").slice(0, 10).map((c) => c.slice(0, 200)) : [];
+
+  const db = getFirestore();
+  const rideRef = db.collection("rideRequests").doc(rideId);
+  const ratingRef = db.collection("driverRatings").doc(`${rideId}_${uid}`);
+
+  return db.runTransaction(async (tx) => {
+    const [rideSnap, existing] = await Promise.all([tx.get(rideRef), tx.get(ratingRef)]);
+    if (!rideSnap.exists) throw new HttpsError("not-found", "Ride not found.");
+    const ride = rideSnap.data();
+    if (ride.userId !== uid) throw new HttpsError("permission-denied", "Not your ride.");
+    if (ride.status !== "completed") throw new HttpsError("failed-precondition", "Only completed rides can be rated.");
+    if (!ride.driverId) throw new HttpsError("failed-precondition", "Ride has no driver.");
+    if (existing.exists) return {alreadyRated: true};
+
+    const driverRef = db.collection("Drivers").doc(ride.driverId);
+    const driverSnap = await tx.get(driverRef);
+    if (!driverSnap.exists) throw new HttpsError("not-found", "Driver not found.");
+    const ratings = [...(driverSnap.data().ratings || []), rating];
+    const averageRating = Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 100) / 100;
+
+    tx.set(ratingRef, {
+      rideId, driverId: ride.driverId, customerId: uid, rating,
+      comments: cleanComments, createdAt: FieldValue.serverTimestamp(),
+    });
+    tx.update(driverRef, {ratings, averageRating, totalRatings: ratings.length});
+    return {averageRating};
+  });
+});
+
+// deleteMyAccount — customer account deletion (App Store guideline 5.1.1(v)).
+// Deletes the profile, photos, conversations and ratings; anonymizes past
+// rides (drivers' earnings history keeps the fare); deletes the login.
+exports.deleteMyAccount = onCall({maxInstances: 5, memory: "512MiB", timeoutSeconds: 120}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const db = getFirestore();
+
+  // Drivers delete their account in the driver app; this is for customers.
+  if ((await db.collection("Drivers").doc(uid).get()).exists) {
+    throw new HttpsError("failed-precondition", "Driver accounts are deleted from the driver app.");
+  }
+
+  const writer = db.bulkWriter();
+
+  // Rides: keep the record for the driver, remove personal data
+  const rides = await db.collection("rideRequests").where("userId", "==", uid).get();
+  for (const r of rides.docs) {
+    writer.update(r.ref, {
+      userId: "deleted-user", customerName: FieldValue.delete(), customerPhone: FieldValue.delete(),
+      customerPhoto: FieldValue.delete(), customerDeletedAt: new Date(),
+    });
+    const contacts = await db.collection("rideRequestsDriver").where("rideRequestId", "==", r.id).get();
+    contacts.docs.forEach((c) => writer.delete(c.ref));
+  }
+
+  // Conversations and their messages
+  const convs = await db.collection("conversations").where("customerId", "==", uid).get();
+  for (const c of convs.docs) {
+    const msgs = await c.ref.collection("messages").get();
+    msgs.docs.forEach((m) => writer.delete(m.ref));
+    writer.delete(c.ref);
+  }
+
+  // Ratings they left (the driver's average is kept)
+  const ratings = await db.collection("driverRatings").where("customerId", "==", uid).get();
+  ratings.docs.forEach((d) => writer.delete(d.ref));
+
+  // Saved payment methods and profile
+  const pms = await db.collection("paymentMethods").where("userId", "==", uid).get();
+  pms.docs.forEach((d) => writer.delete(d.ref));
+  writer.delete(db.collection("Customers").doc(uid));
+  writer.delete(db.collection("Users").doc(uid));
+  await writer.close();
+
+  // Profile photos: profile_photos/{uid}_*
+  try {
+    await getStorage().bucket().deleteFiles({prefix: `profile_photos/${uid}_`});
+  } catch (e) {
+    console.error(`Photo cleanup failed for ${uid}:`, e);
+  }
+
+  await getAuth().deleteUser(uid);
+  return {deleted: true};
 });
