@@ -334,6 +334,33 @@ test('rewards: own doc read-only; promo codes closed', async () => {
   await assertFails(getDoc(doc(db(CUSTOMER), 'promoCodes', 'BIENVENUE')));
 });
 
+// ---------- wave 3 ----------
+const adminDb = () => env.authenticatedContext('admin1', { admin: true }).firestore();
+
+test('admin claim opens the dashboard collections', async () => {
+  await assertSucceeds(setDoc(doc(adminDb(), 'promoCodes', 'BIENVENUE'), { active: true, type: 'amount', value: 200 }));
+  await assertFails(getDoc(doc(db(CUSTOMER), 'promoCodes', 'BIENVENUE')));
+  await assertSucceeds(setDoc(doc(adminDb(), 'appConfig', 'customer'), { packagesEnabled: true }));
+  await assertFails(setDoc(doc(db(CUSTOMER), 'appConfig', 'customer'), { packagesEnabled: true }));
+  await assertSucceeds(updateDoc(doc(adminDb(), 'Drivers', DRIVER), { isApproved: true, approvalStatus: 'approved' }));
+  await assertSucceeds(getDoc(doc(adminDb(), 'rideRequests', 'ride1')));
+});
+
+test('support: own tickets, user messages only as user', async () => {
+  await assertSucceeds(setDoc(doc(db(CUSTOMER), 'supportTickets', 't1'), { uid: CUSTOMER, subject: 'Objet oublié', status: 'open' }));
+  await assertFails(getDoc(doc(db(CUSTOMER2), 'supportTickets', 't1')));
+  await assertSucceeds(addDoc(collection(db(CUSTOMER), 'supportTickets', 't1', 'messages'), { text: 'Bonjour', from: 'user', authorUid: CUSTOMER }));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'supportTickets', 't1', 'messages'), { text: 'fake', from: 'support', authorUid: CUSTOMER }));
+  await assertSucceeds(addDoc(collection(adminDb(), 'supportTickets', 't1', 'messages'), { text: 'Réponse', from: 'support', authorUid: 'admin1' }));
+});
+
+test('businesses: members read, only admins write', async () => {
+  await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'businesses', 'b1'), { name: 'X', memberUids: [CUSTOMER], active: true }));
+  await assertSucceeds(getDoc(doc(db(CUSTOMER), 'businesses', 'b1')));
+  await assertFails(getDoc(doc(db(CUSTOMER2), 'businesses', 'b1')));
+  await assertFails(updateDoc(doc(db(CUSTOMER), 'businesses', 'b1'), { memberUids: [CUSTOMER, CUSTOMER2] }));
+});
+
 // ---------- default deny ----------
 test('unlisted collections are closed', async () => {
   await assertFails(setDoc(doc(db(DRIVER), 'test', 'x'), { a: 1 }));

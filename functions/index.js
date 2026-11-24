@@ -2796,7 +2796,7 @@ const RIDE_COPY_FIELDS = [
   "userId", "rideType", "pickupLat", "pickupLng", "destinationLat", "destinationLng",
   "pickupAddress", "destinationAddress", "distance", "duration", "paymentMethod",
   "serviceType", "package", "stops", "pickupNote", "passenger", "promoCode",
-  "preferFemaleDriver", "favoriteDriverIds", "hours",
+  "preferFemaleDriver", "favoriteDriverIds", "hours", "businessId",
 ];
 const RETRYABLE = new Set(["no_drivers_available", "cancelled_by_driver"]);
 
@@ -2999,8 +2999,12 @@ exports.onDeliveryCreated = onDocumentCreated({
     `Bonjour${name ? ` ${name}` : ""}, ${sender} vous envoie un colis avec Caval.\n\n` +
     `🔑 *Code de livraison : ${code}*\n\n` +
     "Donnez ce code au livreur seulement quand vous avez reçu le colis.";
+  let trackLine = "";
   try {
-    await sendWhatsAppMessage(to, body);
+    trackLine = `\n\n📍 Suivre la livraison : ${await makeShareLink(db, rideId, ride.userId, "recipient")}`;
+  } catch (e) { /* link is optional */ }
+  try {
+    await sendWhatsAppMessage(to, body + trackLine);
     await privateRef.update({sentToRecipientAt: FieldValue.serverTimestamp()});
   } catch (e) {
     console.error(`Delivery ${rideId}: WhatsApp to recipient failed`, e);
@@ -3082,6 +3086,7 @@ function promoDiscount(promo, fare) {
 // Applies a promo code, then the customer's Caval credit. Consumes them in a
 // transaction and returns the fields to write on the ride.
 async function applyDiscounts(db, rideId, ride, fare) {
+  if (ride.businessId) return {update: {fare}}; // business rides are invoiced at full price
   const code = normCode(ride.promoCode);
   try {
     return await db.runTransaction(async (tx) => {
@@ -3379,4 +3384,237 @@ exports.sendReceipt = onCall({secrets: [ULTRAMSG_TOKEN], maxInstances: 5, memory
   }
   await sendWhatsAppMessage(to, lines.join("\n"));
   return {sent: true};
+});
+
+// ===========================================================================
+// Wave 3 — share/tracking links, WhatsApp bot, business accounts, support,
+// admin. See docs/WAVE3.md.
+// ===========================================================================
+const crypto = require("node:crypto");
+const TRACK_BASE_URL = "https://eco-share-92ef1.web.app/t/";
+const SHARE_TTL_HOURS = 24;
+const isAdminCaller = (request) => !!(request.auth && request.auth.token && request.auth.token.admin === true);
+const randomToken = (n = 22) => crypto.randomBytes(32).toString("base64url").replace(/[-_]/g, "").slice(0, n);
+
+async function makeShareLink(db, rideId, uid, purpose) {
+  const token = randomToken();
+  await db.collection("shareLinks").doc(token).set({
+    rideId, uid, purpose, createdAt: FieldValue.serverTimestamp(),
+    expiresAt: new Date(Date.now() + SHARE_TTL_HOURS * 3600 * 1000),
+  });
+  return `${TRACK_BASE_URL}${token}`;
+}
+
+// createShareLink — the customer shares a live link to their ride.
+exports.createShareLink = onCall({maxInstances: 5, memory: "128MiB", timeoutSeconds: 20}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const {rideId} = request.data || {};
+  if (typeof rideId !== "string" || !rideId) throw new HttpsError("invalid-argument", "rideId required.");
+  const db = getFirestore();
+  const ride = (await db.collection("rideRequests").doc(rideId).get()).data();
+  if (!ride || ride.userId !== uid) throw new HttpsError("permission-denied", "Not your ride.");
+  return {url: await makeShareLink(db, rideId, uid, "share")};
+});
+
+// track — public, read-only status for a share link (used by /t/{token}).
+// Returns only what someone following the trip needs.
+exports.track = onRequest({maxInstances: 10, memory: "128MiB", timeoutSeconds: 20, cors: true}, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const token = String(req.query.t || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 40);
+  if (!token) return res.status(400).json({error: "missing"});
+  const db = getFirestore();
+  const link = (await db.collection("shareLinks").doc(token).get()).data();
+  if (!link || (link.expiresAt && link.expiresAt.toDate() < new Date())) return res.status(404).json({error: "expired"});
+  let rideId = link.rideId;
+  let ride = (await db.collection("rideRequests").doc(rideId).get()).data();
+  // Follow retries / scheduled dispatch to the live ride
+  for (let i = 0; i < 3 && ride && (ride.replacedBy || ride.dispatchedRideId); i++) {
+    rideId = ride.replacedBy || ride.dispatchedRideId;
+    ride = (await db.collection("rideRequests").doc(rideId).get()).data();
+  }
+  if (!ride) return res.status(404).json({error: "not_found"});
+  const active = ["assigned", "driver_arrived", "arrived_at_pickup", "picked_up", "ride_started", "in_progress", "active"].includes(ride.status);
+  let driver = null;
+  if (ride.driverId) {
+    const d = (await db.collection("Drivers").doc(ride.driverId).get()).data() || {};
+    driver = {
+      firstName: (ride.driverName || d.firstName || "").split(" ")[0] || null,
+      car: [d.carMake, d.carModel].filter(Boolean).join(" ") || null, color: d.carColor || null,
+      plate: d.plaqueImmatriculation || null, photo: d.photo || null,
+      position: active && d.latitude && d.longitude ? {lat: d.latitude, lng: d.longitude} : null,
+    };
+  }
+  return res.json({
+    status: ride.status, serviceType: ride.serviceType || "ride",
+    pickup: {lat: ride.pickupLat, lng: ride.pickupLng, address: ride.pickupAddress || null},
+    destination: {lat: ride.destinationLat, lng: ride.destinationLng, address: ride.destinationAddress || null},
+    stops: (ride.stops || []).map((s) => ({lat: s.latitude, lng: s.longitude})),
+    recipientName: link.purpose === "recipient" && ride.package ? ride.package.recipientName : null,
+    driver, updatedAt: Date.now(),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WhatsApp bot (UltraMsg webhook). Set the webhook URL in UltraMsg to
+//   https://<region>-eco-share-92ef1.cloudfunctions.net/whatsappWebhook?key=<WHATSAPP_WEBHOOK_KEY>
+// ---------------------------------------------------------------------------
+const WHATSAPP_WEBHOOK_KEY = defineSecret("WHATSAPP_WEBHOOK_KEY");
+const APP_LINK = "https://www.caval.tech";
+const BOT_MENU = "Bonjour 👋 Bienvenue chez *Caval*.\n\nRépondez avec un chiffre :\n" +
+  "*1* Commander une course\n*2* Suivre ma course\n*3* Nos prix\n*4* Parler à quelqu'un";
+const ACTIVE_STATUSES = ["waiting", "driver_selected", "assigned", "driver_arrived", "arrived_at_pickup", "picked_up", "ride_started", "in_progress", "active"];
+const STATUS_FR = {
+  waiting: "Recherche d'un chauffeur", driver_selected: "Recherche d'un chauffeur", assigned: "Chauffeur en route",
+  driver_arrived: "Chauffeur arrivé", arrived_at_pickup: "Chauffeur arrivé", picked_up: "En route vers la destination",
+};
+
+exports.whatsappWebhook = onRequest({secrets: [ULTRAMSG_TOKEN, WHATSAPP_WEBHOOK_KEY], maxInstances: 5, memory: "256MiB", timeoutSeconds: 30},
+    async (req, res) => {
+      if (req.method !== "POST" || req.query.key !== WHATSAPP_WEBHOOK_KEY.value()) return res.status(403).send("forbidden");
+      res.status(200).send("ok"); // answer UltraMsg right away
+      try {
+        const body = req.body || {};
+        const m = body.data || {};
+        if (body.event_type && body.event_type !== "message_received") return;
+        if (m.fromMe || !m.from || String(m.from).endsWith("@g.us")) return; // no groups, no echoes
+        const digits = String(m.from).replace(/@.*/, "").replace(/\D/g, "");
+        const phone = `+${digits}`;
+        const db = getFirestore();
+        const stateRef = db.collection("whatsappBot").doc(digits);
+        const state = (await stateRef.get()).data() || {};
+        const text = String(m.body || "").trim().toLowerCase();
+        const lat = Number(m.lat ?? (m.location && m.location.latitude));
+        const lng = Number(m.lng ?? (m.location && m.location.longitude));
+        const reply = (msg) => sendWhatsAppMessage(phone, msg);
+
+        if (m.type === "location" && Number.isFinite(lat) && Number.isFinite(lng)) {
+          await db.collection("whatsappLeads").add({phone, type: "ride", lat, lng, name: m.pushname || null,
+            status: "new", createdAt: FieldValue.serverTimestamp()});
+          await stateRef.set({step: "idle", lastAt: FieldValue.serverTimestamp()}, {merge: true});
+          return reply("Merci ! 📍 Position reçue. Un opérateur Caval vous rappelle dans quelques minutes pour confirmer la course.\n\n" +
+            `Plus rapide la prochaine fois : l'application ${APP_LINK}`);
+        }
+        if (text === "1" || text.includes("command")) {
+          await stateRef.set({step: "await_location", lastAt: FieldValue.serverTimestamp()}, {merge: true});
+          return reply("Envoyez votre *position* : 📎 → Position → Envoyer ma position actuelle.\n\n" +
+            `Ou commandez directement dans l'application : ${APP_LINK}`);
+        }
+        if (text === "2" || text.includes("suivre")) {
+          const cust = await db.collection("Customers").where("number", "==", phone).limit(1).get();
+          if (cust.empty) return reply("Nous n'avons pas trouvé de compte Caval avec ce numéro. Répondez *4* pour parler à quelqu'un.");
+          const rides = await db.collection("rideRequests").where("userId", "==", cust.docs[0].id)
+              .orderBy("createdAt", "desc").limit(1).get();
+          const r = rides.empty ? null : rides.docs[0].data();
+          if (!r || !ACTIVE_STATUSES.includes(r.status)) return reply("Vous n'avez pas de course en cours.");
+          return reply(`🚗 *${STATUS_FR[r.status] || "Course en cours"}*` + (r.driverName ? `\nChauffeur : ${r.driverName}` : "") +
+            `\nMontant : ${r.fare || "—"} Fdj (espèces)`);
+        }
+        if (text === "3" || text.includes("prix") || text.includes("tarif")) {
+          const {fares} = await getPricing(db);
+          const line = (name, t) => `• ${name} : ${t.base} Fdj jusqu'à ${t.includedKm} km, puis ${t.perKm} Fdj/km`;
+          return reply("💰 *Nos prix*\n" + line("Voiture", fares["Caval Privé"]) + "\n" + line("Moto", fares["Caval moto"]) +
+            "\n\nLe prix exact s'affiche dans l'application avant de commander.");
+        }
+        if (text === "4" || text.includes("aide") || text.includes("help")) {
+          await db.collection("whatsappLeads").add({phone, type: "support", text: m.body || "", name: m.pushname || null,
+            status: "new", createdAt: FieldValue.serverTimestamp()});
+          return reply("D'accord, un membre de l'équipe Caval vous répond ici dès que possible. Décrivez votre demande en un message.");
+        }
+        // Free text after "4" or unknown: log for the team, show the menu at most once an hour
+        await db.collection("whatsappLeads").add({phone, type: "message", text: m.body || "", name: m.pushname || null,
+          status: "new", createdAt: FieldValue.serverTimestamp()});
+        const lastMenu = state.lastMenuAt && state.lastMenuAt.toDate ? state.lastMenuAt.toDate().getTime() : 0;
+        if (Date.now() - lastMenu > 3600 * 1000) {
+          await stateRef.set({lastMenuAt: FieldValue.serverTimestamp()}, {merge: true});
+          return reply(BOT_MENU);
+        }
+      } catch (e) {
+        console.error("whatsappWebhook failed", e);
+      }
+    });
+
+// ---------------------------------------------------------------------------
+// Business accounts: businesses/{id} { name, inviteCode, adminUids, memberUids,
+// active } — created in the admin dashboard. Members can charge rides to the
+// business (paymentMethod "business"); the business is invoiced monthly.
+// ---------------------------------------------------------------------------
+exports.joinBusiness = onCall({maxInstances: 5, memory: "128MiB", timeoutSeconds: 20}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const code = normCode(request.data && request.data.code);
+  if (!code) throw new HttpsError("invalid-argument", "Code required.");
+  const db = getFirestore();
+  const q = await db.collection("businesses").where("inviteCode", "==", code).where("active", "==", true).limit(1).get();
+  if (q.empty) throw new HttpsError("not-found", "Code entreprise inconnu.");
+  const biz = {id: q.docs[0].id, name: q.docs[0].data().name};
+  await q.docs[0].ref.update({memberUids: FieldValue.arrayUnion(uid)});
+  // The app lists the customer's businesses from their own profile
+  await db.collection("Customers").doc(uid).set({businesses: FieldValue.arrayUnion(biz)}, {merge: true});
+  return {businessId: biz.id, name: biz.name};
+});
+
+exports.leaveBusiness = onCall({maxInstances: 5, memory: "128MiB", timeoutSeconds: 20}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const {businessId} = request.data || {};
+  if (typeof businessId !== "string") throw new HttpsError("invalid-argument", "businessId required.");
+  const db = getFirestore();
+  await db.collection("businesses").doc(businessId).update({memberUids: FieldValue.arrayRemove(uid)});
+  const me = (await db.collection("Customers").doc(uid).get()).data() || {};
+  await db.collection("Customers").doc(uid).update({businesses: (me.businesses || []).filter((b) => b.id !== businessId)});
+  return {ok: true};
+});
+
+// Business rides: check membership at creation; no promo/credit on them.
+exports.checkBusinessRide = onDocumentCreated({document: "rideRequests/{rideId}", maxInstances: 5, memory: "128MiB"}, async (event) => {
+  const ride = event.data && event.data.data();
+  if (!ride || !ride.businessId) return;
+  const biz = (await getFirestore().collection("businesses").doc(ride.businessId).get()).data();
+  const ok = biz && biz.active && (biz.memberUids || []).includes(ride.userId);
+  if (!ok) await event.data.ref.update({businessId: null, paymentMethod: "cash", businessRejected: true});
+  else await event.data.ref.update({businessName: biz.name, businessVerified: true});
+});
+
+// ---------------------------------------------------------------------------
+// Support chat: supportTickets/{id} + messages. A reply from the team pushes
+// a notification to the customer.
+// ---------------------------------------------------------------------------
+exports.onSupportMessage = onDocumentCreated({document: "supportTickets/{ticketId}/messages/{msgId}", maxInstances: 5, memory: "128MiB"},
+    async (event) => {
+      const msg = event.data && event.data.data();
+      if (!msg) return;
+      const db = getFirestore();
+      const ticketRef = db.collection("supportTickets").doc(event.params.ticketId);
+      const ticket = (await ticketRef.get()).data();
+      if (!ticket) return;
+      await ticketRef.update({
+        lastMessage: String(msg.text || "").slice(0, 200), lastFrom: msg.from, updatedAt: FieldValue.serverTimestamp(),
+        ...(msg.from === "support" ? {unreadByUser: true, status: "answered"} : {unreadBySupport: true, status: "open"}),
+      });
+      if (msg.from === "support") {
+        await pushToCustomer(db, ticket.uid, "Support Caval", String(msg.text || "Nouvelle réponse").slice(0, 120), {ticketId: event.params.ticketId});
+      }
+    });
+
+// ---------------------------------------------------------------------------
+// Admin: custom claim { admin: true } (functions/scripts/set-admin.js).
+// ---------------------------------------------------------------------------
+exports.adminMonthlyReport = onCall({maxInstances: 2, memory: "256MiB", timeoutSeconds: 60}, async (request) => {
+  if (!isAdminCaller(request)) throw new HttpsError("permission-denied", "Admins only.");
+  const {businessId, month} = request.data || {}; // month "2026-11"
+  if (!/^\d{4}-\d{2}$/.test(String(month))) throw new HttpsError("invalid-argument", "month YYYY-MM required.");
+  const [y, mo] = month.split("-").map(Number);
+  const from = new Date(Date.UTC(y, mo - 1, 1)); const to = new Date(Date.UTC(y, mo, 1));
+  let q = getFirestore().collection("rideRequests").where("status", "==", "completed")
+      .where("createdAt", ">=", from).where("createdAt", "<", to);
+  if (businessId) q = q.where("businessId", "==", businessId);
+  const snap = await q.get();
+  const rows = snap.docs.map((d) => {
+    const r = d.data();
+    return {id: d.id, date: r.createdAt && r.createdAt.toDate ? r.createdAt.toDate().toISOString() : "", userId: r.userId,
+      passenger: r.passenger ? r.passenger.name : "", from: r.pickupAddress || "", to: r.destinationAddress || "",
+      km: r.billedDistanceKm || "", fare: r.fare || 0, driver: r.driverName || "", service: r.serviceType || "ride"};
+  });
+  return {count: rows.length, total: rows.reduce((s, r) => s + (Number(r.fare) || 0), 0), rows};
 });
