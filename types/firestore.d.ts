@@ -51,6 +51,9 @@ export interface RideRequest {
   clientFare?: number | null;        // server: what the app sent
   earningsRecordedAt?: When;         // server
 
+  pickupNote?: string | null;        // landmark for the driver, ≤ 140
+  passenger?: { name: string; phone: string } | null; // ride booked for someone else
+
   // Packages (see docs/PACKAGES.md in DriverApp-Caval)
   serviceType?: 'ride' | 'delivery'; // missing = ride
   package?: RidePackage;
