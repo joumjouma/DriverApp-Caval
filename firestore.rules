@@ -29,7 +29,10 @@ service cloud.firestore {
     function rideServerFields() {
       return ['fareSource', 'billedDistanceKm', 'clientFare', 'earningsRecordedAt',
               'lastDeclinedBy', 'lastDeclinedAt', 'replacedBy', 'retryOf', 'customerDeletedAt',
-              'deliveryVerified', 'deliveredAt', 'deliveryCodeAttempts'];
+              'deliveryVerified', 'deliveredAt', 'deliveryCodeAttempts',
+              'fareBeforeDiscount', 'discount', 'promo', 'creditUsed', 'discountRefundedAt',
+              'pointsAwardedAt', 'intercity', 'pickupPinVerified', 'pickupPinAttempts',
+              'dispatchedRideId', 'dispatchedAt', 'scheduledRideId'];
     }
 
     // Packages (serviceType 'delivery'). Sizes match DELIVERY_SIZES in functions.
@@ -43,7 +46,21 @@ service cloud.firestore {
         && shortText(p.recipientPhone, 20) && p.recipientPhone.size() >= 8
         && shortText(p.get('description', ''), 200)
         && shortText(p.get('note', ''), 200)
-        && p.get('payer', 'sender') == 'sender';
+        && p.get('payer', 'sender') in ['sender', 'recipient'];
+    }
+
+    // Optional ride fields sent by the customer app (wave 2)
+    function validRideExtras(d) {
+      return (!('stops' in d) || (d.stops is list && d.stops.size() <= 2))
+        && (!('favoriteDriverIds' in d) || (d.favoriteDriverIds is list && d.favoriteDriverIds.size() <= 10))
+        && (!('preferFemaleDriver' in d) || d.preferFemaleDriver is bool)
+        && (!('promoCode' in d) || d.promoCode == null || shortText(d.promoCode, 20))
+        && (!('pickupNote' in d) || d.pickupNote == null || shortText(d.pickupNote, 140))
+        && (d.get('serviceType', 'ride') != 'hourly' || (d.hours is int && d.hours >= 1 && d.hours <= 12))
+        && (d.get('status', 'waiting') != 'scheduled'
+            || (d.scheduledFor is timestamp
+                && d.scheduledFor > request.time + duration.value(20, 'm')
+                && d.scheduledFor < request.time + duration.value(7, 'd')));
     }
 
     // Private driver data lives in Drivers/{id}/private/profile, not on the
@@ -108,12 +125,13 @@ service cloud.firestore {
       // Customers create their own ride request, unassigned.
       allow create: if signedIn()
         && request.resource.data.userId == request.auth.uid
-        // RideOptionsScreen sends status 'waiting'; HomeScreenWithMap sends none.
-        && request.resource.data.get('status', 'waiting') == 'waiting'
+        // 'waiting', or 'scheduled' with scheduledFor (dispatchScheduledRides)
+        && request.resource.data.get('status', 'waiting') in ['waiting', 'scheduled']
         && request.resource.data.get('driverId', null) == null
         && request.resource.data.get('selectedDriverId', null) == null
         && !request.resource.data.keys().hasAny(rideServerFields())
-        && request.resource.data.get('serviceType', 'ride') in ['ride', 'delivery']
+        && request.resource.data.get('serviceType', 'ride') in ['ride', 'delivery', 'hourly']
+        && validRideExtras(request.resource.data)
         && (!isDeliveryRequest(request.resource.data) || validPackage(request.resource.data.get('package', null)));
 
       allow update: if
@@ -126,7 +144,8 @@ service cloud.firestore {
             && noChangesTo(['userId', 'fare', 'rideType', 'paymentMethod', 'distance',
                             'pickupLat', 'pickupLng', 'destinationLat', 'destinationLng',
                             'createdAt', 'selectedDriverId', 'declinedDrivers',
-                            'serviceType', 'package'])
+                            'serviceType', 'package', 'stops', 'hours', 'promoCode',
+                            'scheduledFor', 'passenger', 'pickupNote'])
             && noChangesTo(rideServerFields())
             // A delivery is completed only by confirmDelivery (code check).
             && (!isDeliveryRequest(resource.data) || request.resource.data.status != 'completed'
@@ -231,8 +250,16 @@ service cloud.firestore {
       }
     }
 
-    // ---------- App config (feature flags), edited in the Console ----------
-    // appConfig/customer: { packagesEnabled: bool }
+    // ---------- Rewards (points, credit, referral) — Cloud Functions only ----------
+    match /customerRewards/{uid} {
+      allow read: if isSelf(uid);
+      allow write: if false;
+    }
+    // promoCodes, promoRedemptions, referralCodes: no client access (default deny).
+
+    // ---------- App config (feature flags, pricing), edited in the Console ----------
+    // appConfig/customer: { packagesEnabled, hourlyEnabled, femaleDriversEnabled, … }
+    // appConfig/pricing:  fares, surcharges, intercity, hourly, rewards (see functions)
     match /appConfig/{docId} {
       allow read: if signedIn();
       allow write: if false;

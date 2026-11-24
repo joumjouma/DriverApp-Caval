@@ -306,6 +306,34 @@ test('app config: readable, not writable', async () => {
   await assertFails(setDoc(doc(db(CUSTOMER), 'appConfig', 'customer'), { packagesEnabled: true }));
 });
 
+// ---------- wave 2 ----------
+const ride = (extra = {}) => ({ userId: CUSTOMER, status: 'waiting', rideType: 'Caval moto',
+  pickupLat: 11.58, pickupLng: 43.14, destinationLat: 11.6, destinationLng: 43.15, ...extra });
+
+test('scheduled ride: 20 min to 7 days ahead', async () => {
+  const at = (min) => new Date(Date.now() + min * 60000);
+  await assertSucceeds(addDoc(collection(db(CUSTOMER), 'rideRequests'), ride({ status: 'scheduled', scheduledFor: at(60) })));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), ride({ status: 'scheduled', scheduledFor: at(5) })));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), ride({ status: 'scheduled', scheduledFor: at(60 * 24 * 8) })));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), ride({ status: 'scheduled' })));
+});
+
+test('ride extras are validated', async () => {
+  await assertSucceeds(addDoc(collection(db(CUSTOMER), 'rideRequests'), ride({ stops: [{ latitude: 1, longitude: 2 }], preferFemaleDriver: true, promoCode: 'BIENVENUE' })));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), ride({ stops: [{}, {}, {}] })));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), ride({ serviceType: 'hourly', hours: 20 })));
+  await assertSucceeds(addDoc(collection(db(CUSTOMER), 'rideRequests'), ride({ serviceType: 'hourly', hours: 3 })));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), ride({ discount: 500 })));
+});
+
+test('rewards: own doc read-only; promo codes closed', async () => {
+  await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'customerRewards', CUSTOMER), { credit: 500 }));
+  await assertSucceeds(getDoc(doc(db(CUSTOMER), 'customerRewards', CUSTOMER)));
+  await assertFails(getDoc(doc(db(CUSTOMER2), 'customerRewards', CUSTOMER)));
+  await assertFails(setDoc(doc(db(CUSTOMER), 'customerRewards', CUSTOMER), { credit: 99999 }));
+  await assertFails(getDoc(doc(db(CUSTOMER), 'promoCodes', 'BIENVENUE')));
+});
+
 // ---------- default deny ----------
 test('unlisted collections are closed', async () => {
   await assertFails(setDoc(doc(db(DRIVER), 'test', 'x'), { a: 1 }));

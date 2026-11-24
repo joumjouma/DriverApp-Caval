@@ -563,6 +563,7 @@ exports.updateOnlineDrivers = onDocumentUpdated({
         lastName: data.lastName || "",
         phoneNumber: data.phoneNumber || "",
         driverType: data.driverType || "",
+        gender: data.gender || null,
         latitude: data.latitude || null,
         longitude: data.longitude || null,
         isAvailable: data.isAvailable || false,
@@ -912,6 +913,7 @@ exports.autoOfflineDrivers = onSchedule({
         lastName: data.lastName || "",
         phoneNumber: data.phoneNumber || "",
         driverType: data.driverType || "",
+        gender: data.gender || null,
         latitude: data.latitude || null,
         longitude: data.longitude || null,
         isAvailable: data.isAvailable || false,
@@ -1002,6 +1004,7 @@ exports.updateOnlineDuration = onSchedule({
         lastName: data.lastName || "",
         phoneNumber: data.phoneNumber || "",
         driverType: data.driverType || "",
+        gender: data.gender || null,
         latitude: data.latitude || null,
         longitude: data.longitude || null,
         isAvailable: data.isAvailable || false,
@@ -1382,24 +1385,76 @@ const pickEligibleByType = (drivers, ride, isEligible) => {
   return [];
 };
 
-const computeServerFare = (ride) => {
-  let table = FARE_TABLE[ride.rideType];
+// Prices can be changed in the Console (appConfig/pricing) without a deploy.
+// Missing values fall back to these defaults. All placeholders for the owner.
+const DEFAULT_PRICING = {
+  fares: FARE_TABLE,
+  deliverySurcharge: {petit: 0, moyen: 100, grand: 200},
+  intercity: {minKm: 25, "Caval Privé": {base: 1000, perKm: 120}, "Caval moto": {base: 500, perKm: 100}},
+  hourly: {"Caval Privé": {perHour: 3000}, "Caval moto": {perHour: 1500}, maxHours: 8},
+  rewards: {ridesPerReward: 10, rewardCredit: 500, referralCredit: 500},
+};
+let pricingCache = {at: 0, value: DEFAULT_PRICING};
+async function getPricing(db) {
+  if (Date.now() - pricingCache.at < 60 * 1000) return pricingCache.value;
+  try {
+    const snap = await db.collection("appConfig").doc("pricing").get();
+    const c = snap.exists ? snap.data() : {};
+    pricingCache = {at: Date.now(), value: {
+      fares: {...DEFAULT_PRICING.fares, ...(c.fares || {})},
+      deliverySurcharge: {...DEFAULT_PRICING.deliverySurcharge, ...(c.deliverySurcharge || {})},
+      intercity: {...DEFAULT_PRICING.intercity, ...(c.intercity || {})},
+      hourly: {...DEFAULT_PRICING.hourly, ...(c.hourly || {})},
+      rewards: {...DEFAULT_PRICING.rewards, ...(c.rewards || {})},
+    }};
+  } catch (e) {
+    console.error("appConfig/pricing unreadable, using defaults", e);
+  }
+  return pricingCache.value;
+}
+
+const MAX_STOPS = 2;
+const rideStops = (ride) => (Array.isArray(ride.stops) ? ride.stops.slice(0, MAX_STOPS) : [])
+    .map((st) => [Number(st.latitude), Number(st.longitude)]);
+
+const computeServerFare = (ride, pricing = DEFAULT_PRICING) => {
+  const fares = pricing.fares || FARE_TABLE;
+  // Hourly hire: price per hour, no route
+  if (ride.serviceType === "hourly") {
+    const rate = pricing.hourly && pricing.hourly[ride.rideType];
+    const hours = Math.round(Number(ride.hours));
+    const maxH = (pricing.hourly && pricing.hourly.maxHours) || 8;
+    if (!rate || !Number.isFinite(hours) || hours < 1 || hours > maxH) return null;
+    return {fare: Math.round((rate.perHour * hours) / 50) * 50, km: 0};
+  }
+  let table = fares[ride.rideType];
   let surcharge = 0;
   if (isDelivery(ride)) {
     const size = deliverySize(ride);
     if (!size) return null;
-    table = FARE_TABLE[size.table];
-    surcharge = size.surcharge;
+    table = fares[size.table];
+    surcharge = (pricing.deliverySurcharge || {})[ride.package.size] ?? size.surcharge;
   }
   const coords = [ride.pickupLat, ride.pickupLng, ride.destinationLat, ride.destinationLng].map(Number);
   if (!table || coords.some((n) => !Number.isFinite(n))) return null;
-  const straight = straightLineKm(...coords);
+  // Straight-line length of pickup → stops → destination
+  const points = [[coords[0], coords[1]], ...rideStops(ride), [coords[2], coords[3]]];
+  if (points.flat().some((n) => !Number.isFinite(n))) return null;
+  let straight = 0;
+  for (let i = 1; i < points.length; i++) straight += straightLineKm(...points[i - 1], ...points[i]);
   const clientKm = Number(ride.distance);
   const km = Number.isFinite(clientKm) && clientKm >= straight && clientKm <= Math.max(straight * 2.5, straight + 2) ?
     clientKm : straight * 1.3;
-  const extraKm = Math.max(0, km - table.includedKm);
-  const fare = Math.round((table.base + extraKm * table.perKm + surcharge) / 50) * 50;
-  return {fare, km: Math.round(km * 100) / 100};
+  // Long trips between towns use the intercity rate
+  const ic = pricing.intercity || {};
+  const icRate = ic[isDelivery(ride) ? deliverySize(ride).table : ride.rideType];
+  let fare;
+  if (icRate && km >= (ic.minKm || 25)) {
+    fare = icRate.base + km * icRate.perKm + surcharge;
+  } else {
+    fare = table.base + Math.max(0, km - table.includedKm) * table.perKm + surcharge;
+  }
+  return {fare: Math.round(fare / 50) * 50, km: Math.round(km * 100) / 100, intercity: !!(icRate && km >= (ic.minKm || 25))};
 };
 
 async function findBestAvailableDriver(rideData, excludedDriverId = null, db) {
@@ -1447,8 +1502,9 @@ async function findBestAvailableDriver(rideData, excludedDriverId = null, db) {
     
     // Calculate scores for each driver
     const driversWithScores = eligibleDrivers.map(driver => {
-      const driverScore = calculateDriverScore(driver, pickupLat, pickupLng, rideType);
       const distance = calculateDistance(pickupLat, pickupLng, driver.latitude, driver.longitude);
+      const driverScore = calculateDriverScore(driver, pickupLat, pickupLng, rideType) +
+        preferenceBonus(rideData, driver, distance);
       
       return {
         id: driver.id,
@@ -1526,7 +1582,8 @@ exports.selectBestDriverForNewRideRequest = onDocumentCreated({
     console.log(`🚨 NEW RIDE REQUEST CREATED: Processing ride ${rideId} for type: ${rideData.rideType}`);
 
     // Server-side price: overwrite whatever fare the app sent.
-    const priced = computeServerFare(rideData);
+    const pricing = await getPricing(db);
+    const priced = computeServerFare(rideData, pricing);
     if (!priced) {
       console.log(`❌ Ride ${rideId} has an invalid ride type or coordinates, cancelling`);
       await db.collection("rideRequests").doc(rideId).update({
@@ -1540,13 +1597,17 @@ exports.selectBestDriverForNewRideRequest = onDocumentCreated({
       billedDistanceKm: priced.km,
       clientFare: rideData.fare === undefined ? null : rideData.fare,
     };
+    // Promo code and Caval credit
+    const discount = await applyDiscounts(db, rideId, rideData, priced.fare);
+    Object.assign(pricedUpdate, discount.update);
+    if (priced.intercity) pricedUpdate.intercity = true;
     // Packages: the vehicle follows the parcel size, not the customer's choice.
     if (isDelivery(rideData) && !driverTypesFor(rideData).includes(rideData.rideType)) {
       pricedUpdate.rideType = driverTypesFor(rideData)[0];
       rideData.rideType = pricedUpdate.rideType;
     }
     await db.collection("rideRequests").doc(rideId).update(pricedUpdate);
-    rideData.fare = priced.fare;
+    rideData.fare = pricedUpdate.fare;
     
     // Check if we have a rideType
     if (!rideData.rideType) {
@@ -2734,7 +2795,8 @@ exports.declineRide = onCall({maxInstances: 5, memory: "256MiB", timeoutSeconds:
 const RIDE_COPY_FIELDS = [
   "userId", "rideType", "pickupLat", "pickupLng", "destinationLat", "destinationLng",
   "pickupAddress", "destinationAddress", "distance", "duration", "paymentMethod",
-  "serviceType", "package",
+  "serviceType", "package", "stops", "pickupNote", "passenger", "promoCode",
+  "preferFemaleDriver", "favoriteDriverIds", "hours",
 ];
 const RETRYABLE = new Set(["no_drivers_available", "cancelled_by_driver"]);
 
@@ -2909,11 +2971,12 @@ exports.onDeliveryCreated = onDocumentCreated({
   const rideId = event.params.rideId;
   const privateRef = db.collection("rideRequests").doc(rideId).collection("private").doc("delivery");
 
-  // A retried delivery keeps the code the recipient already has.
-  if (ride.retryOf) {
-    const prev = await db.collection("rideRequests").doc(ride.retryOf).collection("private").doc("delivery").get();
+  // A retried or dispatched (scheduled) delivery keeps the code the recipient already has.
+  const sourceId = ride.retryOf || ride.scheduledRideId;
+  if (sourceId) {
+    const prev = await db.collection("rideRequests").doc(sourceId).collection("private").doc("delivery").get();
     if (prev.exists && prev.data().code) {
-      await privateRef.set({code: prev.data().code, createdAt: FieldValue.serverTimestamp(), copiedFrom: ride.retryOf});
+      await privateRef.set({code: prev.data().code, createdAt: FieldValue.serverTimestamp(), copiedFrom: sourceId});
       return;
     }
   }
@@ -2984,4 +3047,336 @@ exports.confirmDelivery = onCall({maxInstances: 5, memory: "256MiB", timeoutSeco
     });
     return {delivered: true};
   });
+});
+
+// ===========================================================================
+// Wave 2 — preferences, discounts, rewards, PIN, scheduled rides, push,
+// receipts. See docs/CUSTOMER_FEATURES.md.
+// ===========================================================================
+
+// Matching preferences: favourite drivers and "conductrice si possible".
+// A bonus on top of calculateDriverScore (which tops out around 100).
+function preferenceBonus(ride, driver, distanceKm) {
+  let bonus = 0;
+  const favs = Array.isArray(ride.favoriteDriverIds) ? ride.favoriteDriverIds : [];
+  if (favs.includes(driver.id) && distanceKm <= 3) bonus += 40;
+  if (ride.preferFemaleDriver === true && driver.gender === "female") bonus += 50;
+  return bonus;
+}
+
+const rewardsRef = (db, uid) => db.collection("customerRewards").doc(uid);
+const normCode = (c) => String(c || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20);
+
+// Promo: promoCodes/{CODE} = { active, type: "percent" | "amount", value,
+//   maxUses?, usedCount, perUser? (default 1), expiresAt?, firstRideOnly?,
+//   maxDiscount? (percent only), label? }  — created in the Console.
+function promoDiscount(promo, fare) {
+  if (!promo || promo.active === false) return 0;
+  if (promo.expiresAt && promo.expiresAt.toDate && promo.expiresAt.toDate() < new Date()) return 0;
+  if (promo.maxUses && (promo.usedCount || 0) >= promo.maxUses) return 0;
+  let d = promo.type === "percent" ? fare * (Number(promo.value) || 0) / 100 : Number(promo.value) || 0;
+  if (promo.type === "percent" && promo.maxDiscount) d = Math.min(d, promo.maxDiscount);
+  return Math.max(0, Math.min(fare, Math.round(d / 50) * 50));
+}
+
+// Applies a promo code, then the customer's Caval credit. Consumes them in a
+// transaction and returns the fields to write on the ride.
+async function applyDiscounts(db, rideId, ride, fare) {
+  const code = normCode(ride.promoCode);
+  try {
+    return await db.runTransaction(async (tx) => {
+      const rRef = rewardsRef(db, ride.userId);
+      const rSnap = await tx.get(rRef);
+      const rewards = rSnap.exists ? rSnap.data() : {};
+      let promo = null; let promoRef = null; let redemptionRef = null; let promoAmount = 0;
+      if (code) {
+        promoRef = db.collection("promoCodes").doc(code);
+        redemptionRef = db.collection("promoRedemptions").doc(`${code}_${ride.userId}`);
+        const [pSnap, redSnap] = await Promise.all([tx.get(promoRef), tx.get(redemptionRef)]);
+        promo = pSnap.exists ? pSnap.data() : null;
+        const usedByMe = redSnap.exists ? (redSnap.data().count || 1) : 0;
+        const firstRideOk = !promo || !promo.firstRideOnly || !(rewards.completedRides > 0);
+        if (promo && usedByMe < (promo.perUser || 1) && firstRideOk) promoAmount = promoDiscount(promo, fare);
+      }
+      const afterPromo = fare - promoAmount;
+      const creditUsed = Math.max(0, Math.min(afterPromo, Math.floor((rewards.credit || 0) / 50) * 50));
+      const final = afterPromo - creditUsed;
+      const update = {fare: final};
+      if (promoAmount || creditUsed) {
+        Object.assign(update, {fareBeforeDiscount: fare, discount: promoAmount + creditUsed});
+      }
+      if (promoAmount) {
+        update.promo = {code, amount: promoAmount};
+        tx.update(promoRef, {usedCount: FieldValue.increment(1)});
+        tx.set(redemptionRef, {code, uid: ride.userId, count: FieldValue.increment(1), lastRideId: rideId,
+          at: FieldValue.serverTimestamp()}, {merge: true});
+      } else if (code) {
+        update.promo = {code, amount: 0, rejected: true};
+      }
+      if (creditUsed) {
+        update.creditUsed = creditUsed;
+        tx.set(rRef, {credit: FieldValue.increment(-creditUsed)}, {merge: true});
+      }
+      return {update};
+    });
+  } catch (e) {
+    console.error(`Discounts for ${rideId} failed, charging full fare`, e);
+    return {update: {fare}};
+  }
+}
+
+// Customer push notifications (Expo). Token on Customers/{uid}.expoPushToken.
+async function pushToCustomer(db, uid, title, body, data = {}) {
+  try {
+    const c = await db.collection("Customers").doc(uid).get();
+    const token = c.exists && c.data().expoPushToken;
+    if (!token || !String(token).startsWith("ExponentPushToken")) return;
+    await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Accept": "application/json"},
+      body: JSON.stringify({to: token, title, body, data, sound: "default", priority: "high", channelId: "rides"}),
+    });
+  } catch (e) {
+    console.error("Customer push failed", e);
+  }
+}
+
+const customerStatusMessage = (ride) => {
+  const del = ride.serviceType === "delivery";
+  const driver = ride.driverName || (del ? "Votre livreur" : "Votre chauffeur");
+  switch (ride.status) {
+    case "assigned": return [del ? "Livreur trouvé" : "Chauffeur trouvé", `${driver} est en route.`];
+    case "driver_arrived": case "arrived_at_pickup":
+      return [del ? "Livreur arrivé" : "Votre chauffeur est arrivé", del ? "Remettez-lui le colis." : `${driver} vous attend.`];
+    case "picked_up": return del ? ["Colis récupéré", "Votre colis est en route."] : null;
+    case "completed": return del ? ["Colis livré", "Le destinataire a reçu votre colis."] :
+      ["Course terminée", `Montant : ${ride.fare || 0} Fdj. Merci d'avoir choisi Caval !`];
+    case "no_drivers_available": return ["Aucun chauffeur disponible", "Ouvrez l'app pour relancer la recherche."];
+    case "cancelled_by_driver": return [del ? "Le livreur a annulé" : "Le chauffeur a annulé", "Ouvrez l'app pour chercher quelqu'un d'autre."];
+    default: return null;
+  }
+};
+
+const CANCELLED = ["declined", "cancelled", "cancelled_by_driver", "no_drivers_available"];
+
+exports.customerRideUpdates = onDocumentUpdated({
+  document: "rideRequests/{rideId}", maxInstances: 10, memory: "256MiB", timeoutSeconds: 30,
+}, async (event) => {
+  const before = event.data.before.data() || {};
+  const after = event.data.after.data() || {};
+  if (before.status === after.status) return;
+  const db = getFirestore();
+  const rideRef = event.data.after.ref;
+  const rideId = event.params.rideId;
+
+  const msg = customerStatusMessage(after);
+  if (msg && after.userId) await pushToCustomer(db, after.userId, msg[0], msg[1], {rideId, status: after.status});
+
+  // Give back promo/credit if the ride never happened
+  if (CANCELLED.includes(after.status) && (after.creditUsed || (after.promo && after.promo.amount)) && !after.discountRefundedAt) {
+    const batch = db.batch();
+    if (after.creditUsed) batch.set(rewardsRef(db, after.userId), {credit: FieldValue.increment(after.creditUsed)}, {merge: true});
+    if (after.promo && after.promo.amount) {
+      batch.update(db.collection("promoCodes").doc(after.promo.code), {usedCount: FieldValue.increment(-1)});
+      batch.set(db.collection("promoRedemptions").doc(`${after.promo.code}_${after.userId}`),
+          {count: FieldValue.increment(-1)}, {merge: true});
+    }
+    batch.update(rideRef, {discountRefundedAt: FieldValue.serverTimestamp()});
+    await batch.commit().catch((e) => console.error(`Refund for ${rideId} failed`, e));
+  }
+
+  // Loyalty points and referral reward on completion
+  if (after.status === "completed" && !after.pointsAwardedAt && after.userId) {
+    const pricing = await getPricing(db);
+    const {ridesPerReward, rewardCredit, referralCredit} = pricing.rewards;
+    await db.runTransaction(async (tx) => {
+      const ride = await tx.get(rideRef);
+      if (ride.data().pointsAwardedAt) return;
+      const rRef = rewardsRef(db, after.userId);
+      const r = (await tx.get(rRef)).data() || {};
+      const completed = (r.completedRides || 0) + 1;
+      const upd = {completedRides: completed, points: FieldValue.increment(1)};
+      let credit = 0;
+      if (ridesPerReward && completed % ridesPerReward === 0) credit += rewardCredit;
+      if (completed === 1 && r.referredBy && !r.referralRewardedAt) {
+        credit += referralCredit;
+        upd.referralRewardedAt = FieldValue.serverTimestamp();
+        tx.set(rewardsRef(db, r.referredBy), {credit: FieldValue.increment(referralCredit),
+          referralsRewarded: FieldValue.increment(1)}, {merge: true});
+      }
+      if (credit) upd.credit = FieldValue.increment(credit);
+      tx.set(rRef, upd, {merge: true});
+      tx.update(rideRef, {pointsAwardedAt: FieldValue.serverTimestamp()});
+    }).catch((e) => console.error(`Rewards for ${rideId} failed`, e));
+  }
+});
+
+// Pickup PIN: shown to the customer, entered by the driver at pickup
+// (verifyPickupPin), so riders get into the right car.
+exports.createPickupPin = onDocumentCreated({
+  document: "rideRequests/{rideId}", maxInstances: 10, memory: "128MiB", timeoutSeconds: 20,
+}, async (event) => {
+  const ride = event.data && event.data.data();
+  if (!ride || ride.status === "scheduled") return; // the dispatched copy gets its own
+  const pin = String(require("node:crypto").randomInt(0, 10000)).padStart(4, "0");
+  await event.data.ref.collection("private").doc("pickup").set({pin, createdAt: FieldValue.serverTimestamp()});
+});
+
+exports.verifyPickupPin = onCall({maxInstances: 5, memory: "128MiB", timeoutSeconds: 20}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const {rideId, pin} = request.data || {};
+  if (typeof rideId !== "string" || typeof pin !== "string") throw new HttpsError("invalid-argument", "rideId and pin required.");
+  const db = getFirestore();
+  const rideRef = db.collection("rideRequests").doc(rideId);
+  return db.runTransaction(async (tx) => {
+    const [ride, priv] = await Promise.all([tx.get(rideRef), tx.get(rideRef.collection("private").doc("pickup"))]);
+    if (!ride.exists) throw new HttpsError("not-found", "Ride not found.");
+    if (ride.data().driverId !== uid) throw new HttpsError("permission-denied", "Not your ride.");
+    const attempts = ride.data().pickupPinAttempts || 0;
+    if (attempts >= 5) throw new HttpsError("resource-exhausted", "Too many wrong PINs.");
+    if (!priv.exists || priv.data().pin !== pin) {
+      tx.update(rideRef, {pickupPinAttempts: attempts + 1});
+      return {ok: false, attemptsLeft: 4 - attempts};
+    }
+    tx.update(rideRef, {pickupPinVerified: true});
+    return {ok: true};
+  });
+});
+
+// Scheduled rides: status "scheduled" + scheduledFor. Fifteen minutes before,
+// a normal ride is created from it (which triggers pricing and matching).
+const SCHEDULE_LEAD_MIN = 15;
+exports.dispatchScheduledRides = onSchedule({schedule: "every 5 minutes", maxInstances: 1, memory: "256MiB"}, async () => {
+  const db = getFirestore();
+  const due = await db.collection("rideRequests")
+      .where("status", "==", "scheduled")
+      .where("scheduledFor", "<=", new Date(Date.now() + SCHEDULE_LEAD_MIN * 60 * 1000))
+      .limit(50).get();
+  for (const doc of due.docs) {
+    const old = doc.data();
+    const fresh = {};
+    for (const f of RIDE_COPY_FIELDS) if (old[f] !== undefined) fresh[f] = old[f];
+    Object.assign(fresh, {status: "waiting", driverId: null, selectedDriverId: null,
+      scheduledFor: old.scheduledFor, scheduledRideId: doc.id, createdAt: FieldValue.serverTimestamp()});
+    const newRef = db.collection("rideRequests").doc();
+    const contact = await db.collection("rideRequestsDriver").where("rideRequestId", "==", doc.id).limit(1).get();
+    const batch = db.batch();
+    batch.set(newRef, fresh);
+    if (!contact.empty) {
+      batch.set(db.collection("rideRequestsDriver").doc(), {...contact.docs[0].data(), rideRequestId: newRef.id,
+        createdAt: FieldValue.serverTimestamp()});
+    }
+    batch.update(doc.ref, {status: "dispatched", dispatchedRideId: newRef.id, dispatchedAt: FieldValue.serverTimestamp()});
+    await batch.commit();
+    await pushToCustomer(db, old.userId, "Votre course programmée", "Nous cherchons votre chauffeur.", {rideId: newRef.id});
+  }
+});
+
+// Rewards: points, credit, referral code (created on first call).
+const REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+exports.getMyRewards = onCall({maxInstances: 5, memory: "128MiB", timeoutSeconds: 20}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const db = getFirestore();
+  const ref = rewardsRef(db, uid);
+  let r = (await ref.get()).data() || {};
+  if (!r.referralCode) {
+    const crypto = require("node:crypto");
+    for (let i = 0; i < 5 && !r.referralCode; i++) {
+      const code = "CAV" + Array.from({length: 5}, () => REF_ALPHABET[crypto.randomInt(0, REF_ALPHABET.length)]).join("");
+      try {
+        await db.collection("referralCodes").doc(code).create({uid, createdAt: FieldValue.serverTimestamp()});
+        await ref.set({referralCode: code}, {merge: true});
+        r = {...r, referralCode: code};
+      } catch (e) {
+        if (e.code !== 6) throw e; // 6 = ALREADY_EXISTS: try another code
+      }
+    }
+  }
+  const {rewards} = await getPricing(db);
+  const done = r.completedRides || 0;
+  return {
+    points: r.points || 0, credit: r.credit || 0, completedRides: done, referralCode: r.referralCode || null,
+    referredBy: !!r.referredBy, ridesPerReward: rewards.ridesPerReward, rewardCredit: rewards.rewardCredit,
+    referralCredit: rewards.referralCredit,
+    ridesToNextReward: rewards.ridesPerReward ? rewards.ridesPerReward - (done % rewards.ridesPerReward) : null,
+  };
+});
+
+exports.redeemReferral = onCall({maxInstances: 5, memory: "128MiB", timeoutSeconds: 20}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const code = normCode(request.data && request.data.code);
+  if (!code) throw new HttpsError("invalid-argument", "Code required.");
+  const db = getFirestore();
+  const owner = await db.collection("referralCodes").doc(code).get();
+  if (!owner.exists) throw new HttpsError("not-found", "Code inconnu.");
+  if (owner.data().uid === uid) throw new HttpsError("failed-precondition", "C'est votre propre code.");
+  return db.runTransaction(async (tx) => {
+    const ref = rewardsRef(db, uid);
+    const r = (await tx.get(ref)).data() || {};
+    if (r.referredBy) throw new HttpsError("already-exists", "Vous avez déjà utilisé un code.");
+    if ((r.completedRides || 0) > 0) throw new HttpsError("failed-precondition", "Réservé aux nouveaux clients.");
+    tx.set(ref, {referredBy: owner.data().uid, referredWith: code, referredAt: FieldValue.serverTimestamp()}, {merge: true});
+    return {ok: true};
+  });
+});
+
+// Promo preview for the customer app (the real check happens at pricing).
+exports.checkPromo = onCall({maxInstances: 5, memory: "128MiB", timeoutSeconds: 20}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const code = normCode(request.data && request.data.code);
+  const fare = Number(request.data && request.data.fare) || 0;
+  if (!code) return {valid: false, reason: "empty"};
+  const db = getFirestore();
+  const [p, red, rw] = await Promise.all([
+    db.collection("promoCodes").doc(code).get(),
+    db.collection("promoRedemptions").doc(`${code}_${uid}`).get(),
+    rewardsRef(db, uid).get(),
+  ]);
+  if (!p.exists) return {valid: false, reason: "unknown"};
+  const promo = p.data();
+  if ((red.exists ? red.data().count || 0 : 0) >= (promo.perUser || 1)) return {valid: false, reason: "used"};
+  if (promo.firstRideOnly && ((rw.data() || {}).completedRides || 0) > 0) return {valid: false, reason: "first_ride_only"};
+  const amount = promoDiscount(promo, fare);
+  if (!amount && fare) return {valid: false, reason: "expired"};
+  return {valid: true, code, amount, label: promo.label || null, type: promo.type, value: promo.value};
+});
+
+// Receipt on WhatsApp for a completed ride.
+exports.sendReceipt = onCall({secrets: [ULTRAMSG_TOKEN], maxInstances: 5, memory: "128MiB", timeoutSeconds: 30}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const {rideId} = request.data || {};
+  if (typeof rideId !== "string" || !rideId) throw new HttpsError("invalid-argument", "rideId required.");
+  const db = getFirestore();
+  const ride = (await db.collection("rideRequests").doc(rideId).get()).data();
+  if (!ride || ride.userId !== uid) throw new HttpsError("permission-denied", "Not your ride.");
+  if (ride.status !== "completed") throw new HttpsError("failed-precondition", "Ride not completed.");
+  const to = phoneOf((await db.collection("Customers").doc(uid).get()).data());
+  if (!to) throw new HttpsError("failed-precondition", "Ajoutez votre numéro dans votre profil.");
+  const when = ride.completedAt && ride.completedAt.toDate ? ride.completedAt.toDate() : new Date();
+  const date = when.toLocaleString("fr-FR", {timeZone: "Africa/Djibouti", dateStyle: "medium", timeStyle: "short"});
+  const lines = [
+    "🧾 *Reçu Caval*", "",
+    `Date : ${date}`,
+    `Service : ${ride.serviceType === "delivery" ? "Colis" : ride.serviceType === "hourly" ? "Mise à disposition" : ride.rideType}`,
+    `De : ${ride.pickupAddress || "—"}`,
+    ride.serviceType === "hourly" ? `Durée : ${ride.hours} h` : `À : ${ride.destinationAddress || "—"}`,
+    ride.billedDistanceKm ? `Distance : ${String(ride.billedDistanceKm).replace(".", ",")} km` : null,
+    ride.driverName ? `Chauffeur : ${ride.driverName}` : null,
+    ride.discount ? `Réduction : -${ride.discount} Fdj` : null,
+    `*Total : ${ride.fare} Fdj* (espèces)`, "",
+    `Réf. ${rideId.slice(0, 8).toUpperCase()}`,
+  ].filter((l) => l !== null);
+  try {
+    await db.collection("whatsappLog").doc(`${rideId}_receipt_${uid}`).create({type: "receipt", rideId, sentAt: new Date()});
+  } catch (e) {
+    if (e.code === 6) return {sent: false, reason: "already_sent"};
+    throw e;
+  }
+  await sendWhatsAppMessage(to, lines.join("\n"));
+  return {sent: true};
 });
