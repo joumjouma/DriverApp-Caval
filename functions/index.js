@@ -1353,8 +1353,44 @@ const straightLineKm = (lat1, lng1, lat2, lng2) => {
 // Road distance can't be shorter than the straight line, and is rarely more
 // than ~2.5x it. The client's route distance is accepted only inside that
 // range; otherwise the straight line x1.3 is used.
+// ---------------------------------------------------------------------------
+// Packages (serviceType: "delivery"). Prices are placeholders for the owner to
+// set. Small and medium parcels go to motos first, then cars; large parcels
+// need a car. The customer app has the same table in constants/delivery.js.
+// ---------------------------------------------------------------------------
+const DELIVERY_SIZES = {
+  petit: {vehicles: ["Caval moto", "Caval Privé"], table: "Caval moto", surcharge: 0},
+  moyen: {vehicles: ["Caval moto", "Caval Privé"], table: "Caval moto", surcharge: 100},
+  grand: {vehicles: ["Caval Privé"], table: "Caval Privé", surcharge: 200},
+};
+const isDelivery = (ride) => ride && ride.serviceType === "delivery";
+const deliverySize = (ride) => DELIVERY_SIZES[ride && ride.package && ride.package.size] || null;
+
+// Driver types that may take this ride, in order of preference.
+const driverTypesFor = (ride) => {
+  if (isDelivery(ride)) return deliverySize(ride) ? deliverySize(ride).vehicles : [];
+  return ride && ride.rideType ? [ride.rideType] : [];
+};
+
+// Filters online drivers, trying each allowed driver type in order and
+// returning the first non-empty group.
+const pickEligibleByType = (drivers, ride, isEligible) => {
+  for (const type of driverTypesFor(ride)) {
+    const group = drivers.filter((d) => d.driverType === type && isEligible(d));
+    if (group.length) return group;
+  }
+  return [];
+};
+
 const computeServerFare = (ride) => {
-  const table = FARE_TABLE[ride.rideType];
+  let table = FARE_TABLE[ride.rideType];
+  let surcharge = 0;
+  if (isDelivery(ride)) {
+    const size = deliverySize(ride);
+    if (!size) return null;
+    table = FARE_TABLE[size.table];
+    surcharge = size.surcharge;
+  }
   const coords = [ride.pickupLat, ride.pickupLng, ride.destinationLat, ride.destinationLng].map(Number);
   if (!table || coords.some((n) => !Number.isFinite(n))) return null;
   const straight = straightLineKm(...coords);
@@ -1362,7 +1398,7 @@ const computeServerFare = (ride) => {
   const km = Number.isFinite(clientKm) && clientKm >= straight && clientKm <= Math.max(straight * 2.5, straight + 2) ?
     clientKm : straight * 1.3;
   const extraKm = Math.max(0, km - table.includedKm);
-  const fare = Math.round((table.base + extraKm * table.perKm) / 50) * 50;
+  const fare = Math.round((table.base + extraKm * table.perKm + surcharge) / 50) * 50;
   return {fare, km: Math.round(km * 100) / 100};
 };
 
@@ -1394,12 +1430,11 @@ async function findBestAvailableDriver(rideData, excludedDriverId = null, db) {
     
     // Filter drivers by type and availability
     const excluded = new Set([...(rideData.declinedDrivers || []), excludedDriverId].filter(Boolean));
-    const eligibleDrivers = onlineDriverData.drivers.filter(driver => 
-      driver.driverType === rideType && 
-      driver.isAvailable !== false && 
+    const eligibleDrivers = pickEligibleByType(onlineDriverData.drivers, rideData, (driver) =>
+      driver.isAvailable !== false &&
       !driver.rideInProgress &&
       !excluded.has(driver.id) &&
-      driver.latitude && 
+      driver.latitude &&
       driver.longitude
     );
     
@@ -1499,12 +1534,18 @@ exports.selectBestDriverForNewRideRequest = onDocumentCreated({
       });
       return;
     }
-    await db.collection("rideRequests").doc(rideId).update({
+    const pricedUpdate = {
       fare: priced.fare,
       fareSource: "server",
       billedDistanceKm: priced.km,
       clientFare: rideData.fare === undefined ? null : rideData.fare,
-    });
+    };
+    // Packages: the vehicle follows the parcel size, not the customer's choice.
+    if (isDelivery(rideData) && !driverTypesFor(rideData).includes(rideData.rideType)) {
+      pricedUpdate.rideType = driverTypesFor(rideData)[0];
+      rideData.rideType = pricedUpdate.rideType;
+    }
+    await db.collection("rideRequests").doc(rideId).update(pricedUpdate);
     rideData.fare = priced.fare;
     
     // Check if we have a rideType
@@ -1978,9 +2019,8 @@ async function findNextAvailableDriver(rideData, excludedDriverId, db) {
     }
     
     // Filter drivers by type and availability, excluding the declined driver
-    const eligibleDrivers = onlineDriverData.drivers.filter(driver => 
-      driver.driverType === rideType && 
-      driver.isAvailable !== false && 
+    const eligibleDrivers = pickEligibleByType(onlineDriverData.drivers, rideData, (driver) =>
+      driver.isAvailable !== false &&
       !driver.rideInProgress &&
       driver.id !== excludedDriverId
     );
@@ -2694,6 +2734,7 @@ exports.declineRide = onCall({maxInstances: 5, memory: "256MiB", timeoutSeconds:
 const RIDE_COPY_FIELDS = [
   "userId", "rideType", "pickupLat", "pickupLng", "destinationLat", "destinationLng",
   "pickupAddress", "destinationAddress", "distance", "duration", "paymentMethod",
+  "serviceType", "package",
 ];
 const RETRYABLE = new Set(["no_drivers_available", "cancelled_by_driver"]);
 
@@ -2834,4 +2875,113 @@ exports.deleteMyAccount = onCall({maxInstances: 5, memory: "512MiB", timeoutSeco
 
   await getAuth().deleteUser(uid);
   return {deleted: true};
+});
+
+
+// ===========================================================================
+// Packages — delivery code and proof of delivery
+// ===========================================================================
+// When a delivery is created, the server picks a 4-digit code, keeps it where
+// only the sender can read it (rideRequests/{id}/private/delivery), and sends
+// it to the recipient on WhatsApp. The driver can't read it: they get it from
+// the recipient at the door and submit it with confirmDelivery, which is the
+// only way a delivery can be marked completed (see firestore.rules).
+
+const djiboutiPhone = (v) => {
+  const digits = String(v || "").replace(/\D/g, "");
+  if (digits.length === 8) return `+253${digits}`;
+  if (digits.startsWith("253") && digits.length === 11) return `+${digits}`;
+  return null;
+};
+
+const MAX_CODE_ATTEMPTS = 5;
+
+exports.onDeliveryCreated = onDocumentCreated({
+  document: "rideRequests/{rideId}",
+  secrets: [ULTRAMSG_TOKEN],
+  maxInstances: 5,
+  memory: "256MiB",
+  timeoutSeconds: 30,
+}, async (event) => {
+  const ride = event.data && event.data.data();
+  if (!isDelivery(ride)) return;
+  const db = getFirestore();
+  const rideId = event.params.rideId;
+  const privateRef = db.collection("rideRequests").doc(rideId).collection("private").doc("delivery");
+
+  // A retried delivery keeps the code the recipient already has.
+  if (ride.retryOf) {
+    const prev = await db.collection("rideRequests").doc(ride.retryOf).collection("private").doc("delivery").get();
+    if (prev.exists && prev.data().code) {
+      await privateRef.set({code: prev.data().code, createdAt: FieldValue.serverTimestamp(), copiedFrom: ride.retryOf});
+      return;
+    }
+  }
+
+  const code = String(require("node:crypto").randomInt(0, 10000)).padStart(4, "0");
+  await privateRef.set({code, createdAt: FieldValue.serverTimestamp()});
+
+  const to = djiboutiPhone(ride.package && ride.package.recipientPhone);
+  if (!to) {
+    console.log(`Delivery ${rideId}: recipient phone invalid, code not sent by WhatsApp`);
+    return;
+  }
+  let sender = "Un client Caval";
+  try {
+    const c = await db.collection("Customers").doc(ride.userId).get();
+    if (c.exists && c.data().firstName) sender = c.data().firstName;
+  } catch (e) { /* keep default */ }
+  const name = (ride.package.recipientName || "").trim();
+  const body = `📦 *Caval — un colis pour vous*\n\n` +
+    `Bonjour${name ? ` ${name}` : ""}, ${sender} vous envoie un colis avec Caval.\n\n` +
+    `🔑 *Code de livraison : ${code}*\n\n` +
+    "Donnez ce code au livreur seulement quand vous avez reçu le colis.";
+  try {
+    await sendWhatsAppMessage(to, body);
+    await privateRef.update({sentToRecipientAt: FieldValue.serverTimestamp()});
+  } catch (e) {
+    console.error(`Delivery ${rideId}: WhatsApp to recipient failed`, e);
+  }
+});
+
+// confirmDelivery — the assigned driver submits the code the recipient gave
+// them. data: { rideId, code } → { delivered: true } | error
+exports.confirmDelivery = onCall({maxInstances: 5, memory: "256MiB", timeoutSeconds: 30}, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const {rideId, code} = request.data || {};
+  if (typeof rideId !== "string" || !rideId) throw new HttpsError("invalid-argument", "rideId required.");
+  if (typeof code !== "string" || !/^\d{4}$/.test(code)) throw new HttpsError("invalid-argument", "4-digit code required.");
+
+  const db = getFirestore();
+  const rideRef = db.collection("rideRequests").doc(rideId);
+  const privateRef = rideRef.collection("private").doc("delivery");
+
+  return db.runTransaction(async (tx) => {
+    const [rideSnap, privSnap] = await Promise.all([tx.get(rideRef), tx.get(privateRef)]);
+    if (!rideSnap.exists) throw new HttpsError("not-found", "Ride not found.");
+    const ride = rideSnap.data();
+    if (!isDelivery(ride)) throw new HttpsError("failed-precondition", "Not a delivery.");
+    if (ride.driverId !== uid) throw new HttpsError("permission-denied", "Not your delivery.");
+    if (ride.status === "completed") return {delivered: true, alreadyDone: true};
+    if (!["picked_up", "ride_started", "in_progress", "active"].includes(ride.status) && !ride.customerPickedUp) {
+      throw new HttpsError("failed-precondition", "Pick up the parcel first.");
+    }
+    const attempts = ride.deliveryCodeAttempts || 0;
+    if (attempts >= MAX_CODE_ATTEMPTS) {
+      throw new HttpsError("resource-exhausted", "Too many wrong codes. Contact Caval support.");
+    }
+    if (!privSnap.exists || privSnap.data().code !== code) {
+      tx.update(rideRef, {deliveryCodeAttempts: attempts + 1});
+      return {delivered: false, attemptsLeft: MAX_CODE_ATTEMPTS - attempts - 1};
+    }
+    tx.update(rideRef, {
+      status: "completed",
+      deliveryVerified: true,
+      deliveredAt: FieldValue.serverTimestamp(),
+      completedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return {delivered: true};
+  });
 });

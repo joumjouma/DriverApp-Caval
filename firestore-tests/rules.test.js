@@ -251,6 +251,61 @@ test('cannot hijack a conversation', async () => {
   await assertSucceeds(updateDoc(doc(db(CUSTOMER), 'conversations', 'conv1'), { lastMessage: 'ok' }));
 });
 
+// ---------- packages ----------
+const pkg = { size: 'petit', description: 'Clés', recipientName: 'Amina', recipientPhone: '+25377123456', note: '', payer: 'sender' };
+const delivery = (extra = {}) => ({ userId: CUSTOMER, status: 'waiting', serviceType: 'delivery', rideType: 'Caval moto',
+  pickupLat: 11.58, pickupLng: 43.14, destinationLat: 11.6, destinationLng: 43.15, package: pkg, ...extra });
+
+test('customer can order a valid delivery', async () => {
+  await assertSucceeds(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery()));
+});
+
+test('delivery needs a valid package', async () => {
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ package: { ...pkg, size: 'énorme' } })));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ package: { ...pkg, recipientName: '' } })));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ package: { ...pkg, payer: 'recipient' } })));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ package: { ...pkg, extra: 1 } })));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ package: null })));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ serviceType: 'food' })));
+});
+
+test('customer cannot pre-mark a delivery as verified', async () => {
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ deliveryVerified: true })));
+});
+
+test('driver cannot complete a delivery without the code', async () => {
+  await env.withSecurityRulesDisabled((ctx) =>
+    setDoc(doc(ctx.firestore(), 'rideRequests', 'del1'), delivery({ status: 'picked_up', driverId: DRIVER })));
+  await assertSucceeds(updateDoc(doc(db(DRIVER), 'rideRequests', 'del1'), { pickupPhotoUrl: 'x' }));
+  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'del1'), { status: 'completed' }));
+  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'del1'), { deliveryVerified: true }));
+  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'del1'), { package: { ...pkg, size: 'grand' } }));
+});
+
+test('normal rides can still be completed by the driver', async () => {
+  await env.withSecurityRulesDisabled((ctx) =>
+    setDoc(doc(ctx.firestore(), 'rideRequests', 'r9'), { userId: CUSTOMER, status: 'picked_up', driverId: DRIVER, rideType: 'Caval moto' }));
+  await assertSucceeds(updateDoc(doc(db(DRIVER), 'rideRequests', 'r9'), { status: 'completed' }));
+});
+
+test('delivery code: sender only, nobody writes', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'rideRequests', 'del1'), delivery({ status: 'assigned', driverId: DRIVER }));
+    await setDoc(doc(ctx.firestore(), 'rideRequests', 'del1', 'private', 'delivery'), { code: '1234' });
+  });
+  await assertSucceeds(getDoc(doc(db(CUSTOMER), 'rideRequests', 'del1', 'private', 'delivery')));
+  await assertFails(getDoc(doc(db(DRIVER), 'rideRequests', 'del1', 'private', 'delivery')));
+  await assertFails(getDoc(doc(db(CUSTOMER2), 'rideRequests', 'del1', 'private', 'delivery')));
+  await assertFails(setDoc(doc(db(CUSTOMER), 'rideRequests', 'del1', 'private', 'delivery'), { code: '0000' }));
+});
+
+test('app config: readable, not writable', async () => {
+  await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'appConfig', 'customer'), { packagesEnabled: false }));
+  await assertSucceeds(getDoc(doc(db(CUSTOMER), 'appConfig', 'customer')));
+  await assertFails(getDoc(doc(db(null), 'appConfig', 'customer')));
+  await assertFails(setDoc(doc(db(CUSTOMER), 'appConfig', 'customer'), { packagesEnabled: true }));
+});
+
 // ---------- default deny ----------
 test('unlisted collections are closed', async () => {
   await assertFails(setDoc(doc(db(DRIVER), 'test', 'x'), { a: 1 }));

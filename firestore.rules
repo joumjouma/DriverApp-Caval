@@ -28,7 +28,22 @@ service cloud.firestore {
     // Ride fields only Cloud Functions may set.
     function rideServerFields() {
       return ['fareSource', 'billedDistanceKm', 'clientFare', 'earningsRecordedAt',
-              'lastDeclinedBy', 'lastDeclinedAt', 'replacedBy', 'retryOf', 'customerDeletedAt'];
+              'lastDeclinedBy', 'lastDeclinedAt', 'replacedBy', 'retryOf', 'customerDeletedAt',
+              'deliveryVerified', 'deliveredAt', 'deliveryCodeAttempts'];
+    }
+
+    // Packages (serviceType 'delivery'). Sizes match DELIVERY_SIZES in functions.
+    function isDeliveryRequest(data) { return data.get('serviceType', 'ride') == 'delivery'; }
+    function shortText(v, max) { return v is string && v.size() <= max; }
+    function validPackage(p) {
+      return p is map
+        && p.keys().hasOnly(['size', 'description', 'recipientName', 'recipientPhone', 'note', 'payer'])
+        && p['size'] in ['petit', 'moyen', 'grand']
+        && shortText(p.recipientName, 80) && p.recipientName.size() > 0
+        && shortText(p.recipientPhone, 20) && p.recipientPhone.size() >= 8
+        && shortText(p.get('description', ''), 200)
+        && shortText(p.get('note', ''), 200)
+        && p.get('payer', 'sender') == 'sender';
     }
 
     // Private driver data lives in Drivers/{id}/private/profile, not on the
@@ -97,7 +112,9 @@ service cloud.firestore {
         && request.resource.data.get('status', 'waiting') == 'waiting'
         && request.resource.data.get('driverId', null) == null
         && request.resource.data.get('selectedDriverId', null) == null
-        && !request.resource.data.keys().hasAny(rideServerFields());
+        && !request.resource.data.keys().hasAny(rideServerFields())
+        && request.resource.data.get('serviceType', 'ride') in ['ride', 'delivery']
+        && (!isDeliveryRequest(request.resource.data) || validPackage(request.resource.data.get('package', null)));
 
       allow update: if
         // Only the driver the ride is offered to / assigned to can update it
@@ -108,8 +125,12 @@ service cloud.firestore {
                                     resource.data.get('selectedDriverId', null)]
             && noChangesTo(['userId', 'fare', 'rideType', 'paymentMethod', 'distance',
                             'pickupLat', 'pickupLng', 'destinationLat', 'destinationLng',
-                            'createdAt', 'selectedDriverId', 'declinedDrivers'])
+                            'createdAt', 'selectedDriverId', 'declinedDrivers',
+                            'serviceType', 'package'])
             && noChangesTo(rideServerFields())
+            // A delivery is completed only by confirmDelivery (code check).
+            && (!isDeliveryRequest(resource.data) || request.resource.data.status != 'completed'
+                || resource.data.status == 'completed')
             && (!changedKeys().hasAny(['driverId'])
                 || request.resource.data.driverId == request.auth.uid))
         // Customers can only cancel their own ride.
@@ -119,6 +140,14 @@ service cloud.firestore {
             && request.resource.data.status in ['declined', 'cancelled']);
 
       allow delete: if false;
+
+      // Delivery code: the sender can read it, nobody can write it
+      // (written by onDeliveryCreated, checked by confirmDelivery).
+      match /private/{docId} {
+        allow read: if signedIn()
+          && get(/databases/$(database)/documents/rideRequests/$(rideId)).data.userId == request.auth.uid;
+        allow write: if false;
+      }
     }
 
     // Customer contact info attached to a ride, read by the assigned driver.
@@ -200,6 +229,13 @@ service cloud.firestore {
         allow read, create, update: if isParticipant(parent());
         allow delete: if false;
       }
+    }
+
+    // ---------- App config (feature flags), edited in the Console ----------
+    // appConfig/customer: { packagesEnabled: bool }
+    match /appConfig/{docId} {
+      allow read: if signedIn();
+      allow write: if false;
     }
 
     // Everything else (test, SystemMetrics, legacy `drivers`, …) is

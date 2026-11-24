@@ -50,6 +50,38 @@ export interface RideRequest {
   billedDistanceKm?: number;         // server
   clientFare?: number | null;        // server: what the app sent
   earningsRecordedAt?: When;         // server
+
+  // Packages (see docs/PACKAGES.md in DriverApp-Caval)
+  serviceType?: 'ride' | 'delivery'; // missing = ride
+  package?: RidePackage;
+  pickupPhotoUrl?: string;           // driver, at pickup
+  deliveryVerified?: boolean;        // server (confirmDelivery)
+  deliveredAt?: When;                // server
+  deliveryCodeAttempts?: number;     // server
+}
+
+export type PackageSize = 'petit' | 'moyen' | 'grand';
+
+export interface RidePackage {
+  size: PackageSize;
+  description?: string;              // ≤ 200
+  recipientName: string;             // ≤ 80
+  recipientPhone: string;            // +253…
+  note?: string;                     // for the driver, ≤ 200
+  payer: 'sender';
+}
+
+/** rideRequests/{id}/private/delivery — server only; readable by the sender */
+export interface DeliveryPrivate {
+  code: string;                      // 4 digits, also WhatsApp'd to the recipient
+  createdAt: When;
+  sentToRecipientAt?: When;
+  copiedFrom?: string;               // retried delivery keeps the old code
+}
+
+/** appConfig/customer — feature flags, edited in the Console */
+export interface CustomerAppConfig {
+  packagesEnabled?: boolean;
 }
 
 /** Drivers/{uid} — readable by every signed-in user, keep it public-safe */
