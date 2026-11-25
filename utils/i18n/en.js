@@ -386,4 +386,9 @@ export default {
   "ven.": "Fri",
   "sam.": "Sat",
   "dim.": "Sun",
+  "Un instant": "One moment",
+  "Votre profil se charge encore. Réessayez dans quelques secondes.": "Your profile is still loading. Try again in a few seconds.",
+  "Ce compte n'a pas de profil chauffeur. Connectez-vous avec votre compte chauffeur.": "This account has no driver profile. Sign in with your driver account.",
+  "Position introuvable": "Location not found",
+  "Impossible d'obtenir votre position. Vérifiez que la localisation est activée, puis réessayez.": "Couldn't get your location. Check that location is on, then try again.",
 };
