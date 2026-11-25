@@ -20,6 +20,8 @@ import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp,
 import { db } from '../config/firebase';
 import { auth } from '../config/firebase';
 
+import { useTheme, makeStyles } from "../context/ThemeContext";
+import { t } from "../utils/i18n";
 const formatMessageTime = (timestamp) => {
   if (!timestamp || !timestamp.toDate) return '';
   
@@ -51,6 +53,8 @@ const formatMessageTime = (timestamp) => {
 };
 
 const DriverInboxScreen = () => {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const route = useRoute();
   const navigation = useNavigation();
   const [messages, setMessages] = useState([]);
@@ -199,7 +203,7 @@ const DriverInboxScreen = () => {
             />
           ) : (
             <View style={[styles.avatar, styles.defaultAvatar]}>
-              <Ionicons name="person" size={24} color="#fff" />
+              <Ionicons name="person" size={24} color={colors.text} />
             </View>
           )
         )}
@@ -207,14 +211,14 @@ const DriverInboxScreen = () => {
           styles.messageBubble,
           isDriver ? styles.driverBubble : styles.customerBubble
         ]}>
-          <Text style={styles.messageText}>{item.text}</Text>
+          <Text style={[styles.messageText, isDriver && { color: colors.onPrimary }]}>{item.text}</Text>
           <View style={styles.messageFooter}>
-            <Text style={styles.timestamp}>{formattedTime}</Text>
+            <Text style={[styles.timestamp, isDriver && { color: colors.onPrimaryMuted }]}>{formattedTime}</Text>
             {isDriver && (
               <Ionicons
                 name={item.status === 'sending' ? 'time' : 'checkmark-done'}
                 size={16}
-                color={item.status === 'sent' ? '#4CAF50' : '#666'}
+                color={item.status === 'sent' ? colors.success : colors.textMuted}
                 style={styles.statusIcon}
               />
             )}
@@ -227,10 +231,9 @@ const DriverInboxScreen = () => {
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="light-content" backgroundColor="#121212" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3E98FF" />
-          <Text style={styles.loadingText}>Loading conversation...</Text>
+          <ActivityIndicator size="large" color={colors.info} />
+          <Text style={styles.loadingText}>{t("Chargement de la conversation…")}</Text>
         </View>
       </SafeAreaView>
     );
@@ -238,7 +241,6 @@ const DriverInboxScreen = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#121212" />
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -249,7 +251,7 @@ const DriverInboxScreen = () => {
           <TouchableOpacity 
             style={styles.backButton} 
             onPress={() => navigation.goBack()}>
-            <Ionicons name="arrow-back" size={24} color="#fff" />
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
           <View style={styles.headerInfo}>
             {customerPhotoUrl ? (
@@ -259,22 +261,22 @@ const DriverInboxScreen = () => {
               />
             ) : (
               <View style={[styles.headerAvatar, styles.defaultHeaderAvatar]}>
-                <Ionicons name="person" size={24} color="#fff" />
+                <Ionicons name="person" size={24} color={colors.text} />
               </View>
             )}
             <View style={styles.headerTextContainer}>
               <Text style={styles.headerName}>{customerName || 'Customer'}</Text>
-              <Text style={styles.onlineStatus}>Online</Text>
+              <Text style={styles.onlineStatus}>{t("En ligne")}</Text>
             </View>
           </View>
           <TouchableOpacity style={styles.moreButton}>
-            <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
+            <Ionicons name="ellipsis-vertical" size={24} color={colors.text} />
           </TouchableOpacity>
         </View>
 
         {error && (
           <View style={styles.errorContainer}>
-            <Ionicons name="alert-circle" size={16} color="#fff" style={styles.errorIcon} />
+            <Ionicons name="alert-circle" size={16} color={colors.text} style={styles.errorIcon} />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
@@ -296,14 +298,14 @@ const DriverInboxScreen = () => {
         {/* Message Input */}
         <View style={styles.inputContainer}>
           <TouchableOpacity style={styles.attachButton}>
-            <Ionicons name="attach" size={24} color="#888" />
+            <Ionicons name="attach" size={24} color={colors.textMuted} />
           </TouchableOpacity>
           <TextInput
             style={styles.input}
             value={newMessage}
             onChangeText={setNewMessage}
-            placeholder="Type a message..."
-            placeholderTextColor="#999"
+            placeholder={t("Écrivez un message…")}
+            placeholderTextColor={colors.placeholder}
             multiline
             maxLength={500}
           />
@@ -313,9 +315,9 @@ const DriverInboxScreen = () => {
             disabled={!newMessage.trim() || sending}
           >
             {sending ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color={colors.text} />
             ) : (
-              <Ionicons name="send" size={20} color="#fff" />
+              <Ionicons name="send" size={20} color={colors.onPrimary} />
             )}
           </TouchableOpacity>
         </View>
@@ -324,14 +326,14 @@ const DriverInboxScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   safeArea: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: colors.background,
   },
   container: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -339,9 +341,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: Platform.OS === 'android' ? 6 : 12,
     paddingHorizontal: 16,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: colors.background,
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomColor: colors.border,
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -369,22 +371,22 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     borderWidth: 2,
-    borderColor: '#FF6F00',
+    borderColor: colors.primary,
   },
   defaultHeaderAvatar: {
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#444',
+    borderColor: colors.border,
   },
   headerName: {
-    color: '#fff',
+    color: colors.text,
     fontSize: 18,
     fontWeight: '600',
   },
   onlineStatus: {
-    color: '#FF6F00',
+    color: colors.primaryText,
     fontSize: 12,
     marginTop: 2,
   },
@@ -417,11 +419,11 @@ const styles = StyleSheet.create({
     borderRadius: 18,
   },
   defaultAvatar: {
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#444',
+    borderColor: colors.border,
   },
   messageBubble: {
     maxWidth: '75%',
@@ -430,15 +432,15 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   driverBubble: {
-    backgroundColor: '#FF6F00',
+    backgroundColor: colors.primary,
     borderBottomRightRadius: 4,
   },
   customerBubble: {
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.surface,
     borderBottomLeftRadius: 4,
   },
   messageText: {
-    color: '#fff',
+    color: colors.text,
     fontSize: 16,
     lineHeight: 22,
   },
@@ -449,7 +451,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   timestamp: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: colors.textMuted,
     fontSize: 11,
   },
   statusIcon: {
@@ -460,9 +462,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: Platform.OS === 'android' ? 6 : 12,
     paddingBottom: Platform.OS === 'ios' ? 24 : (Platform.OS === 'android' ? 48 : 12),
-    backgroundColor: '#1A1A1A',
+    backgroundColor: colors.background,
     borderTopWidth: 1,
-    borderTopColor: '#333',
+    borderTopColor: colors.border,
     position: 'relative',
     bottom: 0,
     left: 0,
@@ -474,17 +476,17 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.surface,
     borderRadius: 24,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    color: '#fff',
+    color: colors.text,
     fontSize: 16,
     marginRight: 10,
     maxHeight: 120,
   },
   sendButton: {
-    backgroundColor: '#FF6F00',
+    backgroundColor: colors.primary,
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -492,7 +494,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendButtonDisabled: {
-    backgroundColor: 'rgba(255, 111, 0, 0.5)',
+    backgroundColor: colors.primarySoft,
   },
   loadingContainer: {
     flex: 1,
@@ -500,12 +502,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    color: '#fff',
+    color: colors.text,
     marginTop: 12,
     fontSize: 16,
   },
   errorContainer: {
-    backgroundColor: '#E53935',
+    backgroundColor: colors.error,
     padding: 10,
     flexDirection: 'row',
     alignItems: 'center',
@@ -515,10 +517,10 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   errorText: {
-    color: '#fff',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '500',
   },
-});
+}));
 
 export default DriverInboxScreen;

@@ -1,85 +1,20 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { auth } from '../config/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+// Signed-in driver (Firebase Auth). Firebase keeps the session on the phone
+// (config/firebase.js, AsyncStorage persistence), so there is nothing else to store.
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { auth } from "../config/firebase";
 
-const AuthContext = createContext();
+const AuthContext = createContext({ user: null, loading: true, logout: async () => {} });
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(auth.currentUser);
+  const [loading, setLoading] = useState(!auth.currentUser);
 
-  useEffect(() => {
-    console.log('🔐 AuthContext: Setting up auth listener...');
-    
-    // Check if user is stored in AsyncStorage
-    const checkStoredUser = async () => {
-      try {
-        const storedUser = await AsyncStorage.getItem('auth');
-        console.log('🔐 AuthContext: Stored user found:', !!storedUser);
-        if (storedUser) {
-          setUser(JSON.parse(storedUser));
-        }
-      } catch (error) {
-        console.error('Error reading stored auth:', error);
-      }
-    };
+  useEffect(() => onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false); }), []);
 
-    checkStoredUser();
+  const logout = () => signOut(auth);
 
-    // Listen for auth state changes
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      console.log('🔐 AuthContext: Auth state changed:', !!currentUser);
-      if (currentUser) {
-        setUser(currentUser);
-        await AsyncStorage.setItem('auth', JSON.stringify(currentUser));
-      } else {
-        setUser(null);
-        await AsyncStorage.removeItem('auth');
-      }
-      setLoading(false);
-      console.log('🔐 AuthContext: Loading set to false');
-    });
+  return <AuthContext.Provider value={{ user, loading, logout }}>{children}</AuthContext.Provider>;
+}
 
-    return unsubscribe;
-  }, []);
-
-  const login = async (credentials) => {
-    setLoading(true);
-    try {
-      console.log('🔐 Login attempt with credentials:', credentials);
-      // For now, just set loading to false to prevent hanging
-      // You can implement actual login logic here later
-      setLoading(false);
-    } catch (error) {
-      console.error('Login error:', error);
-      setLoading(false);
-      throw error;
-    }
-  };
-
-  const logout = async () => {
-    setLoading(true);
-    try {
-      await auth.signOut();
-      setUser(null);
-      await AsyncStorage.removeItem('auth');
-    } catch (error) {
-      console.error('Logout error:', error);
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const value = {
-    user,
-    loading,
-    login,
-    logout,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
-
-export const useAuth = () => useContext(AuthContext); 
+export const useAuth = () => useContext(AuthContext);

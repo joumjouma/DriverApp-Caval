@@ -366,3 +366,33 @@ test('unlisted collections are closed', async () => {
   await assertFails(setDoc(doc(db(DRIVER), 'test', 'x'), { a: 1 }));
   await assertFails(getDoc(doc(db(DRIVER), 'SystemMetrics', 'driverOptimization')));
 });
+
+// ---------- Demo mode (appConfig/demo.testers) ----------
+async function setTesters(list) {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'appConfig', 'demo'), { testers: list });
+  });
+}
+
+test('only listed testers can create demo rides', async () => {
+  const ride = { userId: CUSTOMER, status: 'waiting', fare: 10, rideType: 'standard', driverId: null, demo: true };
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), ride)); // no appConfig/demo yet
+  await setTesters([CUSTOMER]);
+  await assertSucceeds(addDoc(collection(db(CUSTOMER), 'rideRequests'), ride));
+  await assertFails(addDoc(collection(db(CUSTOMER2), 'rideRequests'), { ...ride, userId: CUSTOMER2 }));
+  // Real rides don't need the list
+  await assertSucceeds(addDoc(collection(db(CUSTOMER2), 'rideRequests'), { ...ride, userId: CUSTOMER2, demo: false }));
+});
+
+test('only listed testers can put their driver profile in demo mode', async () => {
+  await assertFails(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER), { demo: true }));
+  await setTesters([DRIVER]);
+  await assertSucceeds(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER), { demo: true }));
+  await assertSucceeds(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER), { demo: false }));
+  await assertFails(updateDoc(doc(db(DRIVER2), 'Drivers', DRIVER2), { demo: true }));
+});
+
+test('the offered driver cannot change whether a ride is a demo', async () => {
+  await assertFails(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride2'), { demo: true }));
+  await assertSucceeds(updateDoc(doc(db(DRIVER), 'rideRequests', 'ride2'), { status: 'assigned', driverId: DRIVER }));
+});

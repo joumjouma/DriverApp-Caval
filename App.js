@@ -1,204 +1,124 @@
-import React, { useState, useEffect } from "react";
-import { Platform, StyleSheet, View, ActivityIndicator, Text } from "react-native";
-import { NavigationContainer } from "@react-navigation/native";
+// Caval chauffeur — app entry: fonts, theme/language, auth, demo mode, navigation.
+import "react-native-get-random-values";
+import React, { useRef } from "react";
+import { View, ActivityIndicator, StatusBar } from "react-native";
+import { NavigationContainer, DefaultTheme, DarkTheme } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import Ionicons from "react-native-vector-icons/Ionicons";
-import { ThemeProvider } from "./context/ThemeContext";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { StripeProvider } from "@stripe/stripe-react-native";
+import { useFonts } from "expo-font";
+import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import { StripeProvider } from '@stripe/stripe-react-native';
-import { auth, db } from './config/firebase';
-import notificationService from './services/NotificationService';
-import * as Linking from 'expo-linking';
+import { DemoProvider, useDemo } from "./context/DemoContext";
+import ErrorBoundary from "./components/ErrorBoundary";
+import { AppText } from "./components/ui";
+import { FONT_FILES, installAppFont } from "./utils/fonts";
+import { reportError } from "./utils/report";
+import { t } from "./utils/i18n/index";
 
-// Import only essential screens for now
 import LoginScreen from "./screens/LoginScreen";
 import RegisterScreen from "./screens/RegisterScreen";
-import HomeScreenWithMap from "./screens/HomeScreenWithMap";
-import ProfileScreen from "./screens/ProfileScreen";
-import RideInProgressScreen from "./screens/RideInProgressScreen";
+import HomeScreen from "./screens/HomeScreen";
+import RideScreen from "./screens/RideScreen";
 import EarningsScreen from "./screens/EarningsScreen";
-import SettingsScreen from "./screens/SettingsScreen";
-import PaymentScreen from "./screens/PaymentScreen";
+import ProfileScreen from "./screens/ProfileScreen";
+import PreferencesScreen from "./screens/PreferencesScreen";
+import DemoScreen from "./screens/DemoScreen";
 import ModifyInfo from "./screens/ModifyInfo";
+import PaymentScreen from "./screens/PaymentScreen";
 import ApprovalStatusScreen from "./screens/ApprovalStatusScreen";
 import DriverInboxScreen from "./screens/DriverInboxScreen";
-import OnlineDriverScreen from "./screens/OnlineDriverScreen";
-import "react-native-get-random-values";
 
+installAppFont();
+
+// Log uncaught JS errors before React Native's default handler.
+if (global.ErrorUtils?.setGlobalHandler) {
+  const previous = global.ErrorUtils.getGlobalHandler?.();
+  global.ErrorUtils.setGlobalHandler((error, isFatal) => {
+    try { reportError(error, { where: isFatal ? "fatal" : "uncaught" }); } catch (e) { /* ignore */ }
+    previous?.(error, isFatal);
+  });
+}
+
+const STRIPE_KEY = "pk_live_51R9ek8CmEzIPQVTO8V3wcapg87N24eNFOCaJ4dz2krvfKSBaNe5g0vYAW4XBHESTYpQBi6fdz7GA4fPGJh4BlGIW00L1KYPz6m";
 const Stack = createStackNavigator();
-const Tab = createBottomTabNavigator();
 
-// Simplified HomeTabs
-function HomeTabs() {
-  const { user } = useAuth();
-  
-  if (!user) {
-    return null;
-  }
-
+function DemoBanner() {
+  const { demo } = useDemo();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  if (!demo) return null;
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName;
-          if (route.name === "Home") {
-            iconName = focused ? "home" : "home-outline";
-          } else if (route.name === "Profile") {
-            iconName = focused ? "person" : "person-outline";
-          }
-          return <Ionicons name={iconName} size={30} color={color} />;
-        },
-        tabBarActiveTintColor: "#ff9f43",
-        tabBarInactiveTintColor: "gray",
-        tabBarStyle: {
-          backgroundColor: "#1e1e1e",
-          borderTopColor: "transparent",
-          position: "absolute",
-          bottom: 0,
-          height: Platform.OS === 'android' ? 100 : 70,
-          paddingBottom: Platform.OS === 'android' ? 60 : 10,
-          zIndex: 10,
-          elevation: 8,
-          shadowColor: "#000",
-          shadowOffset: {
-            width: 0,
-            height: -2,
-          },
-          shadowOpacity: 0.25,
-          shadowRadius: 3.84,
-        },
-      })}
-    >
-      <Tab.Screen
-        name="Home"
-        options={{ headerShown: false }}
-      >
-        {() => <HomeScreenWithMap />}
-      </Tab.Screen>
-      <Tab.Screen
-        name="Profile"
-        component={ProfileScreen}
-        options={{ headerShown: false }}
-      />
-    </Tab.Navigator>
+    <View pointerEvents="none" style={{ position: "absolute", top: insets.top, left: 0, right: 0, alignItems: "center" }}>
+      <View style={{ paddingHorizontal: 10, paddingVertical: 2, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, backgroundColor: colors.primary }}>
+        <AppText variant="overline" color={colors.onPrimary} style={{ fontSize: 11 }}>{t("Mode démo")}</AppText>
+      </View>
+    </View>
   );
 }
 
-// Simplified AppContent
-const AppContent = () => {
+function Screens() {
   const { user, loading } = useAuth();
-  
-  if (loading) {
+  const { colors, isDark, textSize, language, ready } = useTheme();
+  const navigationRef = useRef(null);
+  global.navigationRef = navigationRef; // NotificationService opens screens from a tapped notification
+
+  if (loading || !ready) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#ff9f43" />
-        <Text style={styles.loadingText}>Loading...</Text>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background }}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
-  if (!user) {
-    return (
-      <Stack.Navigator
-        screenOptions={{
-          headerShown: false,
-        }}
-      >
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Register" component={RegisterScreen} />
+  const base = isDark ? DarkTheme : DefaultTheme;
+  const navTheme = { ...base, colors: { ...base.colors, background: colors.background, card: colors.surface, text: colors.text, border: colors.border, primary: colors.primary } };
+
+  return (
+    <NavigationContainer ref={navigationRef} theme={navTheme} key={`${textSize}-${language}`}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+      <Stack.Navigator screenOptions={{ headerShown: false, cardStyle: { backgroundColor: colors.background } }}>
+        {user ? (
+          <>
+            <Stack.Screen name="Home" component={HomeScreen} />
+            <Stack.Screen name="Ride" component={RideScreen} options={{ gestureEnabled: false }} />
+            <Stack.Screen name="EarningsScreen" component={EarningsScreen} />
+            <Stack.Screen name="Profile" component={ProfileScreen} />
+            <Stack.Screen name="PreferencesScreen" component={PreferencesScreen} />
+            <Stack.Screen name="DemoScreen" component={DemoScreen} />
+            <Stack.Screen name="ModifyInfo" component={ModifyInfo} />
+            <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
+            <Stack.Screen name="ApprovalStatusScreen" component={ApprovalStatusScreen} />
+            <Stack.Screen name="DriverInboxScreen" component={DriverInboxScreen} />
+          </>
+        ) : (
+          <>
+            <Stack.Screen name="LoginScreen" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+          </>
+        )}
       </Stack.Navigator>
-    );
-  }
-
-  return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
-      <Stack.Screen name="MainApp" component={HomeTabs} />
-      <Stack.Screen name="RideInProgressScreen" component={RideInProgressScreen} />
-      <Stack.Screen name="EarningsScreen" component={EarningsScreen} />
-              <Stack.Screen name="ModifyInfo" component={ModifyInfo} />
-        <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
-        <Stack.Screen name="SettingsScreen" component={SettingsScreen} />
-      {/* These were navigated to (Login/Register/notifications, ride chat) but never registered */}
-      <Stack.Screen name="ApprovalStatusScreen" component={ApprovalStatusScreen} />
-      <Stack.Screen name="DriverInboxScreen" component={DriverInboxScreen} />
-      <Stack.Screen name="OnlineDriverScreen" component={OnlineDriverScreen} />
-    </Stack.Navigator>
-  );
-};
-
-export default function App() {
-  const [isFirebaseInitialized, setIsFirebaseInitialized] = useState(false);
-  const [initError, setInitError] = useState(null);
-
-  useEffect(() => {
-    const checkFirebaseInitialization = () => {
-      try {
-        if (auth) {
-          setIsFirebaseInitialized(true);
-        } else {
-          setInitError("Firebase Auth not initialized");
-        }
-      } catch (error) {
-        console.error("Firebase initialization check error:", error);
-        setInitError(error.message);
-      }
-    };
-
-    checkFirebaseInitialization();
-  }, []);
-
-  if (initError) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>Error initializing Firebase: {initError}</Text>
-      </View>
-    );
-  }
-
-  if (!isFirebaseInitialized) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#ff9f43" />
-        <Text style={styles.loadingText}>Initializing Firebase...</Text>
-      </View>
-    );
-  }
-
-  return (
-    <NavigationContainer>
-      <StripeProvider publishableKey="pk_live_51R9ek8CmEzIPQVTO8V3wcapg87N24eNFOCaJ4dz2krvfKSBaNe5g0vYAW4XBHESTYpQBi6fdz7GA4fPGJh4BlGIW00L1KYPz6m">
-        <AuthProvider>
-          <ThemeProvider>
-            <AppContent />
-          </ThemeProvider>
-        </AuthProvider>
-      </StripeProvider>
+      <DemoBanner />
     </NavigationContainer>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#1e1e1e",
-  },
-  loadingText: {
-    color: "#ff9f43",
-    marginTop: 10,
-    fontSize: 16,
-  },
-  errorText: {
-    color: "#ff4444",
-    marginTop: 10,
-    fontSize: 16,
-    textAlign: "center",
-    padding: 20,
-  },
-});
+export default function App() {
+  const [fontsLoaded] = useFonts(FONT_FILES);
+  if (!fontsLoaded) return <View style={{ flex: 1, backgroundColor: "#FAF8F5" }} />;
+  return (
+    <SafeAreaProvider>
+      <StripeProvider publishableKey={STRIPE_KEY}>
+        <ThemeProvider>
+          <ErrorBoundary>
+            <AuthProvider>
+              <DemoProvider>
+                <Screens />
+              </DemoProvider>
+            </AuthProvider>
+          </ErrorBoundary>
+        </ThemeProvider>
+      </StripeProvider>
+    </SafeAreaProvider>
+  );
+}

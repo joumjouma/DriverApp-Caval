@@ -1,104 +1,93 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+// Appearance: light / dark / follow the phone, and text size.
+// Saved on the phone (AsyncStorage key "appearance").
+//
+//   const { colors, isDark } = useTheme();
+//   const useStyles = makeStyles((colors) => ({ box: { backgroundColor: colors.surface } }));
+//   const styles = useStyles();   // inside the component
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { StyleSheet, useColorScheme } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { lightColors, darkColors } from "../constants/theme";
+import { setTextScale } from "../utils/fonts";
+import { LANGUAGES, setLanguage as setI18nLanguage, applyDirection } from "../utils/i18n/index";
 
-// Define colors as constants to avoid any potential issues
-const DARK_COLORS = {
-  background: '#1A1A1A',
-  card: '#2E2E2E',
-  text: '#FFFFFF',
-  textSecondary: '#CCCCCC',
-  border: '#404040',
-  primary: '#ff9f43',
-  input: '#333333',
-  inputText: '#FFFFFF',
-  placeholder: '#999999',
-  error: '#FF3B30',
-  errorLight: 'rgba(255, 59, 48, 0.1)',
-};
+const KEY = "appearance";
 
-const LIGHT_COLORS = {
-  background: '#FFFFFF',
-  card: '#F5F5F5',
-  text: '#333333',
-  textSecondary: '#666666',
-  border: '#E0E0E0',
-  primary: '#ff9f43',
-  input: '#FFFFFF',
-  inputText: '#333333',
-  placeholder: '#999999',
-  error: '#FF3B30',
-  errorLight: 'rgba(255, 59, 48, 0.1)',
-};
+// Names used by older driver screens
+const aliasCache = new Map();
+function withAliases(p) {
+  if (!aliasCache.has(p)) aliasCache.set(p, { ...p, card: p.surface, inputText: p.text, textLight: p.textMuted });
+  return aliasCache.get(p);
+}
+export const TEXT_SIZES = [
+  { id: "normal", label: "Normal", scale: 1 },
+  { id: "large", label: "Grand", scale: 1.12 },
+  { id: "xlarge", label: "Très grand", scale: 1.25 },
+];
 
-// Create context with guaranteed default values
-const MainAppThemeContext = createContext({
-  isDarkMode: true,
-  colors: DARK_COLORS,
-  toggleTheme: () => {},
+const ThemeContext = createContext({
+  colors: withAliases(lightColors), isDarkMode: false, toggleTheme: () => {}, isDark: false, mode: "system", setMode: () => {},
+  textSize: "normal", setTextSize: () => {}, language: "fr", setLanguage: () => false, ready: true,
 });
 
-export const ThemeProvider = ({ children }) => {
-  const [isDarkMode, setIsDarkMode] = useState(true);
-  const [isReady, setIsReady] = useState(false);
+export function ThemeProvider({ children }) {
+  const system = useColorScheme();
+  const [mode, setModeState] = useState("system"); // system | light | dark
+  const [textSize, setTextSizeState] = useState("normal");
+  const [dataSaver, setDataSaverState] = useState(false); // low-data mode
+  const [ready, setReady] = useState(false);
+  // French unless the user picks another language in Préférences / Langue.
+  const [language, setLanguageState] = useState("fr");
 
   useEffect(() => {
-    loadTheme();
+    AsyncStorage.getItem(KEY)
+      .then((v) => {
+        const saved = v ? JSON.parse(v) : {};
+        if (["system", "light", "dark"].includes(saved.mode)) setModeState(saved.mode);
+        if (TEXT_SIZES.some((t) => t.id === saved.textSize)) setTextSizeState(saved.textSize);
+        if (LANGUAGES.some((l) => l.id === saved.language)) setLanguageState(saved.language);
+        if (typeof saved.dataSaver === "boolean") setDataSaverState(saved.dataSaver);
+      })
+      .catch(() => {})
+      .finally(() => setReady(true));
   }, []);
 
-  const loadTheme = async () => {
-    try {
-      const savedTheme = await AsyncStorage.getItem('mainAppTheme');
-      if (savedTheme) {
-        setIsDarkMode(savedTheme === 'dark');
-      }
-    } catch (error) {
-      console.error('Error loading theme:', error);
-    } finally {
-      setIsReady(true);
-    }
+  const save = (next) => AsyncStorage.setItem(KEY, JSON.stringify({ mode, textSize, language, dataSaver, ...next })).catch(() => {});
+
+  // Keep the layout direction in line with the saved language (applies on next start)
+  useEffect(() => { if (ready) applyDirection(language); }, [ready]);
+
+  const isDark = mode === "dark" || (mode === "system" && system === "dark");
+  const scale = (TEXT_SIZES.find((t) => t.id === textSize) || TEXT_SIZES[0]).scale;
+  setTextScale(scale);
+  setI18nLanguage(language);
+
+  const value = useMemo(() => ({
+    colors: withAliases(isDark ? darkColors : lightColors),
+    isDark,
+    isDarkMode: isDark, // older screens
+    toggleTheme: () => { const m = isDark ? "light" : "dark"; setModeState(m); save({ mode: m }); },
+    mode,
+    setMode: (m) => { setModeState(m); save({ mode: m }); },
+    textSize,
+    setTextSize: (t) => { setTextSizeState(t); save({ textSize: t }); },
+    language,
+    dataSaver,
+    setDataSaver: (v) => { setDataSaverState(v); save({ dataSaver: v }); },
+    /** Returns true when the app must restart (switching to/from Arabic) */
+    setLanguage: (l) => { setLanguageState(l); save({ language: l }); return applyDirection(l); },
+    ready,
+  }), [isDark, mode, textSize, language, dataSaver, ready]);
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
+export const useTheme = () => useContext(ThemeContext);
+
+/** Theme-aware StyleSheet: returns a hook that rebuilds styles when the theme changes. */
+export function makeStyles(factory) {
+  return function useStyles() {
+    const { colors, isDark } = useTheme();
+    return useMemo(() => StyleSheet.create(factory(colors, isDark)), [colors, isDark]);
   };
-
-  const toggleTheme = async () => {
-    try {
-      const newTheme = !isDarkMode;
-      setIsDarkMode(newTheme);
-      await AsyncStorage.setItem('mainAppTheme', newTheme ? 'dark' : 'light');
-    } catch (error) {
-      console.error('Error saving theme:', error);
-    }
-  };
-
-  // Ensure we always have a valid theme object
-  const themeValue = {
-    isDarkMode,
-    colors: isDarkMode ? DARK_COLORS : LIGHT_COLORS,
-    toggleTheme,
-  };
-
-  // Don't render until theme is ready
-  if (!isReady) {
-    return null;
-  }
-
-  return (
-    <MainAppThemeContext.Provider value={themeValue}>
-      {children}
-    </MainAppThemeContext.Provider>
-  );
-};
-
-export const useTheme = () => {
-  const context = useContext(MainAppThemeContext);
-  
-  // Always return a valid theme object
-  if (!context || !context.colors) {
-    console.warn('ThemeContext: using fallback theme');
-    return {
-      isDarkMode: true,
-      colors: DARK_COLORS,
-      toggleTheme: () => {},
-    };
-  }
-  
-  return context;
-};
+}

@@ -21,6 +21,12 @@ service cloud.firestore {
     function isDriver() {
       return signedIn() && exists(/databases/$(database)/documents/Drivers/$(request.auth.uid));
     }
+    // Demo mode: only accounts listed in appConfig/demo.testers (user IDs)
+    // can create demo rides or put their driver profile in demo mode.
+    function isDemoTester() {
+      return signedIn() && request.auth.uid in get(/databases/$(database)/documents/appConfig/demo).data.get('testers', []);
+    }
+    function demoAllowed(data) { return data.get('demo', false) == false || isDemoTester(); }
     function changedKeys() {
       return request.resource.data.diff(resource.data).affectedKeys();
     }
@@ -93,12 +99,14 @@ service cloud.firestore {
         && request.resource.data.get('earnings', 0) == 0
         && request.resource.data.get('totalEarnings', 0) == 0
         && request.resource.data.get('weeklyEarnings', 0) == 0
-        && request.resource.data.get('dailyEarnings', 0) == 0;
+        && request.resource.data.get('dailyEarnings', 0) == 0
+        && demoAllowed(request.resource.data);
 
       allow update: if
         // Driver edits own profile/status/location, but never approval,
         // money or rating fields. (Ratings go through the rateDriver function.)
         isSelf(driverId) && noChangesTo(driverAdminFields())
+            && (!changedKeys().hasAny(['demo']) || demoAllowed(request.resource.data))
             && !request.resource.data.diff(resource.data).addedKeys().hasAny(driverPrivateFields())
             && !request.resource.data.diff(resource.data).changedKeys().hasAny(driverPrivateFields());
 
@@ -137,6 +145,7 @@ service cloud.firestore {
         && !request.resource.data.keys().hasAny(rideServerFields())
         && request.resource.data.get('serviceType', 'ride') in ['ride', 'delivery', 'hourly']
         && validRideExtras(request.resource.data)
+        && demoAllowed(request.resource.data)
         && (!isDeliveryRequest(request.resource.data) || validPackage(request.resource.data.get('package', null)))
         // Business rides: membership is checked by checkBusinessRide
         && (request.resource.data.get('paymentMethod', 'cash') != 'business' || request.resource.data.get('businessId', null) is string);
@@ -152,7 +161,7 @@ service cloud.firestore {
                             'pickupLat', 'pickupLng', 'destinationLat', 'destinationLng',
                             'createdAt', 'selectedDriverId', 'declinedDrivers',
                             'serviceType', 'package', 'stops', 'hours', 'promoCode',
-                            'scheduledFor', 'passenger', 'pickupNote', 'businessId'])
+                            'scheduledFor', 'passenger', 'pickupNote', 'businessId', 'demo'])
             && noChangesTo(rideServerFields())
             // A delivery is completed only by confirmDelivery (code check).
             && (!isDeliveryRequest(resource.data) || request.resource.data.status != 'completed'

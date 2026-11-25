@@ -24,11 +24,11 @@
         "googleMapsApiKey": "AIzaSyBnVN-ACYzcA0Sy8BcPLpXG50Y9T8jhJGE"
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "We need your location to show nearby rides and provide accurate navigation.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "We need your location to show nearby rides and provide accurate navigation even when the app is in the background.",
-        "NSLocationAlwaysUsageDescription": "We need your location to show nearby rides and provide accurate navigation even when the app is in the background.",
-        "NSCameraUsageDescription": "We need access to your camera to allow you to take profile pictures and document your rides.",
-        "NSPhotoLibraryUsageDescription": "We need access to your photo library to allow you to select profile pictures and document your rides.",
+        "NSLocationWhenInUseUsageDescription": "Caval utilise votre position pour vous proposer des courses proches et vous guider jusqu'au client.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Caval utilise votre position, même en arrière-plan, pour vous proposer des courses et permettre au client de suivre votre arrivée pendant que vous êtes en ligne.",
+        "NSLocationAlwaysUsageDescription": "Caval utilise votre position, même en arrière-plan, pour vous proposer des courses et permettre au client de suivre votre arrivée pendant que vous êtes en ligne.",
+        "NSCameraUsageDescription": "Caval utilise l'appareil photo pour votre photo de profil, vos documents et la photo des colis à la récupération.",
+        "NSPhotoLibraryUsageDescription": "Caval accède à vos photos pour choisir votre photo de profil et vos documents.",
         "UIBackgroundModes": [
           "location",
           "fetch",
@@ -81,48 +81,28 @@
       "eas": {
         "projectId": "1e8c2798-d613-4170-935f-9c44dd58f328"
       }
-    }
-  },
-  "plugins": [
-    "expo-secure-store",
-    "expo-web-browser",
-    "expo-background-fetch",
-    [
-      "expo-location",
-      {
-        "locationAlwaysAndWhenInUsePermission": "Allow Eco-share to use your location to show nearby rides and provide accurate navigation.",
-        "locationAlwaysPermission": "Allow Eco-share to use your location to show nearby rides and provide accurate navigation even when the app is in the background.",
-        "locationWhenInUsePermission": "Allow Eco-share to use your location to show nearby rides and provide accurate navigation."
-      }
-    ],
-    [
-      "expo-notifications",
-      {
-        "icon": "./assets/icone.png",
-        "color": "#ffffff"
-      }
-    ],
-    "expo-asset",
-    "expo-font"
-  ],
-  "notification": {
-    "icon": "./assets/icone.png",
-    "color": "#ffffff",
-    "iosDisplayInForeground": true,
-    "androidMode": "default",
-    "androidCollapsedTitle": "New Ride Request",
-    "androidChannelId": "ride-requests",
-    "androidChannelName": "Ride Requests",
-    "androidChannelDescription": "Notifications for new ride offers and assignments",
-    "androidChannelImportance": "max",
-    "androidChannelShowBadge": true,
-    "androidChannelEnableVibration": true,
-    "androidChannelVibrationPattern": [
-      0,
-      250,
-      250,
-      250
-    ],
-    "androidChannelSound": "default"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-background-fetch",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Caval utilise votre position, même en arrière-plan, pour vous proposer des courses et permettre au client de suivre votre arrivée pendant que vous êtes en ligne.",
+          "locationAlwaysPermission": "Caval utilise votre position, même en arrière-plan, pour vous proposer des courses et permettre au client de suivre votre arrivée pendant que vous êtes en ligne.",
+          "locationWhenInUsePermission": "Caval utilise votre position pour vous proposer des courses proches et vous guider jusqu'au client."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icone.png",
+          "color": "#ffffff"
+        }
+      ],
+      "expo-asset",
+      "expo-font"
+    ]
   }
 }

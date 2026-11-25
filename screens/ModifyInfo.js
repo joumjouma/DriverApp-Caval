@@ -13,14 +13,16 @@ import {
   SafeAreaView,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
-import { useTheme } from "../context/ThemeContext";
+import { useTheme, makeStyles } from "../context/ThemeContext";
 import { useNavigation } from "@react-navigation/native";
 import { auth } from "../config/firebase";
 import { updateEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "../config/firebase";
+import { t } from "../utils/i18n";
 
 function ModifyInfo() {
+  const styles = useStyles();
   const { colors } = useTheme();
   const navigation = useNavigation();
   const user = auth.currentUser;
@@ -53,7 +55,7 @@ function ModifyInfo() {
   useEffect(() => {
     const fetchUserData = async () => {
       if (!user) {
-        navigation.navigate("LoginScreen");
+        navigation.goBack();
         return;
       }
 
@@ -70,7 +72,7 @@ function ModifyInfo() {
         }
       } catch (error) {
         console.error("Error fetching user data:", error);
-        Alert.alert("Erreur", "Impossible de charger vos informations. Veuillez réessayer.");
+        Alert.alert(t("Erreur"), t("Impossible de charger vos informations. Veuillez réessayer."));
       } finally {
         setInitialLoading(false);
       }
@@ -109,7 +111,7 @@ function ModifyInfo() {
   // Function to handle personal info update
   const handlePersonalInfoUpdate = async () => {
     if (!firstName.trim() || !lastName.trim()) {
-      Alert.alert("Erreur", "Le prénom et le nom ne peuvent pas être vides.");
+      Alert.alert(t("Erreur"), t("Le prénom et le nom ne peuvent pas être vides."));
       return;
     }
 
@@ -120,11 +122,11 @@ function ModifyInfo() {
         lastName,
       });
       
-      Alert.alert("Succès", "Les informations personnelles ont été mises à jour avec succès.");
+      Alert.alert(t("Succès"), t("Les informations personnelles ont été mises à jour avec succès."));
       setEditMode((prev) => ({ ...prev, personalInfo: false }));
     } catch (error) {
       console.error("Error updating personal info:", error);
-      Alert.alert("Erreur", "Impossible de mettre à jour les informations personnelles. Veuillez réessayer.");
+      Alert.alert(t("Erreur"), t("Impossible de mettre à jour les informations personnelles. Veuillez réessayer."));
     } finally {
       setLoading(false);
     }
@@ -133,12 +135,12 @@ function ModifyInfo() {
   // Function to handle contact info update
   const handleContactInfoUpdate = async () => {
     if (!isValidEmail(email)) {
-      Alert.alert("Erreur", "Veuillez entrer une adresse email valide.");
+      Alert.alert(t("Erreur"), t("Veuillez entrer une adresse email valide."));
       return;
     }
 
     if (!isValidPhone(phone)) {
-      Alert.alert("Erreur", "Veuillez entrer un numéro de téléphone valide (10-15 chiffres).");
+      Alert.alert(t("Erreur"), t("Veuillez entrer un numéro de téléphone valide (10-15 chiffres)."));
       return;
     }
 
@@ -147,15 +149,15 @@ function ModifyInfo() {
       // Update email requires re-authentication
       if (email !== user.email) {
         Alert.alert(
-          "Authentification requise",
-          "Pour mettre à jour votre email, veuillez entrer votre mot de passe actuel :",
+          t("Authentification requise"),
+          t("Pour mettre à jour votre email, veuillez entrer votre mot de passe actuel :"),
           [
-            { text: "Annuler", style: "cancel" },
+            { text: t("Annuler"), style: "cancel" },
             {
               text: "Confirmer",
               onPress: async (password) => {
                 if (!password) {
-                  Alert.alert("Erreur", "Le mot de passe est requis pour mettre à jour l'email.");
+                  Alert.alert(t("Erreur"), t("Le mot de passe est requis pour mettre à jour l'email."));
                   setLoading(false);
                   return;
                 }
@@ -170,11 +172,11 @@ function ModifyInfo() {
                     phoneNumber: phone,
                   });
                   
-                  Alert.alert("Succès", "Les informations de contact ont été mises à jour avec succès.");
+                  Alert.alert(t("Succès"), t("Les informations de contact ont été mises à jour avec succès."));
                   setEditMode((prev) => ({ ...prev, contactInfo: false }));
                 } catch (error) {
                   console.error("Error updating email:", error);
-                  Alert.alert("Erreur", "Impossible de mettre à jour l'email. Veuillez vérifier votre mot de passe et réessayer.");
+                  Alert.alert(t("Erreur"), t("Impossible de mettre à jour l'email. Veuillez vérifier votre mot de passe et réessayer."));
                 } finally {
                   setLoading(false);
                 }
@@ -194,13 +196,13 @@ function ModifyInfo() {
           phoneNumber: phone,
         });
         
-        Alert.alert("Succès", "Les informations de contact ont été mises à jour avec succès.");
+        Alert.alert(t("Succès"), t("Les informations de contact ont été mises à jour avec succès."));
         setEditMode((prev) => ({ ...prev, contactInfo: false }));
         setLoading(false);
       }
     } catch (error) {
       console.error("Error updating contact info:", error);
-      Alert.alert("Erreur", "Impossible de mettre à jour les informations de contact. Veuillez réessayer.");
+      Alert.alert(t("Erreur"), t("Impossible de mettre à jour les informations de contact. Veuillez réessayer."));
       setLoading(false);
     }
   };
@@ -208,17 +210,17 @@ function ModifyInfo() {
   // Function to handle password update
   const handlePasswordUpdate = async () => {
     if (!currentPassword) {
-      Alert.alert("Erreur", "Le mot de passe actuel est requis.");
+      Alert.alert(t("Erreur"), t("Le mot de passe actuel est requis."));
       return;
     }
 
     if (newPassword.length < 8) {
-      Alert.alert("Erreur", "Le nouveau mot de passe doit comporter au moins 8 caractères.");
+      Alert.alert(t("Erreur"), t("Le nouveau mot de passe doit comporter au moins 8 caractères."));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert("Erreur", "Les nouveaux mots de passe ne correspondent pas.");
+      Alert.alert(t("Erreur"), t("Les nouveaux mots de passe ne correspondent pas."));
       return;
     }
 
@@ -231,14 +233,14 @@ function ModifyInfo() {
       // Update password
       await updatePassword(user, newPassword);
       
-      Alert.alert("Succès", "Le mot de passe a été mis à jour avec succès.");
+      Alert.alert(t("Succès"), t("Le mot de passe a été mis à jour avec succès."));
       setEditMode((prev) => ({ ...prev, password: false }));
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     } catch (error) {
       console.error("Error updating password:", error);
-      Alert.alert("Erreur", "Impossible de mettre à jour le mot de passe. Veuillez vérifier votre mot de passe actuel et réessayer.");
+      Alert.alert(t("Erreur"), t("Impossible de mettre à jour le mot de passe. Veuillez vérifier votre mot de passe actuel et réessayer."));
     } finally {
       setLoading(false);
     }
@@ -247,12 +249,12 @@ function ModifyInfo() {
   // Function to handle driving info update
   const handleDrivingInfoUpdate = async () => {
     if (!drivingLicense.trim()) {
-      Alert.alert("Erreur", "Le numéro de permis de conduire ne peut pas être vide.");
+      Alert.alert(t("Erreur"), t("Le numéro de permis de conduire ne peut pas être vide."));
       return;
     }
 
     if (!address.trim()) {
-      Alert.alert("Erreur", "L'adresse ne peut pas être vide.");
+      Alert.alert(t("Erreur"), t("L'adresse ne peut pas être vide."));
       return;
     }
 
@@ -263,11 +265,11 @@ function ModifyInfo() {
         address,
       });
       
-      Alert.alert("Succès", "Les informations de conduite ont été mises à jour avec succès.");
+      Alert.alert(t("Succès"), t("Les informations de conduite ont été mises à jour avec succès."));
       setEditMode((prev) => ({ ...prev, drivingInfo: false }));
     } catch (error) {
       console.error("Error updating driving info:", error);
-      Alert.alert("Erreur", "Impossible de mettre à jour les informations de conduite. Veuillez réessayer.");
+      Alert.alert(t("Erreur"), t("Impossible de mettre à jour les informations de conduite. Veuillez réessayer."));
     } finally {
       setLoading(false);
     }
@@ -313,7 +315,7 @@ function ModifyInfo() {
                 style={styles.editButton}
               >
                 <Text style={[styles.editButtonText, { color: colors.primary }]}>
-                  {editMode.personalInfo ? "Annuler" : "Modifier"}
+                  {editMode.personalInfo ? t("Annuler") : t("Modifier")}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -338,7 +340,7 @@ function ModifyInfo() {
                 value={firstName}
                 onChangeText={setFirstName}
                 editable={editMode.personalInfo}
-                placeholder="Entrez le prénom"
+                placeholder={t("Entrez le prénom")}
                 placeholderTextColor={colors.textSecondary}
               />
             </View>
@@ -363,7 +365,7 @@ function ModifyInfo() {
                 value={lastName}
                 onChangeText={setLastName}
                 editable={editMode.personalInfo}
-                placeholder="Entrez le nom"
+                placeholder={t("Entrez le nom")}
                 placeholderTextColor={colors.textSecondary}
               />
             </View>
@@ -375,9 +377,9 @@ function ModifyInfo() {
                 disabled={loading}
               >
                 {loading ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={colors.text} />
                 ) : (
-                  <Text style={styles.saveButtonText}>Enregistrer les modifications</Text>
+                  <Text style={styles.saveButtonText}>{t("Enregistrer les modifications")}</Text>
                 )}
               </TouchableOpacity>
             )}
@@ -394,7 +396,7 @@ function ModifyInfo() {
                 style={styles.editButton}
               >
                 <Text style={[styles.editButtonText, { color: colors.primary }]}>
-                  {editMode.contactInfo ? "Annuler" : "Modifier"}
+                  {editMode.contactInfo ? t("Annuler") : t("Modifier")}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -419,7 +421,7 @@ function ModifyInfo() {
                 value={email}
                 onChangeText={setEmail}
                 editable={editMode.contactInfo}
-                placeholder="Entrez l'email"
+                placeholder={t("Entrez l'email")}
                 placeholderTextColor={colors.textSecondary}
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -446,7 +448,7 @@ function ModifyInfo() {
                 value={phone}
                 onChangeText={setPhone}
                 editable={editMode.contactInfo}
-                placeholder="Entrez le numéro de téléphone"
+                placeholder={t("Entrez le numéro de téléphone")}
                 placeholderTextColor={colors.textSecondary}
                 keyboardType="phone-pad"
               />
@@ -459,9 +461,9 @@ function ModifyInfo() {
                 disabled={loading}
               >
                 {loading ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={colors.text} />
                 ) : (
-                  <Text style={styles.saveButtonText}>Enregistrer les modifications</Text>
+                  <Text style={styles.saveButtonText}>{t("Enregistrer les modifications")}</Text>
                 )}
               </TouchableOpacity>
             )}
@@ -500,7 +502,7 @@ function ModifyInfo() {
                       ]}
                       value={currentPassword}
                       onChangeText={setCurrentPassword}
-                      placeholder="Entrez le mot de passe actuel"
+                      placeholder={t("Entrez le mot de passe actuel")}
                       placeholderTextColor={colors.textSecondary}
                       secureTextEntry={secureEntry}
                     />
@@ -532,7 +534,7 @@ function ModifyInfo() {
                       ]}
                       value={newPassword}
                       onChangeText={setNewPassword}
-                      placeholder="Entrez le nouveau mot de passe"
+                      placeholder={t("Entrez le nouveau mot de passe")}
                       placeholderTextColor={colors.textSecondary}
                       secureTextEntry={secureEntryNew}
                     />
@@ -564,7 +566,7 @@ function ModifyInfo() {
                       ]}
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
-                      placeholder="Confirmez le nouveau mot de passe"
+                      placeholder={t("Confirmez le nouveau mot de passe")}
                       placeholderTextColor={colors.textSecondary}
                       secureTextEntry={secureEntryConfirm}
                     />
@@ -591,9 +593,9 @@ function ModifyInfo() {
                   disabled={loading}
                 >
                   {loading ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <ActivityIndicator size="small" color={colors.text} />
                   ) : (
-                    <Text style={styles.saveButtonText}>Mettre à jour le mot de passe</Text>
+                    <Text style={styles.saveButtonText}>{t("Mettre à jour le mot de passe")}</Text>
                   )}
                 </TouchableOpacity>
               </>
@@ -620,7 +622,7 @@ function ModifyInfo() {
                 style={styles.editButton}
               >
                 <Text style={[styles.editButtonText, { color: colors.primary }]}>
-                  {editMode.drivingInfo ? "Annuler" : "Modifier"}
+                  {editMode.drivingInfo ? t("Annuler") : t("Modifier")}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -645,7 +647,7 @@ function ModifyInfo() {
                 value={drivingLicense}
                 onChangeText={setDrivingLicense}
                 editable={editMode.drivingInfo}
-                placeholder="Entrez le numéro de permis de conduire"
+                placeholder={t("Entrez le numéro de permis de conduire")}
                 placeholderTextColor={colors.textSecondary}
               />
             </View>
@@ -671,7 +673,7 @@ function ModifyInfo() {
                 value={address}
                 onChangeText={setAddress}
                 editable={editMode.drivingInfo}
-                placeholder="Entrez l'adresse"
+                placeholder={t("Entrez l'adresse")}
                 placeholderTextColor={colors.textSecondary}
                 multiline={true}
               />
@@ -684,9 +686,9 @@ function ModifyInfo() {
                 disabled={loading}
               >
                 {loading ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={colors.text} />
                 ) : (
-                  <Text style={styles.saveButtonText}>Enregistrer les modifications</Text>
+                  <Text style={styles.saveButtonText}>{t("Enregistrer les modifications")}</Text>
                 )}
               </TouchableOpacity>
             )}
@@ -708,7 +710,7 @@ function ModifyInfo() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   safeArea: {
     flex: 1,
   },
@@ -723,7 +725,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(0,0,0,0.05)",
+    borderBottomColor: colors.border,
   },
   backButton: {
     padding: 8,
@@ -787,7 +789,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.1)",
+    borderColor: colors.border,
   },
   passwordInput: {
     flex: 1,
@@ -824,7 +826,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   saveButtonText: {
-    color: "#FFFFFF",
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -843,6 +845,6 @@ const styles = StyleSheet.create({
   bottomPadding: {
     height: 40,
   },
-});
+}));
 
 export default ModifyInfo;

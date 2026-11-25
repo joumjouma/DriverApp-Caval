@@ -21,6 +21,9 @@ export const APP_CONFIG = {
     support: 'https://www.caval.tech/support',
   },
   
+  // Caval support (WhatsApp and phone)
+  supportPhone: '+25377702036',
+
   // App version
   version: '1.0.0',
 }; 

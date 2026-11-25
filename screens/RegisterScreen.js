@@ -22,15 +22,18 @@ import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import CavalLogo from "../assets/Caval_courrier_logo-removebg-preview.png";
-import { useTheme } from "../context/ThemeContext";
+import { useTheme, makeStyles } from "../context/ThemeContext";
 import { APP_CONFIG } from "../constants/appConfig";
 import PrivacyPolicyModal from "../components/PrivacyPolicyModal";
 import * as ImagePicker from 'expo-image-picker';
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "../config/firebase";
 import { auth } from '../config/firebase';
+import { t } from "../utils/i18n";
 
 function RegisterScreen() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -108,7 +111,7 @@ function RegisterScreen() {
       });
     } catch (error) {
       console.error("Error saving privacy policy acceptance:", error);
-      Alert.alert("Error", "Failed to save privacy policy acceptance. Please try again.");
+      Alert.alert(t("Erreur"), t("Impossible d'enregistrer votre accord. Réessayez."));
     }
   };
 
@@ -183,41 +186,41 @@ function RegisterScreen() {
   const handleRegister = async () => {
     if (!email || !password || !confirmPassword || !prenom || !nom || !telephone || !facePhoto || !carteGrisePhoto || !plaqueImmatriculation || !carMake || !carModel || !carColor) {
       Alert.alert(
-        "Informations manquantes",
-        "Veuillez remplir tous les champs obligatoires, prendre une photo de votre visage et de votre carte-grise, et entrer votre plaque d'immatriculation, marque, modèle et couleur du véhicule.",
-        [{ text: "OK" }]
+        t("Informations manquantes"),
+        t("Veuillez remplir tous les champs obligatoires, prendre une photo de votre visage et de votre carte-grise, et entrer votre plaque d'immatriculation, marque, modèle et couleur du véhicule."),
+        [{ text: t("OK") }]
       );
       return;
     }
     if (password !== confirmPassword) {
       Alert.alert(
-        "Erreur de mot de passe",
-        "Les mots de passe ne correspondent pas. Veuillez vérifier et réessayer.",
-        [{ text: "OK" }]
+        t("Erreur de mot de passe"),
+        t("Les mots de passe ne correspondent pas. Veuillez vérifier et réessayer."),
+        [{ text: t("OK") }]
       );
       return;
     }
     if (password.length < 6) {
       Alert.alert(
-        "Mot de passe trop court",
-        "Le mot de passe doit contenir au moins 6 caractères.",
-        [{ text: "OK" }]
+        t("Mot de passe trop court"),
+        t("Le mot de passe doit contenir au moins 6 caractères."),
+        [{ text: t("OK") }]
       );
       return;
     }
     if (!paymentMethods.dmoney && !paymentMethods.cacpay && !paymentMethods.waafi && !paymentMethods.sabapay) {
       Alert.alert(
-        "Méthodes de paiement requises",
-        "Veuillez sélectionner au moins une méthode de paiement pour recevoir vos gains.",
-        [{ text: "OK" }]
+        t("Méthodes de paiement requises"),
+        t("Veuillez sélectionner au moins une méthode de paiement pour recevoir vos gains."),
+        [{ text: t("OK") }]
       );
       return;
     }
     if (!telephone || telephone.replace(/\s/g, '').length < 8) {
       Alert.alert(
-        "Numéro de téléphone invalide",
-        "Veuillez entrer un numéro de téléphone valide.",
-        [{ text: "OK" }]
+        t("Numéro de téléphone invalide"),
+        t("Veuillez entrer un numéro de téléphone valide."),
+        [{ text: t("OK") }]
       );
       return;
     }
@@ -280,9 +283,9 @@ function RegisterScreen() {
         
         // Show success message about approval process
         Alert.alert(
-          "Inscription réussie !",
-          "Votre compte a été créé avec succès. Votre demande est maintenant en cours d'examen par notre équipe. Vous recevrez une notification dès que votre compte sera approuvé.",
-          [{ text: "OK" }]
+          t("Inscription réussie !"),
+          t("Votre compte a été créé avec succès. Votre demande est maintenant en cours d'examen par notre équipe. Vous recevrez une notification dès que votre compte sera approuvé."),
+          [{ text: t("OK") }]
         );
         
         setPendingUser(user);
@@ -294,27 +297,27 @@ function RegisterScreen() {
       }
     } catch (error) {
       setIsLoading(false);
-      let errorMessage = "Une erreur est survenue lors de l'inscription. Veuillez réessayer.";
+      let errorMessage = t("Une erreur est survenue lors de l'inscription. Veuillez réessayer.");
       
       // Check for specific Firebase auth errors and provide French messages
       if (error.code === 'auth/email-already-in-use') {
-        errorMessage = "Cette adresse email est déjà utilisée. Veuillez utiliser une autre adresse email ou vous connecter avec votre compte existant.";
+        errorMessage = t("Cette adresse email est déjà utilisée. Veuillez utiliser une autre adresse email ou vous connecter avec votre compte existant.");
       } else if (error.code === 'auth/invalid-email') {
-        errorMessage = "Adresse email invalide. Veuillez entrer une adresse email valide.";
+        errorMessage = t("Adresse email invalide. Veuillez entrer une adresse email valide.");
       } else if (error.code === 'auth/weak-password') {
-        errorMessage = "Le mot de passe est trop faible. Veuillez choisir un mot de passe plus sécurisé.";
+        errorMessage = t("Le mot de passe est trop faible. Veuillez choisir un mot de passe plus sécurisé.");
       } else if (error.code === 'auth/operation-not-allowed') {
-        errorMessage = "L'inscription par email est temporairement désactivée. Veuillez réessayer plus tard.";
+        errorMessage = t("L'inscription par email est temporairement désactivée. Veuillez réessayer plus tard.");
       } else if (error.code === 'auth/network-request-failed') {
-        errorMessage = "Erreur de connexion réseau. Veuillez vérifier votre connexion internet et réessayer.";
+        errorMessage = t("Erreur de connexion réseau. Veuillez vérifier votre connexion internet et réessayer.");
       } else if (error.message.includes('Failed to upload image')) {
-        errorMessage = "Erreur lors du téléchargement de la photo. Veuillez réessayer.";
+        errorMessage = t("Erreur lors du téléchargement de la photo. Veuillez réessayer.");
       }
       
       Alert.alert(
-        "Échec de l'inscription", 
+        t("Échec de l'inscription"), 
         errorMessage,
-        [{ text: "OK" }]
+        [{ text: t("OK") }]
       );
     }
   };
@@ -328,9 +331,8 @@ function RegisterScreen() {
 
   return (
     <View style={styles.mainContainer}>
-      <StatusBar barStyle="light-content" backgroundColor="#121212" />
       <LinearGradient
-        colors={["#121212", "#1F1F1F"]}
+        colors={[colors.background, colors.background]}
         style={styles.gradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
@@ -354,7 +356,7 @@ function RegisterScreen() {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.header}>
-              <Text style={styles.title}>Créer un compte chauffeur</Text>
+              <Text style={styles.title}>{t("Créer un compte chauffeur")}</Text>
               <Text style={styles.subtitle}>
                 Rejoignez l'équipe Caval et commencez à gagner dès aujourd'hui
               </Text>
@@ -362,7 +364,7 @@ function RegisterScreen() {
 
             <View style={styles.formContainer}>
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Type de véhicule</Text>
+                <Text style={styles.cardTitle}>{t("Type de véhicule")}</Text>
                 <View style={styles.buttonGroup}>
                   {[
                     "Caval Privé",
@@ -379,7 +381,7 @@ function RegisterScreen() {
                       <MaterialIcons
                         name={type.includes("moto") ? "two-wheeler" : "directions-car"}
                         size={24}
-                        color={typeDeVehicule === type ? "#FFFFFF" : "#FF8C00"}
+                        color={typeDeVehicule === type ? colors.onPrimary : colors.primaryText}
                         style={styles.typeIcon}
                       />
                       <Text
@@ -397,22 +399,22 @@ function RegisterScreen() {
 
               {/* Documents Section */}
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Documents requis</Text>
+                <Text style={styles.cardTitle}>{t("Documents requis")}</Text>
                 
                 {/* License Plate */}
                 <View style={styles.documentSection}>
-                  <Text style={styles.documentLabel}>Plaque d'immatriculation</Text>
+                  <Text style={styles.documentLabel}>{t("Plaque d'immatriculation")}</Text>
                   <View style={styles.inputWrapper}>
                     <Ionicons
                       name="car-outline"
                       size={20}
-                      color="#a0a0a0"
+                      color={colors.textMuted}
                       style={styles.inputIcon}
                     />
                     <TextInput
                       style={styles.input}
-                      placeholder=" (Format Djibouti)"
-                      placeholderTextColor="#757575"
+                      placeholder={t(" (Format Djibouti)")}
+                      placeholderTextColor={colors.placeholder}
                       onChangeText={handleLicensePlateChange}
                       value={plaqueImmatriculation}
                     />
@@ -421,18 +423,18 @@ function RegisterScreen() {
 
                 {/* Car Make */}
                 <View style={styles.documentSection}>
-                  <Text style={styles.documentLabel}>Marque du véhicule</Text>
+                  <Text style={styles.documentLabel}>{t("Marque du véhicule")}</Text>
                   <View style={styles.inputWrapper}>
                     <Ionicons
                       name="car-sport-outline"
                       size={20}
-                      color="#a0a0a0"
+                      color={colors.textMuted}
                       style={styles.inputIcon}
                     />
                     <TextInput
                       style={styles.input}
-                      placeholder="Ex: Toyota, Honda, Nissan..."
-                      placeholderTextColor="#757575"
+                      placeholder={t("Ex: Toyota, Honda, Nissan...")}
+                      placeholderTextColor={colors.placeholder}
                       onChangeText={setCarMake}
                       value={carMake}
                     />
@@ -441,18 +443,18 @@ function RegisterScreen() {
 
                 {/* Car Model */}
                 <View style={styles.documentSection}>
-                  <Text style={styles.documentLabel}>Modèle du véhicule</Text>
+                  <Text style={styles.documentLabel}>{t("Modèle du véhicule")}</Text>
                   <View style={styles.inputWrapper}>
                     <Ionicons
                       name="car-outline"
                       size={20}
-                      color="#a0a0a0"
+                      color={colors.textMuted}
                       style={styles.inputIcon}
                     />
                     <TextInput
                       style={styles.input}
-                      placeholder="Ex: Corolla, Civic, Sunny..."
-                      placeholderTextColor="#757575"
+                      placeholder={t("Ex: Corolla, Civic, Sunny...")}
+                      placeholderTextColor={colors.placeholder}
                       onChangeText={setCarModel}
                       value={carModel}
                     />
@@ -461,18 +463,18 @@ function RegisterScreen() {
 
                 {/* Car Color */}
                 <View style={styles.documentSection}>
-                  <Text style={styles.documentLabel}>Couleur du véhicule</Text>
+                  <Text style={styles.documentLabel}>{t("Couleur du véhicule")}</Text>
                   <View style={styles.inputWrapper}>
                     <Ionicons
                       name="color-palette-outline"
                       size={20}
-                      color="#a0a0a0"
+                      color={colors.textMuted}
                       style={styles.inputIcon}
                     />
                     <TextInput
                       style={styles.input}
-                      placeholder="Ex: Blanc, Noir, Rouge..."
-                      placeholderTextColor="#757575"
+                      placeholder={t("Ex: Blanc, Noir, Rouge...")}
+                      placeholderTextColor={colors.placeholder}
                       onChangeText={setCarColor}
                       value={carColor}
                     />
@@ -481,7 +483,7 @@ function RegisterScreen() {
                 
                 {/* Face Photo */}
                 <View style={styles.documentSection}>
-                  <Text style={styles.documentLabel}>Photo de votre visage</Text>
+                  <Text style={styles.documentLabel}>{t("Photo de votre visage")}</Text>
                   <TouchableOpacity
                     style={styles.documentUploadButton}
                     onPress={takeFacePhoto}
@@ -493,14 +495,14 @@ function RegisterScreen() {
                           style={styles.retakeButton}
                           onPress={takeFacePhoto}
                         >
-                          <MaterialIcons name="camera-alt" size={20} color="#FFFFFF" />
-                          <Text style={styles.retakeText}>Reprendre</Text>
+                          <MaterialIcons name="camera-alt" size={20} color={colors.text} />
+                          <Text style={styles.retakeText}>{t("Reprendre")}</Text>
                         </TouchableOpacity>
                       </View>
                     ) : (
                       <View style={styles.uploadPlaceholder}>
-                        <MaterialIcons name="face" size={24} color="#FF8C00" />
-                        <Text style={styles.uploadText}>Prendre une photo</Text>
+                        <MaterialIcons name="face" size={24} color={colors.primaryText} />
+                        <Text style={styles.uploadText}>{t("Prendre une photo")}</Text>
                       </View>
                     )}
                   </TouchableOpacity>
@@ -508,7 +510,7 @@ function RegisterScreen() {
 
                 {/* Carte Grise Photo */}
                 <View style={styles.documentSection}>
-                  <Text style={styles.documentLabel}>Photo de votre carte-grise</Text>
+                  <Text style={styles.documentLabel}>{t("Photo de votre carte-grise")}</Text>
                   <TouchableOpacity
                     style={styles.documentUploadButton}
                     onPress={takeCarteGrisePhoto}
@@ -520,14 +522,14 @@ function RegisterScreen() {
                           style={styles.retakeButton}
                           onPress={takeCarteGrisePhoto}
                         >
-                          <MaterialIcons name="camera-alt" size={20} color="#FFFFFF" />
-                          <Text style={styles.retakeText}>Reprendre</Text>
+                          <MaterialIcons name="camera-alt" size={20} color={colors.text} />
+                          <Text style={styles.retakeText}>{t("Reprendre")}</Text>
                         </TouchableOpacity>
                       </View>
                     ) : (
                       <View style={styles.uploadPlaceholder}>
-                        <MaterialIcons name="credit-card" size={24} color="#FF8C00" />
-                        <Text style={styles.uploadText}>Prendre une photo</Text>
+                        <MaterialIcons name="credit-card" size={24} color={colors.primaryText} />
+                        <Text style={styles.uploadText}>{t("Prendre une photo")}</Text>
                       </View>
                     )}
                   </TouchableOpacity>
@@ -536,7 +538,7 @@ function RegisterScreen() {
 
               {/* Payment Methods Section */}
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Méthodes de paiement acceptées</Text>
+                <Text style={styles.cardTitle}>{t("Méthodes de paiement acceptées")}</Text>
                 <View style={styles.paymentMethodsContainer}>
                   {[
                     { id: 'dmoney', label: 'D-money', icon: 'phone-android' },
@@ -555,7 +557,7 @@ function RegisterScreen() {
                       <MaterialIcons
                         name={method.icon}
                         size={24}
-                        color={paymentMethods[method.id] ? '#FFFFFF' : '#FF8C00'}
+                        color={paymentMethods[method.id] ? colors.onPrimary : colors.primaryText}
                       />
                       <Text
                         style={[
@@ -571,21 +573,21 @@ function RegisterScreen() {
               </View>
 
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Informations personnelles</Text>
+                <Text style={styles.cardTitle}>{t("Informations personnelles")}</Text>
                 <View style={styles.inputRow}>
                   <View style={[styles.inputContainer, styles.halfWidth]}>
-                    <Text style={styles.inputLabel}>Prénom</Text>
+                    <Text style={styles.inputLabel}>{t("Prénom")}</Text>
                     <View style={styles.inputWrapper}>
                       <Ionicons
                         name="person-outline"
                         size={20}
-                        color="#a0a0a0"
+                        color={colors.textMuted}
                         style={styles.inputIcon}
                       />
                       <TextInput
                         style={styles.input}
-                        placeholder="Entrez votre prénom"
-                        placeholderTextColor="#757575"
+                        placeholder={t("Entrez votre prénom")}
+                        placeholderTextColor={colors.placeholder}
                         onChangeText={setPrenom}
                         value={prenom}
                       />
@@ -593,18 +595,18 @@ function RegisterScreen() {
                   </View>
 
                   <View style={[styles.inputContainer, styles.halfWidth]}>
-                    <Text style={styles.inputLabel}>Nom</Text>
+                    <Text style={styles.inputLabel}>{t("Nom")}</Text>
                     <View style={styles.inputWrapper}>
                       <Ionicons
                         name="person-outline"
                         size={20}
-                        color="#a0a0a0"
+                        color={colors.textMuted}
                         style={styles.inputIcon}
                       />
                       <TextInput
                         style={styles.input}
-                        placeholder="Entrez votre nom"
-                        placeholderTextColor="#757575"
+                        placeholder={t("Entrez votre nom")}
+                        placeholderTextColor={colors.placeholder}
                         onChangeText={setNom}
                         value={nom}
                       />
@@ -613,18 +615,18 @@ function RegisterScreen() {
                 </View>
 
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Email</Text>
+                  <Text style={styles.inputLabel}>{t("Email")}</Text>
                   <View style={styles.inputWrapper}>
                     <Ionicons
                       name="mail-outline"
                       size={20}
-                      color="#a0a0a0"
+                      color={colors.textMuted}
                       style={styles.inputIcon}
                     />
                     <TextInput
                       style={styles.input}
-                      placeholder="Entrez votre email"
-                      placeholderTextColor="#757575"
+                      placeholder={t("Entrez votre email")}
+                      placeholderTextColor={colors.placeholder}
                       onChangeText={setEmail}
                       value={email}
                       keyboardType="email-address"
@@ -634,19 +636,19 @@ function RegisterScreen() {
                 </View>
 
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Téléphone</Text>
+                  <Text style={styles.inputLabel}>{t("Téléphone")}</Text>
                   <View style={styles.inputWrapper}>
                     <Ionicons
                       name="call-outline"
                       size={20}
-                      color="#a0a0a0"
+                      color={colors.textMuted}
                       style={styles.inputIcon}
                     />
                     <Text style={styles.countryCode}>+253</Text>
                     <TextInput
                       style={[styles.input, styles.phoneInput]}
-                      placeholder="XX XX XX XX"
-                      placeholderTextColor="#757575"
+                      placeholder={t("XX XX XX XX")}
+                      placeholderTextColor={colors.placeholder}
                       onChangeText={handlePhoneChange}
                       value={telephone}
                       keyboardType="phone-pad"
@@ -657,18 +659,18 @@ function RegisterScreen() {
 
                 <View style={styles.inputRow}>
                   <View style={[styles.inputContainer, styles.halfWidth]}>
-                    <Text style={styles.inputLabel}>Ville</Text>
+                    <Text style={styles.inputLabel}>{t("Ville")}</Text>
                     <View style={styles.inputWrapper}>
                       <Ionicons
                         name="location-outline"
                         size={20}
-                        color="#a0a0a0"
+                        color={colors.textMuted}
                         style={styles.inputIcon}
                       />
                       <TextInput
                         style={styles.input}
-                        placeholder="Votre ville"
-                        placeholderTextColor="#757575"
+                        placeholder={t("Votre ville")}
+                        placeholderTextColor={colors.placeholder}
                         onChangeText={setVille}
                         value={ville}
                       />
@@ -676,18 +678,18 @@ function RegisterScreen() {
                   </View>
 
                   <View style={[styles.inputContainer, styles.halfWidth]}>
-                    <Text style={styles.inputLabel}>Pays</Text>
+                    <Text style={styles.inputLabel}>{t("Pays")}</Text>
                     <View style={styles.inputWrapper}>
                       <Ionicons
                         name="earth-outline"
                         size={20}
-                        color="#a0a0a0"
+                        color={colors.textMuted}
                         style={styles.inputIcon}
                       />
                       <TextInput
                         style={styles.input}
-                        placeholder="Votre pays"
-                        placeholderTextColor="#757575"
+                        placeholder={t("Votre pays")}
+                        placeholderTextColor={colors.placeholder}
                         onChangeText={setPays}
                         value={pays}
                       />
@@ -696,18 +698,18 @@ function RegisterScreen() {
                 </View>
 
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Mot de passe</Text>
+                  <Text style={styles.inputLabel}>{t("Mot de passe")}</Text>
                   <View style={styles.inputWrapper}>
                     <Ionicons
                       name="lock-closed-outline"
                       size={20}
-                      color="#a0a0a0"
+                      color={colors.textMuted}
                       style={styles.inputIcon}
                     />
                     <TextInput
                       style={styles.input}
-                      placeholder="Créez un mot de passe"
-                      placeholderTextColor="#757575"
+                      placeholder={t("Créez un mot de passe")}
+                      placeholderTextColor={colors.placeholder}
                       onChangeText={setPassword}
                       value={password}
                       secureTextEntry={!showPassword}
@@ -719,25 +721,25 @@ function RegisterScreen() {
                       <Ionicons
                         name={showPassword ? "eye-off" : "eye"}
                         size={20}
-                        color="#a0a0a0"
+                        color={colors.textMuted}
                       />
                     </TouchableOpacity>
                   </View>
                 </View>
 
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Confirmer le mot de passe</Text>
+                  <Text style={styles.inputLabel}>{t("Confirmer le mot de passe")}</Text>
                   <View style={styles.inputWrapper}>
                     <Ionicons
                       name="lock-closed-outline"
                       size={20}
-                      color="#a0a0a0"
+                      color={colors.textMuted}
                       style={styles.inputIcon}
                     />
                     <TextInput
                       style={styles.input}
-                      placeholder="Confirmez votre mot de passe"
-                      placeholderTextColor="#757575"
+                      placeholder={t("Confirmez votre mot de passe")}
+                      placeholderTextColor={colors.placeholder}
                       onChangeText={setConfirmPassword}
                       value={confirmPassword}
                       secureTextEntry={!showConfirmPassword}
@@ -749,7 +751,7 @@ function RegisterScreen() {
                       <Ionicons
                         name={showConfirmPassword ? "eye-off" : "eye"}
                         size={20}
-                        color="#a0a0a0"
+                        color={colors.textMuted}
                       />
                     </TouchableOpacity>
                   </View>
@@ -762,11 +764,11 @@ function RegisterScreen() {
                 disabled={isLoading}
               >
                 {isLoading ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={colors.text} />
                 ) : (
                   <View style={styles.buttonContent}>
-                    <Text style={styles.buttonText}>Créer un compte</Text>
-                    <Ionicons name="arrow-forward" size={20} color="#fff" style={styles.buttonIcon} />
+                    <Text style={styles.buttonText}>{t("Créer un compte")}</Text>
+                    <Ionicons name="arrow-forward" size={20} color={colors.onPrimary} style={styles.buttonIcon} />
                   </View>
                 )}
               </TouchableOpacity>
@@ -777,7 +779,7 @@ function RegisterScreen() {
               >
                 <Text style={styles.loginText}>
                   Vous avez déjà un compte ?{" "}
-                  <Text style={styles.loginLinkText}>Se connecter</Text>
+                  <Text style={styles.loginLinkText}>{t("Se connecter")}</Text>
                 </Text>
               </TouchableOpacity>
             </View>
@@ -795,10 +797,10 @@ function RegisterScreen() {
 
 export default RegisterScreen;
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   mainContainer: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: colors.background,
   },
   gradient: {
     flex: 1,
@@ -827,20 +829,20 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: "bold",
-    color: "#fff",
+    color: colors.text,
     marginBottom: 10,
     letterSpacing: 0.5,
   },
   subtitle: {
     fontSize: 16,
-    color: "rgba(255, 255, 255, 0.7)",
+    color: colors.textMuted,
     letterSpacing: 0.3,
   },
   formContainer: {
     flex: 1,
   },
   card: {
-    backgroundColor: "#252525",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 22,
     marginBottom: 20,
@@ -850,12 +852,12 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.05)",
+    borderColor: colors.border,
   },
   cardTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#ffffff",
+    color: colors.text,
     marginBottom: 20,
     letterSpacing: 0.5,
     textAlign: 'center',
@@ -871,10 +873,10 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     paddingHorizontal: 15,
     borderRadius: 12,
-    backgroundColor: "#333333",
+    backgroundColor: colors.surface,
     alignItems: "center",
     borderWidth: 2,
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderColor: colors.border,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
@@ -882,10 +884,10 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   selectedButton: {
-    backgroundColor: "#FF6B00",
-    borderColor: "#FF6B00",
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
     transform: [{ scale: 1.02 }],
-    shadowColor: "#FF6B00",
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -893,13 +895,13 @@ const styles = StyleSheet.create({
   },
   typeButtonText: {
     fontSize: 16,
-    color: "#BBBBBB",
+    color: colors.textMuted,
     fontWeight: "600",
     marginTop: 8,
     textAlign: 'center',
   },
   selectedButtonText: {
-    color: "#fff",
+    color: colors.onPrimary,
     fontWeight: "700",
   },
   typeIcon: {
@@ -917,7 +919,7 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 14,
-    color: "#A0A0A0",
+    color: colors.textMuted,
     marginBottom: 8,
     fontWeight: "500",
     letterSpacing: 0.3,
@@ -925,11 +927,11 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#333333",
+    backgroundColor: colors.surface,
     borderRadius: 10,
     paddingHorizontal: 16,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: colors.border,
   },
   inputIcon: {
     marginRight: 12,
@@ -938,16 +940,16 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     fontSize: 16,
-    color: "#FFFFFF",
+    color: colors.text,
   },
   button: {
-    backgroundColor: "#FF6B00",
+    backgroundColor: colors.primary,
     paddingVertical: 16,
     borderRadius: 10,
     alignItems: "center",
     marginTop: 25,
     marginBottom: 20,
-    shadowColor: "#FF6B00",
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
@@ -959,7 +961,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   buttonText: {
-    color: "#fff",
+    color: colors.onPrimary,
     fontSize: 18,
     fontWeight: "600",
     letterSpacing: 0.5,
@@ -972,16 +974,16 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   loginText: {
-    color: "rgba(255, 255, 255, 0.7)",
+    color: colors.textMuted,
     fontSize: 16,
   },
   loginLinkText: {
-    color: "#FF6B00",
+    color: colors.primaryText,
     fontWeight: "600",
     textDecorationLine: "underline",
   },
   countryCode: {
-    color: "#FFFFFF",
+    color: colors.text,
     fontSize: 16,
     marginRight: 8,
     fontWeight: "500",
@@ -994,7 +996,7 @@ const styles = StyleSheet.create({
   },
   documentLabel: {
     fontSize: 14,
-    color: "#A0A0A0",
+    color: colors.textMuted,
     marginBottom: 8,
     fontWeight: "500",
     letterSpacing: 0.3,
@@ -1003,10 +1005,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: 12,
-    backgroundColor: "#333333",
+    backgroundColor: colors.surface,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: colors.border,
   },
   documentPreview: {
     width: 80,
@@ -1019,13 +1021,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 12,
-    backgroundColor: "#333333",
+    backgroundColor: colors.surface,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: colors.border,
   },
   uploadText: {
-    color: "#BBBBBB",
+    color: colors.textMuted,
     fontSize: 14,
     fontWeight: "500",
   },
@@ -1040,23 +1042,23 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 15,
     borderRadius: 10,
-    backgroundColor: "#333333",
+    backgroundColor: colors.surface,
     marginBottom: 8,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.05)",
+    borderColor: colors.border,
   },
   selectedPaymentMethod: {
-    backgroundColor: "#FF6B00",
-    borderColor: "#FF6B00",
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   paymentMethodText: {
     fontSize: 14,
-    color: "#BBBBBB",
+    color: colors.textMuted,
     fontWeight: "500",
   },
   selectedPaymentMethodText: {
-    color: "#fff",
+    color: colors.onPrimary,
     fontWeight: "600",
   },
   photoPreviewContainer: {
@@ -1078,13 +1080,13 @@ const styles = StyleSheet.create({
   retakeButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FF6B00',
+    backgroundColor: colors.primary,
     paddingHorizontal: 15,
     paddingVertical: 8,
     borderRadius: 20,
   },
   retakeText: {
-    color: '#FFFFFF',
+    color: colors.text,
     marginLeft: 5,
     fontSize: 14,
     fontWeight: '600',
@@ -1094,4 +1096,4 @@ const styles = StyleSheet.create({
     right: 15,
     top: 15,
   },
-});
+}));

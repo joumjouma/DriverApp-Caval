@@ -55,7 +55,8 @@ export interface RideRequest {
   passenger?: { name: string; phone: string } | null; // ride booked for someone else
 
   // Packages (see docs/PACKAGES.md in DriverApp-Caval)
-  serviceType?: 'ride' | 'delivery'; // missing = ride
+  serviceType?: 'ride' | 'delivery' | 'hourly'; // missing = ride
+  demo?: boolean;                    // demo mode: only matched with demo drivers
   package?: RidePackage;
   pickupPhotoUrl?: string;           // driver, at pickup
   deliveryVerified?: boolean;        // server (confirmDelivery)
@@ -100,6 +101,8 @@ export interface Driver {
   rating?: number; rideCount?: number;
   isOnline: boolean; isAvailable: boolean;
   latitude?: number; longitude?: number;
+  gender?: 'female' | 'male' | null;
+  demo?: boolean;                    // demo mode (appConfig/demo.testers only)
   // admin / server only:
   isApproved: boolean;
   approvalStatus: 'pending' | 'approved' | 'rejected';

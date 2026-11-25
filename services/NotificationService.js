@@ -21,7 +21,6 @@ Notifications.setNotificationHandler({
       shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
-      shouldShowAlert: true, // Explicitly ensure alerts show
     };
   },
 });
@@ -118,13 +117,6 @@ class NotificationService {
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         bypassDnd: true,
         showBadge: true,
-        // Critical for background notifications
-        allowBubbles: true,
-        enableVibration: true,
-        enableLights: true,
-        // Ensure notifications show in background
-        importance: Notifications.AndroidImportance.HIGH,
-        // Allow notifications when app is in background
         allowBubbles: true,
       });
       
@@ -141,13 +133,6 @@ class NotificationService {
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         bypassDnd: true,
         showBadge: true,
-        // Critical for background notifications
-        allowBubbles: true,
-        enableVibration: true,
-        enableLights: true,
-        // Ensure notifications show in background
-        importance: Notifications.AndroidImportance.HIGH,
-        // Allow notifications when app is in background
         allowBubbles: true,
       });
 
@@ -163,13 +148,6 @@ class NotificationService {
         description: 'Notifications générales de l\'application',
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         showBadge: true,
-        // Critical for background notifications
-        allowBubbles: true,
-        enableVibration: true,
-        enableLights: true,
-        // Ensure notifications show in background
-        importance: Notifications.AndroidImportance.DEFAULT,
-        // Allow notifications when app is in background
         allowBubbles: true,
       });
 

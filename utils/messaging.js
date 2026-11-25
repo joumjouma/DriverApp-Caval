@@ -9,9 +9,10 @@ export const createConversation = async (driverId, customerId) => {
 
     // Check if conversation already exists
     const conversationRef = doc(db, 'conversations', conversationId);
-    const conversationSnap = await getDoc(conversationRef);
+    // The rules refuse reading a conversation that doesn't exist yet: treat that as "missing".
+    const conversationSnap = await getDoc(conversationRef).catch(() => null);
 
-    if (!conversationSnap.exists()) {
+    if (!conversationSnap || !conversationSnap.exists()) {
       // Create new conversation
       await setDoc(conversationRef, {
         driverId,

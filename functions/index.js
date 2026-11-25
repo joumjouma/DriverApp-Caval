@@ -564,6 +564,7 @@ exports.updateOnlineDrivers = onDocumentUpdated({
         phoneNumber: data.phoneNumber || "",
         driverType: data.driverType || "",
         gender: data.gender || null,
+        demo: data.demo === true,
         latitude: data.latitude || null,
         longitude: data.longitude || null,
         isAvailable: data.isAvailable || false,
@@ -914,6 +915,7 @@ exports.autoOfflineDrivers = onSchedule({
         phoneNumber: data.phoneNumber || "",
         driverType: data.driverType || "",
         gender: data.gender || null,
+        demo: data.demo === true,
         latitude: data.latitude || null,
         longitude: data.longitude || null,
         isAvailable: data.isAvailable || false,
@@ -1005,6 +1007,7 @@ exports.updateOnlineDuration = onSchedule({
         phoneNumber: data.phoneNumber || "",
         driverType: data.driverType || "",
         gender: data.gender || null,
+        demo: data.demo === true,
         latitude: data.latitude || null,
         longitude: data.longitude || null,
         isAvailable: data.isAvailable || false,
@@ -1377,9 +1380,12 @@ const driverTypesFor = (ride) => {
 
 // Filters online drivers, trying each allowed driver type in order and
 // returning the first non-empty group.
+// Demo mode: demo rides only go to demo drivers, real rides never do.
+const sameWorld = (driver, ride) => (driver.demo === true) === (ride.demo === true);
+
 const pickEligibleByType = (drivers, ride, isEligible) => {
   for (const type of driverTypesFor(ride)) {
-    const group = drivers.filter((d) => d.driverType === type && isEligible(d));
+    const group = drivers.filter((d) => d.driverType === type && sameWorld(d, ride) && isEligible(d));
     if (group.length) return group;
   }
   return [];
@@ -2796,7 +2802,7 @@ const RIDE_COPY_FIELDS = [
   "userId", "rideType", "pickupLat", "pickupLng", "destinationLat", "destinationLng",
   "pickupAddress", "destinationAddress", "distance", "duration", "paymentMethod",
   "serviceType", "package", "stops", "pickupNote", "passenger", "promoCode",
-  "preferFemaleDriver", "favoriteDriverIds", "hours", "businessId",
+  "preferFemaleDriver", "favoriteDriverIds", "hours", "businessId", "demo",
 ];
 const RETRYABLE = new Set(["no_drivers_available", "cancelled_by_driver"]);
 
@@ -3191,7 +3197,7 @@ exports.customerRideUpdates = onDocumentUpdated({
   }
 
   // Loyalty points and referral reward on completion
-  if (after.status === "completed" && !after.pointsAwardedAt && after.userId) {
+  if (after.status === "completed" && !after.pointsAwardedAt && after.userId && after.demo !== true) {
     const pricing = await getPricing(db);
     const {ridesPerReward, rewardCredit, referralCredit} = pricing.rewards;
     await db.runTransaction(async (tx) => {
@@ -3240,7 +3246,9 @@ exports.verifyPickupPin = onCall({maxInstances: 5, memory: "128MiB", timeoutSeco
     if (ride.data().driverId !== uid) throw new HttpsError("permission-denied", "Not your ride.");
     const attempts = ride.data().pickupPinAttempts || 0;
     if (attempts >= 5) throw new HttpsError("resource-exhausted", "Too many wrong PINs.");
-    if (!priv.exists || priv.data().pin !== pin) {
+    // Rides booked before PINs existed have none: let the driver start.
+    if (!priv.exists) return {ok: true, noPin: true};
+    if (priv.data().pin !== pin) {
       tx.update(rideRef, {pickupPinAttempts: attempts + 1});
       return {ok: false, attemptsLeft: 4 - attempts};
     }
@@ -3610,7 +3618,7 @@ exports.adminMonthlyReport = onCall({maxInstances: 2, memory: "256MiB", timeoutS
       .where("createdAt", ">=", from).where("createdAt", "<", to);
   if (businessId) q = q.where("businessId", "==", businessId);
   const snap = await q.get();
-  const rows = snap.docs.map((d) => {
+  const rows = snap.docs.filter((d) => d.data().demo !== true).map((d) => {
     const r = d.data();
     return {id: d.id, date: r.createdAt && r.createdAt.toDate ? r.createdAt.toDate().toISOString() : "", userId: r.userId,
       passenger: r.passenger ? r.passenger.name : "", from: r.pickupAddress || "", to: r.destinationAddress || "",

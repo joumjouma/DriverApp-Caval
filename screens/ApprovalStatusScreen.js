@@ -9,15 +9,17 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme, makeStyles } from "../context/ThemeContext";
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth } from '../config/firebase';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { t } from "../utils/i18n";
 
 function ApprovalStatusScreen() {
+  const styles = useStyles();
   const { colors } = useTheme();
   const navigation = useNavigation();
   const [approvalStatus, setApprovalStatus] = useState('pending');
@@ -78,7 +80,7 @@ function ApprovalStatusScreen() {
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.loadingText, { color: colors.text }]}>Vérification du statut...</Text>
+          <Text style={[styles.loadingText, { color: colors.text }]}>{t("Vérification du statut...")}</Text>
         </View>
       </SafeAreaView>
     );
@@ -89,29 +91,29 @@ function ApprovalStatusScreen() {
       case 'approved':
         return {
           icon: 'checkmark-circle',
-          title: 'Compte Approuvé!',
-          message: 'Votre compte a été approuvé avec succès. Vous pouvez maintenant commencer à travailler.',
-          color: '#4CAF50',
-          action: () => navigation.navigate('MainApp'),
-          actionText: 'Commencer à travailler',
+          title: t("Compte Approuvé!"),
+          message: t("Votre compte a été approuvé avec succès. Vous pouvez maintenant commencer à travailler."),
+          color: colors.successText,
+          action: () => navigation.navigate('Home'),
+          actionText: t("Commencer à travailler"),
         };
       case 'rejected':
         return {
           icon: 'close-circle',
-          title: 'Compte Non Approuvé',
-          message: 'Votre demande de compte chauffeur n\'a pas été approuvée. Contactez le support pour plus d\'informations.',
-          color: '#F44336',
+          title: t("Compte Non Approuvé"),
+          message: t("Votre demande de compte chauffeur n'a pas été approuvée. Contactez le support pour plus d'informations."),
+          color: colors.errorText,
           action: handleLogout,
-          actionText: 'Se déconnecter',
+          actionText: t("Se déconnecter"),
         };
       default:
         return {
           icon: 'time',
           title: 'En Attente d\'Approbation',
-          message: 'Votre compte est en cours d\'examen par notre équipe. Vous recevrez une notification push ou un email dès que votre compte sera approuvé. Veuillez vous déconnecter et vous reconnecter plus tard.',
-          color: '#FF9800',
+          message: t("Votre compte est en cours d'examen par notre équipe. Vous recevrez une notification push ou un email dès que votre compte sera approuvé. Veuillez vous déconnecter et vous reconnecter plus tard."),
+          color: colors.primaryText,
           action: handleLogout,
-          actionText: 'Se déconnecter',
+          actionText: t("Se déconnecter"),
         };
     }
   };
@@ -124,7 +126,7 @@ function ApprovalStatusScreen() {
         <TouchableOpacity style={styles.backButton} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Statut du Compte</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t("Statut du Compte")}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -164,7 +166,7 @@ function ApprovalStatusScreen() {
               style={[styles.contactButton, { backgroundColor: colors.primary }]}
               onPress={() => {/* Add contact support logic */}}
             >
-              <Text style={styles.contactButtonText}>Contacter le Support</Text>
+              <Text style={styles.contactButtonText}>{t("Contacter le Support")}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -173,7 +175,7 @@ function ApprovalStatusScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: {
     flex: 1,
   },
@@ -184,7 +186,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.05)',
+    borderBottomColor: colors.border,
   },
   headerTitle: {
     fontSize: 20,
@@ -244,7 +246,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   actionButtonText: {
-    color: '#FFFFFF',
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -268,10 +270,10 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   contactButtonText: {
-    color: '#FFFFFF',
+    color: colors.onPrimary,
     fontSize: 14,
     fontWeight: '600',
   },
-});
+}));
 
 export default ApprovalStatusScreen; 

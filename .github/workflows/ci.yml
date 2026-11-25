@@ -45,6 +45,8 @@ jobs:
           cache: yarn
       - run: yarn install --frozen-lockfile
       - run: yarn typecheck
+      # Fails if any French UI text has no English/Arabic/Somali translation
+      - run: node scripts/check-i18n.js
       # Catches broken imports / missing packages before an EAS build does
       - run: npx expo export --platform ios --output-dir .exp-check
       - run: npx expo export --platform android --output-dir .exp-check
