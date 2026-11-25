@@ -1,7 +1,7 @@
 // Accueil chauffeur (option C): full-screen map, today's earnings at the top,
 // one big Go button to go online, and the offer sheet when a ride comes in.
 import React, { useEffect, useRef, useState } from "react";
-import { View, Pressable, Alert, Image, StatusBar } from "react-native";
+import { View, Pressable, Alert, Image, StatusBar, ActivityIndicator } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useIsFocused } from "@react-navigation/native";
@@ -82,7 +82,8 @@ export default function HomeScreen() {
   }, [position?.latitude ? Math.round(position.latitude * 1000) : 0, position?.longitude ? Math.round(position.longitude * 1000) : 0]);
 
   const toggle = async () => {
-    if (!driver) return;
+    if (driver === undefined) { Alert.alert(t("Un instant"), t("Votre profil se charge encore. Réessayez dans quelques secondes.")); return; }
+    if (driver === null) { Alert.alert(t("Profil chauffeur introuvable"), t("Ce compte n'a pas de profil chauffeur. Connectez-vous avec votre compte chauffeur.")); return; }
     if (!approved) { navigation.navigate("ApprovalStatusScreen"); return; }
     if (!online && denied && !demo) {
       Alert.alert(t("Localisation désactivée"), t("Autorisez la localisation dans les réglages du téléphone pour recevoir des courses."));
@@ -91,11 +92,15 @@ export default function HomeScreen() {
     setSwitching(true);
     try {
       const pos = online ? null : position || (await currentPosition());
+      if (!online && !pos) {
+        Alert.alert(t("Position introuvable"), t("Impossible d'obtenir votre position. Vérifiez que la localisation est activée, puis réessayez."));
+        return;
+      }
       await setOnline(!online, pos);
       if (online) stopBackground();
     } catch (e) {
       reportError(e, { where: "toggleOnline" });
-      Alert.alert(t("Erreur"), t("Impossible de changer votre statut. Vérifiez votre connexion."));
+      Alert.alert(t("Erreur"), `${t("Impossible de changer votre statut. Vérifiez votre connexion.")}\n(${e?.code || e?.message || "?"})`);
     } finally {
       setSwitching(false);
     }
@@ -174,10 +179,12 @@ export default function HomeScreen() {
 
       {/* Go / Stop */}
       <View style={styles.goWrap} pointerEvents="box-none">
-        <Pressable onPress={toggle} disabled={switching || !driver} accessibilityRole="button"
+        <Pressable onPress={toggle} disabled={switching} accessibilityRole="button"
           accessibilityLabel={online ? t("Passer hors ligne") : t("Passer en ligne")}
           style={({ pressed }) => [styles.go, online && styles.stop, (pressed || switching) && { opacity: 0.8 }]}>
-          <Ionicons name="power" size={26} color={online ? colors.onEmphasis : colors.onPrimary} />
+          {switching
+            ? <ActivityIndicator color={online ? colors.onEmphasis : colors.onPrimary} />
+            : <Ionicons name="power" size={26} color={online ? colors.onEmphasis : colors.onPrimary} />}
           <AppText variant="bodyStrong" color={online ? colors.onEmphasis : colors.onPrimary} style={{ fontSize: 17, fontWeight: "800" }}>
             {online ? t("Stop") : t("Go")}
           </AppText>

@@ -48,7 +48,14 @@ export async function currentPosition() {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== "granted") return null;
-    const p = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    // Last known position first (instant); a fresh fix can take long indoors, so give up after 8 s
+    const last = await Location.getLastKnownPositionAsync({ maxAge: 5 * 60000 }).catch(() => null);
+    if (last) return { latitude: last.coords.latitude, longitude: last.coords.longitude, heading: last.coords.heading };
+    const p = await Promise.race([
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+      new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
+    ]);
+    if (!p) return null;
     return { latitude: p.coords.latitude, longitude: p.coords.longitude, heading: p.coords.heading };
   } catch (e) {
     return null;

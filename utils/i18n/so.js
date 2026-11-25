@@ -386,4 +386,9 @@ export default {
   "ven.": "Jim",
   "sam.": "Sab",
   "dim.": "Axd",
+  "Un instant": "Daqiiqad",
+  "Votre profil se charge encore. Réessayez dans quelques secondes.": "Astaantaadu weli way soo raraysaa. Isku day mar kale dhowr ilbiriqsi kadib.",
+  "Ce compte n'a pas de profil chauffeur. Connectez-vous avec votre compte chauffeur.": "Akoonkan ma laha astaan darawal. Ku gal akoonkaaga darawalka.",
+  "Position introuvable": "Goobta lama helin",
+  "Impossible d'obtenir votre position. Vérifiez que la localisation est activée, puis réessayez.": "Goobtaada lama heli karo. Hubi in goobta la shiday, kadibna isku day mar kale.",
 };

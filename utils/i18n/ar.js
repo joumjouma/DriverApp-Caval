@@ -386,4 +386,9 @@ export default {
   "ven.": "الجمعة",
   "sam.": "السبت",
   "dim.": "الأحد",
+  "Un instant": "لحظة من فضلك",
+  "Votre profil se charge encore. Réessayez dans quelques secondes.": "لا يزال ملفك قيد التحميل. حاول مرة أخرى بعد بضع ثوانٍ.",
+  "Ce compte n'a pas de profil chauffeur. Connectez-vous avec votre compte chauffeur.": "لا يحتوي هذا الحساب على ملف سائق. سجّل الدخول بحساب السائق.",
+  "Position introuvable": "تعذّر تحديد الموقع",
+  "Impossible d'obtenir votre position. Vérifiez que la localisation est activée, puis réessayez.": "تعذّر الحصول على موقعك. تأكد من تفعيل الموقع ثم حاول مرة أخرى.",
 };
