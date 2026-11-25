@@ -1,5 +1,11 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import Constants from 'expo-constants';
+
+// The Expo project this build belongs to (app.json extra.eas.projectId).
+// The hardcoded IDs that were here belonged to other projects, so push
+// tokens didn't match this app.
+const EXPO_PROJECT_ID = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
 import { Platform, Alert } from 'react-native';
 import { auth } from '../config/firebase';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
@@ -15,7 +21,6 @@ Notifications.setNotificationHandler({
       shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
-      shouldShowAlert: true, // Explicitly ensure alerts show
     };
   },
 });
@@ -112,13 +117,6 @@ class NotificationService {
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         bypassDnd: true,
         showBadge: true,
-        // Critical for background notifications
-        allowBubbles: true,
-        enableVibration: true,
-        enableLights: true,
-        // Ensure notifications show in background
-        importance: Notifications.AndroidImportance.HIGH,
-        // Allow notifications when app is in background
         allowBubbles: true,
       });
       
@@ -135,13 +133,6 @@ class NotificationService {
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         bypassDnd: true,
         showBadge: true,
-        // Critical for background notifications
-        allowBubbles: true,
-        enableVibration: true,
-        enableLights: true,
-        // Ensure notifications show in background
-        importance: Notifications.AndroidImportance.HIGH,
-        // Allow notifications when app is in background
         allowBubbles: true,
       });
 
@@ -157,13 +148,6 @@ class NotificationService {
         description: 'Notifications générales de l\'application',
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         showBadge: true,
-        // Critical for background notifications
-        allowBubbles: true,
-        enableVibration: true,
-        enableLights: true,
-        // Ensure notifications show in background
-        importance: Notifications.AndroidImportance.DEFAULT,
-        // Allow notifications when app is in background
         allowBubbles: true,
       });
 
@@ -180,7 +164,7 @@ class NotificationService {
       if (!hasPermission) return null;
 
       const token = await Notifications.getExpoPushTokenAsync({
-        projectId: '14b90510-8ecb-46b6-9f35-2537774896a1',
+        projectId: EXPO_PROJECT_ID,
       });
 
       this.expoPushToken = token.data;
@@ -232,7 +216,7 @@ class NotificationService {
 
       // Get the push token
       const token = await Notifications.getExpoPushTokenAsync({
-        projectId: '97f35a2b-2bbf-4893-9f43-cd2df775196a', // Your Expo project ID
+        projectId: EXPO_PROJECT_ID,
       });
 
       if (token?.data) {

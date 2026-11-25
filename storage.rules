@@ -1,0 +1,46 @@
+rules_version = '2';
+
+// Caval Storage rules. Paths used by the apps:
+//   drivers/{uid}/profile_photo, drivers/{uid}/carte_grise   (driver RegisterScreen)
+//   profile_photos/{uid}_{timestamp}.{ext}                    (driver SettingsScreen, customer ProfileScreen)
+//   deliveries/{rideId}/pickup.jpg                            (driver app, package photo at pickup)
+// Note: download URLs (with ?token=) bypass these rules, which is why
+// carteGrisePhoto URLs now live in the private driver profile doc.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function isImage() {
+      return request.resource.contentType.matches('image/.*')
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    match /drivers/{uid}/profile_photo {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && request.auth.uid == uid && isImage();
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /drivers/{uid}/carte_grise {
+      allow read, delete: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid && isImage();
+    }
+
+    match /profile_photos/{file} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && file.matches(request.auth.uid + '_.*') && isImage();
+      allow delete: if signedIn() && file.matches(request.auth.uid + '_.*');
+    }
+
+    // Package photo taken by the assigned driver at pickup; the sender can see it.
+    match /deliveries/{rideId}/{file} {
+      function ride() { return firestore.get(/databases/(default)/documents/rideRequests/$(rideId)).data; }
+      allow read: if signedIn() && request.auth.uid in [ride().get('driverId', null), ride().userId];
+      allow create, update: if signedIn() && request.auth.uid == ride().get('driverId', null) && isImage();
+      allow delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

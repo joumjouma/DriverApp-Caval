@@ -1,702 +1,144 @@
-import React, { useState, useEffect, useRef } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  SafeAreaView,
-  Image,
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  StatusBar,
-  Modal,
-  Platform,
-  Animated,
-} from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+// Profil chauffeur — identity, vehicle, settings, help, demo mode (hidden),
+// sign out and account deletion.
+import React, { useEffect, useRef, useState } from "react";
+import { View, ScrollView, Image, Alert, Pressable, Linking } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
-import { useTheme } from "../context/ThemeContext";
-import { auth } from "../config/firebase";
-import { doc, getDoc, updateDoc, onSnapshot } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage, db } from "../config/firebase";
-import * as ImagePicker from "expo-image-picker";
-import { LinearGradient } from "expo-linear-gradient";
+import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Linking from "expo-linking";
+import { doc, deleteDoc, updateDoc } from "firebase/firestore";
+import { deleteUser } from "firebase/auth";
+import { AppText, Card, Header, ListRow, ModalSheet, Button, Chip } from "../components/ui";
+import { useTheme } from "../context/ThemeContext";
+import { useDemo } from "../context/DemoContext";
+import { useAuth } from "../context/AuthContext";
+import { APP_CONFIG } from "../constants/appConfig";
+import { LANGUAGES, t } from "../utils/i18n/index";
+import { watchDriver } from "../services/driverApi";
+import { auth, db } from "../config/firebase";
+import { reportError } from "../utils/report";
 
-const { width } = Dimensions.get("window");
+const GENDERS = [
+  { id: "female", label: "Femme" },
+  { id: "male", label: "Homme" },
+];
 
-function Profile() {
-  const [userDetails, setUserDetails] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [rating, setRating] = useState(4.0); // Changed to match HomeScreenWithMap format
-  const [showPhotoPrompt, setShowPhotoPrompt] = useState(false);
+export default function ProfileScreen() {
   const navigation = useNavigation();
-  const { colors } = useTheme();
+  const { colors, language } = useTheme();
+  const { demo, allowed } = useDemo();
+  const { logout } = useAuth();
+  const [driver, setDriver] = useState(null);
+  const [genderOpen, setGenderOpen] = useState(false);
+  const [showDemo, setShowDemo] = useState(false);
+  const taps = useRef(0);
 
-  // Animation refs
-  const tierBadgeAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => watchDriver(setDriver), []);
+  useEffect(() => { if (allowed || demo) setShowDemo(true); }, [allowed, demo]);
 
-  // Animate tier badge with pulsing effect
-  const animateTierBadge = () => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(tierBadgeAnim, {
-          toValue: 1.1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(tierBadgeAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
+  const version = Constants.expoConfig?.version || APP_CONFIG.version;
+  const name = [driver?.firstName, driver?.lastName].filter(Boolean).join(" ") || t("Chauffeur");
+  const car = [driver?.carMake, driver?.carModel, driver?.carColor].filter(Boolean).join(" ");
+  const rating = Number(driver?.averageRating || driver?.rating) || 0;
+  const languageName = LANGUAGES.find((l) => l.id === language)?.label;
+  const genderName = GENDERS.find((g) => g.id === driver?.gender)?.label;
+
+  const tapVersion = () => {
+    taps.current += 1;
+    if (taps.current >= 5) { taps.current = 0; setShowDemo(true); navigation.navigate("DemoScreen"); }
   };
 
-  useEffect(() => {
-    const checkFirstVisit = async () => {
-      try {
-        const hasVisitedProfile = await AsyncStorage.getItem('hasVisitedProfile');
-        if (!hasVisitedProfile) {
-          // First time visiting profile
-          setShowPhotoPrompt(true);
-          await AsyncStorage.setItem('hasVisitedProfile', 'true');
-        }
-      } catch (error) {
-        console.error("Error checking first visit:", error);
-      }
-    };
+  const setGender = async (g) => {
+    setGenderOpen(false);
+    await updateDoc(doc(db, "Drivers", auth.currentUser.uid), { gender: g }).catch((e) => reportError(e, { where: "setGender" }));
+  };
 
-    const fetchUserDetails = async () => {
-      try {
-        // First try to get data from AsyncStorage
-        const storedData = await AsyncStorage.getItem('driverInfo');
-        if (storedData) {
-          console.log("Found stored driver data:", JSON.parse(storedData));
-          const parsedData = JSON.parse(storedData);
-          console.log("Photo URL from AsyncStorage:", parsedData.photo);
-          setUserDetails(parsedData);
-          setRating(parsedData.rating || 4.0); // Get rating from stored data
-          
-          // Check if user already has a photo
-          if (!parsedData.photo) {
-            checkFirstVisit();
+  const signOut = () => Alert.alert(t("Se déconnecter ?"), undefined, [
+    { text: t("Annuler"), style: "cancel" },
+    { text: t("Se déconnecter"), style: "destructive", onPress: async () => {
+      if (driver?.isOnline) await updateDoc(doc(db, "Drivers", auth.currentUser.uid), { isOnline: false, isAvailable: false }).catch(() => {});
+      await logout().catch(() => {});
+    } },
+  ]);
+
+  const deleteAccount = () => Alert.alert(t("Supprimer votre compte ?"),
+    t("Votre profil chauffeur et vos documents seront supprimés définitivement. Cette action est irréversible."), [
+      { text: t("Annuler"), style: "cancel" },
+      { text: t("Supprimer"), style: "destructive", onPress: async () => {
+        const user = auth.currentUser;
+        try {
+          await deleteDoc(doc(db, "Drivers", user.uid, "private", "profile")).catch(() => {});
+          await deleteDoc(doc(db, "driverStats", user.uid)).catch(() => {});
+          await deleteDoc(doc(db, "Drivers", user.uid));
+          await AsyncStorage.clear().catch(() => {});
+          await deleteUser(user);
+        } catch (e) {
+          if (e?.code === "auth/requires-recent-login") {
+            Alert.alert(t("Reconnexion nécessaire"), t("Pour des raisons de sécurité, déconnectez-vous, reconnectez-vous, puis réessayez."));
+          } else {
+            reportError(e, { where: "deleteDriverAccount" });
+            Alert.alert(t("Erreur"), t("La suppression a échoué. Réessayez ou contactez le support."));
           }
-          
-          setLoading(false);
-          return;
         }
+      } },
+    ]);
 
-        // If not in AsyncStorage, fetch from Firestore
-        const currentUser = auth.currentUser;
-        if (!currentUser) return;
-
-        console.log("Fetching from Firestore for user:", currentUser.uid);
-        const docRefDriver = doc(db, "Drivers", currentUser.uid);
-        const docSnapDriver = await getDoc(docRefDriver);
-
-        if (docSnapDriver.exists()) {
-          const data = docSnapDriver.data();
-          console.log("Fetched driver data from Firestore:", data);
-          console.log("Photo URL from Firestore:", data.photo);
-          setUserDetails(data);
-          setRating(data.rating || 4.0); // Get rating from Firebase
-          
-          // Store in AsyncStorage for future use
-          await AsyncStorage.setItem('driverInfo', JSON.stringify(data));
-          
-          // Check if user already has a photo
-          if (!data.photo) {
-            checkFirstVisit();
-          }
-        } else {
-          console.log("No driver data found in Firestore");
-          checkFirstVisit();
-        }
-      } catch (error) {
-        console.error("Error fetching user details:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchUserDetails();
-  }, []);
-
-  // -----------------------------------------------------------------
-  // Real-time Driver Data Listener (including rating)
-  // -----------------------------------------------------------------
-  useEffect(() => {
-    if (!auth.currentUser) return;
-
-    const currentUser = auth.currentUser;
-    console.log("Setting up real-time driver data listener for ProfileScreen:", currentUser.uid);
-
-    const driverRef = doc(db, "Drivers", currentUser.uid);
-    const unsubscribe = onSnapshot(driverRef, (doc) => {
-      if (doc.exists()) {
-        const userData = doc.data();
-        console.log("Real-time driver data update in ProfileScreen:", userData);
-        
-        // Update all driver data in real-time
-        setUserDetails(userData);
-        setRating(userData.rating || 4.0); // Real-time rating updates
-        
-        // Update AsyncStorage with latest data
-        AsyncStorage.setItem('driverInfo', JSON.stringify(userData));
-        console.log("Real-time driver data updated in ProfileScreen, including rating:", userData.rating);
-      }
-    }, (error) => {
-      console.error("Error in real-time driver data listener in ProfileScreen:", error);
-    });
-
-    return () => {
-      console.log("Cleaning up real-time driver data listener in ProfileScreen");
-      unsubscribe();
-    };
-  }, [auth.currentUser]);
-
-  // Start tier badge animation when component mounts
-  useEffect(() => {
-    animateTierBadge();
-  }, []);
-
-  const handleLogin = async () => {
-    try {
-      // Set persistence first
-      await setPersistence(auth, browserLocalPersistence);
-      // Then sign in
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      // The rest of your login code...
-    } catch (error) {
-      // Your error handling...
-    }
-  };
-
-  // Modify your handleLogout function to clear AsyncStorage:
-async function handleLogout() {
-  try {
-    // Clear user data from AsyncStorage
-    await AsyncStorage.removeItem('driverInfo');
-    await AsyncStorage.removeItem('hasVisitedProfile');
-    
-    // Sign out from Firebase
-    await auth.signOut();
-    
-    // Navigate to login screen
-    navigation.navigate("LoginScreen");
-  } catch (error) {
-    Alert.alert("Error", error.message, [{ text: "OK" }]);
-  }
-}
-
-  const handleHelpPress = () => {
-    Linking.openURL("https://www.caval.tech/contact");
-  };
-
-  if (loading) {
-    return (
-      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color="#ff7e28" />
-      </View>
-    );
-  }
-
-  const getDriverTier = (rating) => {
-    if (rating >= 5.0) return { tier: 'Platinum', color: '#E5E4E2', icon: 'diamond' };
-    if (rating >= 4.5) return { tier: 'Diamond', color: '#B9F2FF', icon: 'diamond' };
-    if (rating >= 4.0) return { tier: 'Gold', color: '#FFD700', icon: 'star' };
-    if (rating >= 3.0) return { tier: 'Silver', color: '#C0C0C0', icon: 'star' };
-    if (rating >= 2.0) return { tier: 'Bronze', color: '#CD7F32', icon: 'star' };
-    return { tier: 'Rookie', color: '#8B8B8B', icon: 'star' };
-  };
-
-  const renderStars = () => {
-    const stars = [];
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 !== 0;
-    const tier = getDriverTier(rating);
-    
-    // Add full stars
-    for (let i = 0; i < fullStars; i++) {
-      stars.push(
-        <Ionicons
-          key={`star-${i}`}
-          name="star"
-          size={20}
-          color="#FFC107"
-          style={styles.starIcon}
-        />
-      );
-    }
-    
-    // Add half star if needed
-    if (hasHalfStar) {
-      stars.push(
-        <Ionicons
-          key="star-half"
-          name="star-half"
-          size={20}
-          color="#FFC107"
-          style={styles.starIcon}
-        />
-      );
-    }
-    
-    // Add empty stars to complete 5 stars
-    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
-    for (let i = 0; i < emptyStars; i++) {
-      stars.push(
-        <Ionicons
-          key={`star-empty-${i}`}
-          name="star-outline"
-          size={20}
-          color="#FFC107"
-          style={styles.starIcon}
-        />
-      );
-    }
-    
-    return (
-      <View style={styles.starsContainer}>
-        {stars}
-        <Text style={styles.ratingText}>{rating.toFixed(1)}</Text>
-        <Animated.View 
-          style={[
-            styles.tierBadge, 
-            { 
-              backgroundColor: tier.color,
-              transform: [{ scale: tierBadgeAnim }]
-            }
-          ]}
-        >
-          <Ionicons name={tier.icon} size={12} color="#000" />
-          <Text style={styles.tierText}>{tier.tier}</Text>
-        </Animated.View>
-      </View>
-    );
-  };
-
-  const renderStatusBadge = () => {
-    return (
-      <View style={styles.statusBadgeContainer}>
-        <View style={styles.statusDot} />
-        <Text style={styles.statusText}>Actif</Text>
-      </View>
-    );
-  };
-
-  const renderDriverInfo = () => {
-    return (
-      <View style={styles.driverInfoContainer}>
-        <View style={styles.driverInfoItem}>
-          <Ionicons name="car" size={16} color={colors.primary} style={styles.driverInfoIcon} />
-          <Text style={styles.driverInfoText}>Caval Courier</Text>
-        </View>
-        <View style={styles.driverInfoItem}>
-          <Ionicons name="location" size={16} color={colors.primary} style={styles.driverInfoIcon} />
-          <Text style={styles.driverInfoText}>
-            {userDetails?.city || "Ville"}
-          </Text>
-        </View>
-        <View style={styles.driverInfoItem}>
-          <Ionicons name="call" size={16} color={colors.primary} style={styles.driverInfoIcon} />
-          <Text style={styles.driverInfoText}>
-            {userDetails?.phoneNumber || "Téléphone"}
-          </Text>
-        </View>
-      </View>
-    );
-  };
-
-  const MenuItem = ({ icon, title, onPress, badge }) => (
-    <TouchableOpacity
-      style={[styles.menuItem, { backgroundColor: colors.card }]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      <View style={styles.menuItemLeft}>
-        <View style={[styles.iconContainer, { backgroundColor: colors.primary }]}>
-          <Ionicons name={icon} size={22} color="#fff" />
-        </View>
-        <Text style={[styles.menuText, { color: colors.text }]}>{title}</Text>
-      </View>
-      {badge ? (
-        <View style={[styles.badgeContainer, { backgroundColor: colors.error }]}>
-          <Text style={styles.badgeText}>{badge}</Text>
-        </View>
-      ) : (
-        <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
-      )}
-    </TouchableOpacity>
-  );
+  const help = () => Linking.openURL(`https://wa.me/${APP_CONFIG.supportPhone.replace(/[^\d]/g, "")}`).catch(() => {});
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle="light-content" backgroundColor="#ff7e28" />
-      
-      {/* Logo Header */}
-      <View style={[styles.logoHeader, { backgroundColor: colors.card }]}>
-        <Image
-          source={require("../assets/Caval_courrier_logo-removebg-preview.png")}
-          style={styles.logo}
-          resizeMode="contain"
-        />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Header with Gradient */}
-        <LinearGradient
-          colors={["#ff7e28", "#ff9f43"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.headerGradient}
-        >
-          <View style={styles.header}>
-            <View style={styles.profilePicContainer}>
-              {userDetails?.photo || userDetails?.facePhoto ? (
-                <>
-                  {console.log("Attempting to display photo with URL:", userDetails.photo || userDetails.facePhoto)}
-                  <Image 
-                    source={{ uri: userDetails.photo || userDetails.facePhoto }} 
-                    style={styles.profilePic}
-                    onError={(error) => console.error("Image loading error:", error.nativeEvent.error)}
-                    onLoad={() => console.log("Image loaded successfully")}
-                  />
-                </>
-              ) : (
-                <View style={[styles.placeholderPic, { backgroundColor: colors.card }]}> 
-                  <Ionicons name="person" size={42} color={colors.primary} />
-                </View>
-              )}
-            </View>
-            
-            {/* Driver status badge */}
-            {renderStatusBadge()}
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
+      <Header title={t("Profil")} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 4, gap: 12, paddingBottom: 48 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 8 }}>
+          {driver?.photo
+            ? <Image source={{ uri: driver.photo }} style={{ width: 72, height: 72, borderRadius: 36 }} accessibilityIgnoresInvertColors />
+            : <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primaryLight, alignItems: "center", justifyContent: "center" }}>
+                <AppText variant="title" color={colors.primaryText}>{name[0]}</AppText>
+              </View>}
+          <View style={{ flex: 1, gap: 2 }}>
+            <AppText variant="heading">{name}</AppText>
+            <AppText variant="caption" color={colors.textMuted} style={{ fontSize: 14 }}>
+              {[driver?.driverType, rating ? `${rating.toFixed(1).replace(".", ",")} ★` : null].filter(Boolean).join(" · ")}
+            </AppText>
+            {car || driver?.plaqueImmatriculation ? (
+              <AppText variant="caption" color={colors.textSecondary} style={{ fontSize: 14 }}>
+                {[car, driver?.plaqueImmatriculation].filter(Boolean).join(" · ")}
+              </AppText>
+            ) : null}
           </View>
-        </LinearGradient>
-
-        {/* Profile Info */}
-        <View style={[styles.profileInfoContainer, { backgroundColor: colors.card }]}>
-          <Text style={[styles.userName, { color: colors.text }]}>
-            {userDetails?.firstName || ""} {userDetails?.lastName || ""}
-          </Text>
-          {renderStars()}
-          {renderDriverInfo()}
         </View>
+        {demo ? <Chip tone="orange" label={t("Mode démo activé")} /> : null}
 
-        
-        {/* Menu Sections */}
-        <View style={styles.menuSection}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Compte</Text>
-          <MenuItem
-            icon="cash-outline"
-            title="Gains"
-            onPress={() => navigation.navigate("EarningsScreen")}
-          />
-          <MenuItem
-            icon="people-outline"
-            title="Chauffeurs en ligne"
-            onPress={() => navigation.navigate("OnlineDriverScreen")}
-          />
-          <MenuItem
-            icon="help-circle-outline"
-            title="Aide"
-            onPress={handleHelpPress}
-          />
-        </View>
+        <Card style={{ overflow: "hidden" }}>
+          <ListRow icon="stats-chart-outline" label={t("Gains")} onPress={() => navigation.navigate("EarningsScreen")} />
+          <ListRow icon="person-outline" label={t("Mes informations")} onPress={() => navigation.navigate("ModifyInfo")} />
+          <ListRow icon="people-outline" label={t("Genre")} sublabel={t("Certaines clientes préfèrent une conductrice")}
+            hint={genderName ? t(genderName) : t("Non renseigné")} onPress={() => setGenderOpen(true)} />
+          <ListRow icon="wallet-outline" label={t("Paiements")} onPress={() => navigation.navigate("PaymentScreen")} last />
+        </Card>
 
-        <View style={styles.menuSection}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Préférences</Text>
-          <MenuItem
-            icon="settings-outline"
-            title="Paramètres"
-            onPress={() => navigation.navigate("SettingsScreen")}
-          />
-          <MenuItem
-            icon="shield-outline"
-            title="Confidentialité et sécurité"
-            onPress={() => Linking.openURL('https://www.caval.tech/privacy-policy')}
-          />
-        </View>
+        <Card style={{ overflow: "hidden" }}>
+          <ListRow icon="language-outline" label={t("Langue")} hint={languageName} onPress={() => navigation.navigate("PreferencesScreen")} />
+          <ListRow icon="color-palette-outline" label={t("Préférences")} sublabel={t("Apparence, taille du texte")} onPress={() => navigation.navigate("PreferencesScreen")} last={!showDemo} />
+          {showDemo ? <ListRow icon="flask-outline" label={t("Mode démo")} hint={demo ? t("Activé") : t("Désactivé")} onPress={() => navigation.navigate("DemoScreen")} last /> : null}
+        </Card>
 
-        {/* Logout Button */}
-        <TouchableOpacity
-          style={[styles.logoutButton, { backgroundColor: colors.error }]}
-          onPress={handleLogout}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="log-out-outline" size={22} color="#fff" />
-          <Text style={styles.logoutButtonText}>déconnexion</Text>
-        </TouchableOpacity>
+        <Card style={{ overflow: "hidden" }}>
+          <ListRow icon="logo-whatsapp" label={t("Aide et support")} sublabel={t("WhatsApp, 7j/7")} onPress={help} />
+          <ListRow icon="log-out-outline" label={t("Se déconnecter")} onPress={signOut} />
+          <ListRow icon="trash-outline" label={t("Supprimer mon compte")} destructive onPress={deleteAccount} last />
+        </Card>
 
-        <View style={styles.versionContainer}>
-          <Text style={[styles.versionText, { color: colors.textSecondary }]}>
-            version 1.0.2
-          </Text>
-          <Text style={[styles.copyrightText, { color: colors.textSecondary }]}>
-            © 2025 Caval Technologies
-          </Text>
-        </View>
+        <Pressable onPress={tapVersion} accessibilityRole="text" style={{ alignSelf: "center", padding: 12 }}>
+          <AppText variant="caption" color={colors.textMuted}>{t("Caval chauffeur · version {v}", { v: version })}</AppText>
+        </Pressable>
       </ScrollView>
+
+      <ModalSheet visible={genderOpen} onClose={() => setGenderOpen(false)} title={t("Genre")}>
+        {GENDERS.map((g) => (
+          <Button key={g.id} title={t(g.label)} variant={driver?.gender === g.id ? "primary" : "outline"} size="md" onPress={() => setGender(g.id)} />
+        ))}
+      </ModalSheet>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#f8f9fa",
-  },
-  logoHeader: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-    marginTop: Platform.OS === 'android' ? 32 : 0,
-  },
-  logo: {
-    width: 120,
-    height: 40,
-  },
-  container: {
-    flexGrow: 1,
-    paddingBottom: 100,
-  },
-  headerGradient: {
-    paddingTop: 20,
-    paddingBottom: 65,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  header: {
-    alignItems: "center",
-  },
-  profilePicContainer: {
-    position: "relative",
-    marginBottom: 10,
-  },
-  profilePic: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 4,
-    borderColor: "#fff",
-  },
-  placeholderPic: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 4,
-    borderColor: '#fff',
-  },
-  statusBadgeContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginTop: 10,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#4CAF50",
-    marginRight: 6,
-  },
-  statusText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  profileInfoContainer: {
-    alignItems: "center",
-    marginTop: -30,
-    backgroundColor: "#fff",
-    marginHorizontal: 20,
-    padding: 20,
-    borderRadius: 15,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  userName: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#333",
-    marginBottom: 8,
-  },
-  starsContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  starIcon: {
-    marginHorizontal: 2,
-  },
-  ratingText: {
-    fontSize: 16,
-    color: "#666",
-    fontWeight: "600",
-    marginLeft: 5,
-  },
-  driverInfoContainer: {
-    width: "100%",
-    marginTop: 10,
-    marginBottom: 5,
-  },
-  driverInfoItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  driverInfoIcon: {
-    marginRight: 6,
-  },
-  driverInfoText: {
-    fontSize: 14,
-    color: "#666",
-  },
-  menuSection: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#333",
-    marginBottom: 12,
-    marginLeft: 6,
-  },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 16,
-    borderRadius: 14,
-    marginBottom: 10,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  menuItemLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 15,
-  },
-  menuText: {
-    fontSize: 16,
-    color: "#333",
-    fontWeight: "500",
-  },
-  badgeContainer: {
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  badgeText: {
-    color: "white",
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-  logoutButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-    borderRadius: 14,
-    marginHorizontal: 20,
-    marginBottom: 30,
-    shadowColor: "#ff7e28",
-    shadowOffset: {
-      width: 0,
-      height: 3,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 4,
-  },
-  logoutButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-    marginLeft: 8,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  versionContainer: {
-    alignItems: "center",
-    marginTop: 20,
-  },
-  versionText: {
-    fontSize: 12,
-    color: "#999",
-    marginBottom: 4,
-  },
-  copyrightText: {
-    fontSize: 12,
-    color: "#999",
-  },
-  section: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-  },
-  tierBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-    marginTop: 8,
-    marginLeft: 12,
-    alignSelf: 'center',
-  },
-  tierText: {
-    color: '#000',
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginLeft: 4,
-  },
-});
-
-export default Profile;

@@ -1,4 +1,4 @@
-// Import the functions you need from the SDKs you need
+// Firebase (project eco-share-92ef1, shared with the customer app). Keys come from app.json → extra.
 import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth, initializeAuth, getReactNativePersistence } from 'firebase/auth';
@@ -17,23 +17,17 @@ const firebaseConfig = {
   measurementId: Constants.expoConfig.extra.firebaseMeasurementId
 };
 
-console.log("Firebase config:", {
-  apiKey: firebaseConfig.apiKey ? "present" : "missing",
-  authDomain: firebaseConfig.authDomain ? "present" : "missing",
-  projectId: firebaseConfig.projectId ? "present" : "missing",
-  storageBucket: firebaseConfig.storageBucket ? "present" : "missing",
-  messagingSenderId: firebaseConfig.messagingSenderId ? "present" : "missing",
-  appId: firebaseConfig.appId ? "present" : "missing",
-  measurementId: firebaseConfig.measurementId ? "present" : "missing"
-});
 
 // Prevent re-initialization
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
-// Initialize Auth with persistence
-const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(AsyncStorage)
-});
+// Auth with persistence (stay signed in). initializeAuth throws if called twice (fast refresh).
+let auth;
+try {
+  auth = initializeAuth(app, { persistence: getReactNativePersistence(AsyncStorage) });
+} catch (e) {
+  auth = getAuth(app);
+}
 
 // Initialize Firestore
 const db = getFirestore(app);
@@ -41,6 +35,5 @@ const db = getFirestore(app);
 // Initialize Storage
 const storage = getStorage(app);
 
-console.log("Firebase initialization complete");
 
 export { db, auth, storage }; 

@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  firestore-rules:
+    name: Firestore rules tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4   # the Firestore emulator needs Java
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm install
+        working-directory: firestore-tests
+      - run: npm test
+        working-directory: firestore-tests
+
+  functions:
+    name: Cloud Functions syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check index.js && node --check scripts/migrate-driver-private.js
+        working-directory: functions
+
+  app:
+    name: App bundles (iOS + Android)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - run: yarn typecheck
+      # Fails if any French UI text has no English/Arabic/Somali translation
+      - run: node scripts/check-i18n.js
+      # Catches broken imports / missing packages before an EAS build does
+      - run: npx expo export --platform ios --output-dir .exp-check
+      - run: npx expo export --platform android --output-dir .exp-check

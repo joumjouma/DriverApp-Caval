@@ -1,0 +1,109 @@
+// Driver position: shown on the map and sent to Drivers/{uid} while online,
+// so the server can pick the closest driver and customers can follow the car.
+// In demo mode the phone pretends to be in Djibouti (DEMO_CENTER).
+import { useEffect, useRef, useState } from "react";
+import * as Location from "expo-location";
+import * as TaskManager from "expo-task-manager";
+import { reportPosition } from "../services/driverApi";
+import { isDemo, demoPosition, DEMO_CENTER } from "../context/DemoContext";
+import { t } from "../utils/i18n/index";
+
+const TASK = "background-location-task";
+const SEND_EVERY_MS = 10000;
+
+// Background updates (app in the background during a ride or while online)
+if (!TaskManager.isTaskDefined(TASK)) {
+  TaskManager.defineTask(TASK, async ({ data, error }) => {
+    if (error || !data?.locations?.length || isDemo()) return;
+    const { latitude, longitude } = data.locations[0].coords;
+    await reportPosition({ latitude, longitude });
+  });
+}
+
+async function startBackground() {
+  try {
+    if (!(await Location.isBackgroundLocationAvailableAsync())) return;
+    if (await Location.hasStartedLocationUpdatesAsync(TASK)) return;
+    const { status } = await Location.requestBackgroundPermissionsAsync();
+    if (status !== "granted") return;
+    await Location.startLocationUpdatesAsync(TASK, {
+      accuracy: Location.Accuracy.Balanced,
+      timeInterval: 15000,
+      distanceInterval: 20,
+      showsBackgroundLocationIndicator: true,
+      foregroundService: { notificationTitle: t("Caval chauffeur"), notificationBody: t("Votre position est partagée pendant que vous êtes en ligne.") },
+    });
+  } catch (e) { /* background location is optional */ }
+}
+
+export async function stopBackground() {
+  try {
+    if (await Location.hasStartedLocationUpdatesAsync(TASK)) await Location.stopLocationUpdatesAsync(TASK);
+  } catch (e) { /* ignore */ }
+}
+
+/** Current position once (demo-aware). null if location is refused. */
+export async function currentPosition() {
+  if (isDemo()) return demoPosition(150);
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") return null;
+    const p = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    return { latitude: p.coords.latitude, longitude: p.coords.longitude, heading: p.coords.heading };
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Watches the position. `share` = also send it to Firestore (online or in a ride).
+ * Returns { position, denied }.
+ */
+export default function useDriverLocation({ share, demo }) {
+  const [position, setPosition] = useState(null);
+  const [denied, setDenied] = useState(false);
+  const lastSent = useRef(0);
+
+  useEffect(() => {
+    let sub = null;
+    let timer = null;
+    let cancelled = false;
+
+    const handle = (p) => {
+      if (cancelled) return;
+      setPosition(p);
+      if (share && Date.now() - lastSent.current > SEND_EVERY_MS) {
+        lastSent.current = Date.now();
+        reportPosition(p);
+      }
+    };
+
+    (async () => {
+      if (demo) {
+        // Fixed point in Djibouti, with a little movement so the map looks alive
+        const base = demoPosition(150);
+        handle(base);
+        timer = setInterval(() => handle({
+          latitude: base.latitude + (Math.random() - 0.5) * 0.0004,
+          longitude: base.longitude + (Math.random() - 0.5) * 0.0004,
+        }), SEND_EVERY_MS);
+        await stopBackground();
+        return;
+      }
+      const { status } = await Location.requestForegroundPermissionsAsync().catch(() => ({ status: "denied" }));
+      if (status !== "granted") { setDenied(true); return; }
+      setDenied(false);
+      const first = await Location.getLastKnownPositionAsync().catch(() => null);
+      if (first) handle({ latitude: first.coords.latitude, longitude: first.coords.longitude });
+      sub = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 15 },
+        (p) => handle({ latitude: p.coords.latitude, longitude: p.coords.longitude, heading: p.coords.heading }),
+      ).catch(() => null);
+      if (share) startBackground(); else stopBackground();
+    })();
+
+    return () => { cancelled = true; sub?.remove?.(); if (timer) clearInterval(timer); };
+  }, [share, demo]);
+
+  return { position: position || (demo ? DEMO_CENTER : null), denied };
+}

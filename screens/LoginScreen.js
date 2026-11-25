@@ -1,523 +1,101 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Text,
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-  ScrollView,
-  Keyboard,
-  TouchableWithoutFeedback,
-} from "react-native";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
-import { signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithCredential, onAuthStateChanged, sendPasswordResetEmail } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { auth, db } from "../config/firebase";
+// Connexion chauffeur — email + password, password reset, link to sign up.
+// Once signed in, App.js shows the app; HomeScreen handles approval and the
+// privacy notice.
+import React, { useState } from "react";
+import { View, KeyboardAvoidingView, Platform, ScrollView, Image, Pressable } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { Ionicons } from "@expo/vector-icons";
+import { AppText, Button, Input, ErrorBanner } from "../components/ui";
 import { useTheme } from "../context/ThemeContext";
-import PrivacyPolicyModal from "../components/PrivacyPolicyModal";
+import { auth } from "../config/firebase";
+import { t } from "../utils/i18n/index";
 import CavalLogo from "../assets/Caval_courrier_logo-removebg-preview.png";
-import { LinearGradient } from "expo-linear-gradient";
 
-function LoginScreen() {
+const MESSAGES = {
+  "auth/invalid-email": "Adresse email invalide.",
+  "auth/user-not-found": "Email ou mot de passe incorrect.",
+  "auth/wrong-password": "Email ou mot de passe incorrect.",
+  "auth/invalid-credential": "Email ou mot de passe incorrect.",
+  "auth/too-many-requests": "Trop de tentatives. Réessayez dans quelques minutes.",
+  "auth/network-request-failed": "Pas de connexion internet. Vérifiez votre réseau.",
+  "auth/user-disabled": "Ce compte a été désactivé. Contactez le support.",
+};
+const message = (e) => t(MESSAGES[e?.code] || "Connexion impossible. Réessayez.");
+
+export default function LoginScreen() {
+  const navigation = useNavigation();
+  const { colors } = useTheme();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [authStateReady, setAuthStateReady] = useState(false);
-  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
-  const [pendingUser, setPendingUser] = useState(null);
-  const [showPassword, setShowPassword] = useState(false);
-  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
-  const navigation = useNavigation();
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+  const [focus, setFocus] = useState(null);
 
-  // Clear auth state when the login screen is focused
-  useFocusEffect(
-    React.useCallback(() => {
-      const checkAndClearAuth = async () => {
-        setAuthStateReady(false);
-        // Clear stored user data
-        await AsyncStorage.removeItem('driverInfo');
-        await AsyncStorage.removeItem('driverUID');
-        
-        // Ensure user is signed out when coming to login screen
-        if (auth.currentUser) {
-          await signOut(auth);
-        }
-        
-        // Short delay to ensure auth state is cleared before re-enabling auth state monitoring
-        setTimeout(() => {
-          setAuthStateReady(true);
-        }, 300);
-      };
-      
-      checkAndClearAuth();
-      
-      return () => {
-        // Cleanup if needed
-      };
-    }, [])
-  );
-
-  const handleForgotPassword = async () => {
-    if (!email.trim()) {
-      Alert.alert(
-        "Email requis", 
-        "Veuillez entrer votre adresse email pour réinitialiser votre mot de passe.",
-        [
-          { text: "OK", onPress: () => {} }
-        ]
-      );
-      return;
-    }
-
+  const signIn = async () => {
+    setError(""); setInfo("");
+    if (!email.trim() || !password) { setError(t("Entrez votre email et votre mot de passe.")); return; }
+    setBusy(true);
     try {
-      setForgotPasswordLoading(true);
-      console.log("Attempting to send password reset email to:", email.trim());
-      
-      // Check if user exists first
-      try {
-        const methods = await auth.fetchSignInMethodsForEmail(email.trim());
-        if (methods.length === 0) {
-          Alert.alert(
-            "Compte non trouvé", 
-            "Aucun compte n'est associé à cette adresse email. Veuillez vérifier l'adresse ou créer un nouveau compte.",
-            [
-              { text: "OK", onPress: () => {} }
-            ]
-          );
-          setForgotPasswordLoading(false);
-          return;
-        }
-        console.log("User exists with methods:", methods);
-      } catch (checkError) {
-        console.log("Error checking user existence:", checkError);
-        // Continue anyway, Firebase will handle this
-      }
-
-      // Send password reset email
-      const result = await sendPasswordResetEmail(auth, email.trim());
-      console.log("Password reset email result:", result);
-      
-      Alert.alert(
-        "Email envoyé", 
-        "Un email de réinitialisation de mot de passe a été envoyé à votre adresse email.\n\n📧 **Important:** Vérifiez votre dossier spam/indésirable si vous ne le recevez pas dans votre boîte de réception principale.\n\nL'email provient de: noreply@eco-share-92ef1.firebaseapp.com\n\nSi vous ne recevez toujours pas l'email dans les 10 minutes, contactez le support.",
-        [
-          { text: "OK", onPress: () => {} }
-        ]
-      );
-    } catch (error) {
-      console.log("Password reset error code:", error.code);
-      console.log("Password reset error message:", error.message);
-      console.log("Full error object:", error);
-      
-      let errorMessage = "Une erreur est survenue lors de l'envoi de l'email de réinitialisation.";
-      
-      // Check for specific Firebase auth errors and provide French messages
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = "Aucun compte trouvé avec cet email.";
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = "Adresse email invalide.";
-      } else if (error.code === 'auth/too-many-requests') {
-        errorMessage = "Trop de tentatives. Veuillez réessayer plus tard.";
-      } else if (error.code === 'auth/operation-not-allowed') {
-        errorMessage = "La réinitialisation de mot de passe n'est pas activée pour ce projet. Contactez l'administrateur.";
-      } else if (error.code === 'auth/network-request-failed') {
-        errorMessage = "Erreur de réseau. Vérifiez votre connexion internet et réessayez.";
-      }
-      
-      Alert.alert(
-        "Erreur", 
-        `${errorMessage}\n\nCode d'erreur: ${error.code}\n\nSi le problème persiste, contactez le support technique.`,
-        [
-          { text: "OK", onPress: () => {} }
-        ]
-      );
-    } finally {
-      setForgotPasswordLoading(false);
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+    } catch (e) {
+      setError(message(e));
+      setBusy(false);
     }
   };
 
-  const handlePrivacyPolicyAccept = async () => {
+  const reset = async () => {
+    setError(""); setInfo("");
+    if (!email.trim()) { setError(t("Entrez votre email pour recevoir le lien de réinitialisation.")); return; }
     try {
-      await AsyncStorage.setItem('privacyPolicyAccepted', 'true');
-      setShowPrivacyPolicy(false);
-      
-      // Check approval status and navigate accordingly
-      const approvalStatus = await AsyncStorage.getItem('driverApprovalStatus');
-      if (approvalStatus === 'approved') {
-        navigation.navigate("MainApp");
-      } else {
-        navigation.navigate("ApprovalStatusScreen");
-      }
-    } catch (error) {
-      console.error("Error saving privacy policy acceptance:", error);
-      Alert.alert("Error", "Failed to save privacy policy acceptance. Please try again.");
+      await sendPasswordResetEmail(auth, email.trim());
+      setInfo(t("Email envoyé. Pensez à vérifier vos spams."));
+    } catch (e) {
+      setError(message(e));
     }
   };
-
-  const checkPrivacyPolicyAndProceed = async (user) => {
-    try {
-      const hasAccepted = await AsyncStorage.getItem('privacyPolicyAccepted');
-      const approvalStatus = await AsyncStorage.getItem('driverApprovalStatus');
-      
-      if (hasAccepted === 'true') {
-        // User has already accepted privacy policy
-        if (approvalStatus === 'approved') {
-          // User is approved, proceed to home screen
-          navigation.navigate("MainApp");
-        } else {
-          // User is not approved, show approval status screen
-          navigation.navigate("ApprovalStatusScreen");
-        }
-      } else {
-        // Show privacy policy modal and store pending user
-        setPendingUser(user);
-        setShowPrivacyPolicy(true);
-      }
-    } catch (error) {
-      console.error("Error checking privacy policy acceptance:", error);
-      Alert.alert("Error", "Failed to check privacy policy acceptance. Please try again.");
-    }
-  };
-
-  useEffect(() => {
-    let unsubscribe = () => {};
-    
-    if (authStateReady) {
-      unsubscribe = onAuthStateChanged(auth, async (user) => {
-        if (user) {
-          try {
-            console.log("User authenticated:", user.uid);
-            setLoading(true);
-            
-            // Fetch driver information from Firestore
-            const driverDoc = await getDoc(doc(db, "Drivers", user.uid));
-            console.log("Driver document exists:", driverDoc.exists());
-            
-            if (!driverDoc.exists()) {
-              navigation.navigate("Register");
-              setLoading(false);
-              return;
-            }
-
-            // Store driver information in AsyncStorage
-            const driverData = driverDoc.data();
-            console.log("Driver data to store:", driverData);
-            
-            // Check if driver is approved - but allow access regardless
-            const isApproved = driverData.isApproved && driverData.approvalStatus === 'approved';
-            
-            await AsyncStorage.setItem('driverInfo', JSON.stringify(driverData));
-            await AsyncStorage.setItem('driverUID', user.uid);
-            await AsyncStorage.setItem('driverApprovalStatus', driverData.approvalStatus || 'pending');
-            
-            // Verify storage
-            const storedData = await AsyncStorage.getItem('driverInfo');
-            console.log("Stored driver data:", JSON.parse(storedData));
-            
-            // Check privacy policy acceptance before proceeding
-            await checkPrivacyPolicyAndProceed(user);
-          } catch (error) {
-            console.error("Error fetching driver information:", error);
-            Alert.alert("Error", "Failed to fetch driver information. Please try again.");
-            await signOut(auth);
-          } finally {
-            setLoading(false);
-          }
-        }
-      });
-    }
-    
-    return () => unsubscribe();
-  }, [auth, navigation, authStateReady]);
-
-  const handleLogin = async () => {
-    try {
-      setLoading(true);
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (error) {
-      console.log(error.message);
-      let errorMessage = "Une erreur est survenue lors de la connexion.";
-      
-      // Check for specific Firebase auth errors and provide French messages
-      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-        errorMessage = "Mot de passe incorrect, veuillez entrer le bon mot de passe.";
-      } else if (error.code === 'auth/user-not-found') {
-        errorMessage = "Aucun compte trouvé avec cet email.";
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = "Adresse email invalide.";
-      } else if (error.code === 'auth/too-many-requests') {
-        errorMessage = "Trop de tentatives de connexion. Veuillez réessayer plus tard.";
-      } else if (error.code === 'auth/user-disabled') {
-        errorMessage = "Ce compte a été désactivé.";
-      }
-      
-      Alert.alert("Erreur", errorMessage);
-      setLoading(false);
-    }
-  };
-
-  const { colors, toggleTheme, isDarkMode } = useTheme();
-
-  useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener(
-      'keyboardDidShow',
-      () => {
-        setKeyboardVisible(true);
-      }
-    );
-    const keyboardDidHideListener = Keyboard.addListener(
-      'keyboardDidHide',
-      () => {
-        setKeyboardVisible(false);
-      }
-    );
-
-    return () => {
-      keyboardDidShowListener.remove();
-      keyboardDidHideListener.remove();
-    };
-  }, []);
 
   return (
-    <KeyboardAvoidingView
-      style={[
-        styles.container,
-        { backgroundColor: colors.background },
-        keyboardVisible && Platform.OS === 'android' && styles.containerWithKeyboard
-      ]}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === 'android' ? 0 : 60}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.innerContainer}>
-          <TouchableOpacity
-            style={styles.themeToggle}
-            onPress={toggleTheme}
-          >
-            <Ionicons
-              name={isDarkMode ? "sunny" : "moon"}
-              size={24}
-              color={colors.text}
-            />
-          </TouchableOpacity>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 32, gap: 4, flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+          <View style={{ width: 64, height: 64, borderRadius: 18, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
+            <Image source={CavalLogo} style={{ width: 48, height: 48 }} resizeMode="contain" accessibilityIgnoresInvertColors />
+          </View>
+          <AppText variant="overline" color={colors.primaryText}>{t("Caval chauffeur")}</AppText>
+          <AppText variant="display" accessibilityRole="header" style={{ marginBottom: 6 }}>{t("Connexion")}</AppText>
+          <AppText color={colors.textSecondary} style={{ marginBottom: 24 }}>{t("Connectez-vous pour recevoir des courses et des colis.")}</AppText>
 
-          <Image style={styles.logo} source={CavalLogo} />
-
-          <Text style={[styles.driverOnlyText, { color: colors.text }]}>
-            Cette application est réservée uniquement aux chauffeurs Caval Courier
-          </Text>
-
-          <View style={[styles.card, { backgroundColor: colors.card }]}>
-            <TextInput
-              style={[styles.input, { 
-                backgroundColor: colors.input,
-                color: colors.inputText,
-                borderColor: colors.border,
-              }]}
-              placeholder="Email"
-              placeholderTextColor={colors.placeholder}
-              onChangeText={setEmail}
-              value={email}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={[styles.input, { 
-                  backgroundColor: colors.input,
-                  color: colors.inputText,
-                  borderColor: colors.border,
-                }]}
-                placeholder="Mot de passe"
-                placeholderTextColor={colors.placeholder}
-                onChangeText={setPassword}
-                value={password}
-                secureTextEntry={!showPassword}
-              />
-              <TouchableOpacity
-                style={styles.passwordToggle}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Ionicons
-                  name={showPassword ? "eye-off" : "eye"}
-                  size={20}
-                  color={colors.textSecondary}
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* Forgot Password Link */}
-            <TouchableOpacity
-              style={styles.forgotPasswordContainer}
-              onPress={handleForgotPassword}
-              disabled={forgotPasswordLoading}
-            >
-              {forgotPasswordLoading ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <Text style={[styles.forgotPasswordText, { color: colors.primary }]}>
-                  Mot de passe oublié ?
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={[styles.button, { backgroundColor: colors.primary }]} 
-              onPress={handleLogin}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Connexion</Text>
-              )}
-            </TouchableOpacity>
+          <Input label={t("Email")} value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address"
+            textContentType="emailAddress" placeholder="nom@exemple.com" focused={focus === "email"} onFocus={() => setFocus("email")} onBlur={() => setFocus(null)} />
+          <View>
+            <Input label={t("Mot de passe")} value={password} onChangeText={setPassword} secureTextEntry={!show} autoComplete="password"
+              textContentType="password" focused={focus === "pw"} onFocus={() => setFocus("pw")} onBlur={() => setFocus(null)}
+              onSubmitEditing={signIn} returnKeyType="go" inputStyle={{ paddingRight: 52 }} />
+            <Pressable onPress={() => setShow((v) => !v)} accessibilityRole="button" accessibilityLabel={show ? t("Masquer le mot de passe") : t("Afficher le mot de passe")}
+              hitSlop={8} style={{ position: "absolute", right: 14, top: 38 }}>
+              <Ionicons name={show ? "eye-off-outline" : "eye-outline"} size={22} color={colors.textMuted} />
+            </Pressable>
           </View>
 
-          {/* Register Button - outlined, secondary style */}
-          <TouchableOpacity
-            style={[styles.registerButton, { borderColor: colors.primary }]}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate("Register")}
-          >
-            <View style={styles.registerButtonContent}>
-              <Ionicons name="person-add-outline" size={20} color={colors.primary} style={{ marginRight: 8 }} />
-              <Text style={[styles.registerButtonText, { color: colors.primary }]}>Pas de compte ? Inscrivez-vous ici</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-      </TouchableWithoutFeedback>
+          <ErrorBanner message={error} style={{ marginBottom: 12 }} />
+          {info ? <AppText color={colors.successText} style={{ marginBottom: 12 }} accessibilityLiveRegion="polite">{info}</AppText> : null}
 
-      <PrivacyPolicyModal
-        visible={showPrivacyPolicy}
-        onAccept={handlePrivacyPolicyAccept}
-      />
-    </KeyboardAvoidingView>
+          <Button title={t("Se connecter")} onPress={signIn} loading={busy} />
+          <Button title={t("Mot de passe oublié ?")} variant="ghost" size="sm" onPress={reset} style={{ marginTop: 4 }} />
+
+          <View style={{ flex: 1 }} />
+          <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingTop: 24 }}>
+            <AppText color={colors.textSecondary}>{t("Nouveau chauffeur ?")}</AppText>
+            <Pressable onPress={() => navigation.navigate("Register")} accessibilityRole="link" hitSlop={8}>
+              <AppText variant="bodyStrong" color={colors.primaryText}>{t("Créer un compte")}</AppText>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
-
-export default LoginScreen;
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "flex-start",
-    alignItems: "center",
-    padding: 20,
-    paddingTop: Platform.OS === 'android' ? 10 : 15,
-  },
-  containerWithKeyboard: {
-    justifyContent: 'flex-start',
-  },
-  innerContainer: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  themeToggle: {
-    position: 'absolute',
-    top: Platform.OS === 'android' ? 5 : 10,
-    right: 20,
-    padding: 10,
-    borderRadius: 20,
-  },
-  logo: {
-    width: 260,
-    height: 260,
-    marginBottom: 10,
-    resizeMode: "contain",
-  },
-  card: {
-    width: "100%",
-    padding: 18,
-    borderRadius: 15,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  input: {
-    height: 48,
-    borderWidth: 1,
-    borderRadius: 10,
-    marginBottom: 12,
-    paddingHorizontal: 15,
-    fontSize: 16,
-  },
-  button: {
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 6,
-  },
-  buttonText: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "600",
-  },
-  linkText: {
-    fontSize: 16,
-    marginTop: 10,
-    textAlign: "center",
-  },
-  driverOnlyText: {
-    fontSize: 16,
-    textAlign: "center",
-    marginTop: 12,
-    marginBottom: 10,
-  },
-  registerButton: {
-    width: '100%',
-    marginTop: 36, // more space above
-    borderRadius: 12,
-    borderWidth: 2,
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 13,
-    paddingHorizontal: 10,
-    flexDirection: 'row',
-    shadowColor: 'transparent', // remove shadow for clean look
-    elevation: 0,
-  },
-  registerButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  registerButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-    letterSpacing: 0.5,
-  },
-  passwordContainer: {
-    position: 'relative',
-    marginBottom: 12,
-  },
-  passwordToggle: {
-    position: 'absolute',
-    right: 15,
-    top: 8, // Moved higher from 12 to 8
-    padding: 8,
-    borderRadius: 20,
-  },
-  forgotPasswordContainer: {
-    alignItems: 'flex-end',
-    marginBottom: 16,
-    marginTop: -8,
-  },
-  forgotPasswordText: {
-    fontSize: 14,
-    fontWeight: '500',
-    textDecorationLine: 'underline',
-  },
-});
