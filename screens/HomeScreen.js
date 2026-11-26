@@ -23,6 +23,7 @@ import PrivacyPolicyModal from "../components/PrivacyPolicyModal";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../context/AuthContext";
 import { reportError } from "../utils/report";
+import { finishPendingRegistration } from "../services/registration";
 
 const initials = (d) => `${(d?.firstName || "")[0] || ""}${(d?.lastName || "")[0] || ""}`.toUpperCase() || "C";
 
@@ -55,6 +56,12 @@ export default function HomeScreen() {
     AsyncStorage.getItem("privacyPolicyAccepted").then((v) => setPrivacyOk(v === "true")).catch(() => {});
     return () => { offDriver(); offToday(); };
   }, []);
+
+  // Signed in but no driver profile yet: finish a sign-up that waited for email confirmation
+  useEffect(() => {
+    if (driver !== null) return;
+    finishPendingRegistration().catch((e) => reportError(e, { where: "finishPendingRegistration" }));
+  }, [driver]);
 
   // A ride in progress (after a restart or an accepted offer) → ride screen
   useEffect(() => watchActiveRide((ride) => {
@@ -110,7 +117,7 @@ export default function HomeScreen() {
     if (!offer) return;
     setBusy(true);
     try {
-      await acceptOffer(offer, driver);
+      await acceptOffer(offer);
       const id = offer.id;
       setOffer(null);
       navigation.navigate("Ride", { rideId: id });

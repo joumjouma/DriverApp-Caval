@@ -1,19 +1,17 @@
 // Demo mode: test the customer and driver apps together without touching
 // real rides.
 //
-// - Only accounts listed in Firestore appConfig/demo.testers (user IDs) can
-//   turn it on. The rules check the same list.
+// - Only accounts listed in app_config 'demo' → testers (user IDs) can turn it
+//   on. The database checks the same list (is_demo_tester()).
 // - A demo driver gets only demo rides, and demo rides only go to demo
-//   drivers (functions: sameWorld). Real customers never see a demo driver.
+//   drivers (dispatch_ride: d.demo = r.demo). Real customers never see one.
 // - The phone pretends to be in Djibouti (DEMO_CENTER), so you can test
 //   from anywhere.
 //
 // Hidden entry: Profil → tap the version number 5 times → Mode démo.
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { auth, db } from "../config/firebase";
+import { supabase } from "../config/supabase";
 
 const KEY = "demoMode";
 
@@ -35,17 +33,21 @@ export function demoPosition(meters = 0) {
 const DemoContext = createContext({ demo: false, allowed: false, uid: null, setDemo: async () => false, refresh: () => {} });
 
 export function DemoProvider({ children }) {
-  const [uid, setUid] = useState(auth.currentUser?.uid || null);
+  const [uid, setUid] = useState(null);
   const [allowed, setAllowed] = useState(false);
   const [saved, setSaved] = useState(false);
   const [tick, setTick] = useState(0);
 
-  useEffect(() => onAuthStateChanged(auth, (u) => setUid(u?.uid || null)), []);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setUid(data.session?.user?.id || null));
+    const { data } = supabase.auth.onAuthStateChange((_e, s) => setUid(s?.user?.id || null));
+    return () => data.subscription.unsubscribe();
+  }, []);
   useEffect(() => { AsyncStorage.getItem(KEY).then((v) => setSaved(v === "1")).catch(() => {}); }, []);
   useEffect(() => {
     if (!uid) { setAllowed(false); return; }
-    getDoc(doc(db, "appConfig", "demo"))
-      .then((s) => setAllowed((s.exists() ? s.data().testers || [] : []).includes(uid)))
+    supabase.rpc("is_demo_tester")
+      .then(({ data }) => setAllowed(data === true))
       .catch(() => setAllowed(false));
   }, [uid, tick]);
 
@@ -55,7 +57,7 @@ export function DemoProvider({ children }) {
   // Keep the driver profile in the same world as the app
   useEffect(() => {
     if (!uid || !allowed) return;
-    updateDoc(doc(db, "Drivers", uid), { demo }).catch(() => {});
+    supabase.from("drivers").update({ demo }).eq("id", uid).then(() => {}, () => {});
   }, [uid, allowed, demo]);
 
   const value = useMemo(() => ({

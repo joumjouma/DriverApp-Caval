@@ -1,4 +1,4 @@
-// Driver position: shown on the map and sent to Drivers/{uid} while online,
+// Driver position: shown on the map and sent to driver_locations while online,
 // so the server can pick the closest driver and customers can follow the car.
 // In demo mode the phone pretends to be in Djibouti (DEMO_CENTER).
 import { useEffect, useRef, useState } from "react";
@@ -63,7 +63,7 @@ export async function currentPosition() {
 }
 
 /**
- * Watches the position. `share` = also send it to Firestore (online or in a ride).
+ * Watches the position. `share` = also send it to the server (driver_locations; online or in a ride).
  * Returns { position, denied }.
  */
 export default function useDriverLocation({ share, demo }) {

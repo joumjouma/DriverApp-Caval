@@ -14,9 +14,6 @@ import {
   Image,
   Modal,
 } from "react-native";
-import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
-import { db } from "../config/firebase";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -26,10 +23,9 @@ import { useTheme, makeStyles } from "../context/ThemeContext";
 import { APP_CONFIG } from "../constants/appConfig";
 import PrivacyPolicyModal from "../components/PrivacyPolicyModal";
 import * as ImagePicker from 'expo-image-picker';
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage } from "../config/firebase";
-import { auth } from '../config/firebase';
 import { t } from "../utils/i18n";
+import { registerDriver } from "../services/registration";
+import { authMessage } from "../utils/authErrors";
 
 function RegisterScreen() {
   const { colors } = useTheme();
@@ -45,7 +41,6 @@ function RegisterScreen() {
   const [ville, setVille] = useState("");
   const [pays, setPays] = useState("");
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
-  const [pendingUser, setPendingUser] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
@@ -167,22 +162,6 @@ function RegisterScreen() {
     }
   };
 
-  const uploadImageToStorage = async (uri, path) => {
-    try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      
-      const storageRef = ref(storage, path);
-      await uploadBytes(storageRef, blob);
-      
-      const downloadURL = await getDownloadURL(storageRef);
-      return downloadURL;
-    } catch (error) {
-      console.error("Error uploading image:", error);
-      throw new Error("Failed to upload image");
-    }
-  };
-
   const handleRegister = async () => {
     if (!email || !password || !confirmPassword || !prenom || !nom || !telephone || !facePhoto || !carteGrisePhoto || !plaqueImmatriculation || !carMake || !carModel || !carColor) {
       Alert.alert(
@@ -226,99 +205,35 @@ function RegisterScreen() {
     }
     setIsLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        email,
-        password
-      );
-      const user = userCredential.user;
-      const facePhotoURL = await uploadImageToStorage(facePhoto.uri, `drivers/${user.uid}/profile_photo`);
-      const carteGrisePhotoURL = await uploadImageToStorage(carteGrisePhoto.uri, `drivers/${user.uid}/carte_grise`);
-      try {
-        await AsyncStorage.setItem('driverUID', user.uid);
-      } catch (e) {}
-      const driverData = {
-        email: user.email,
-        firstName: prenom,
-        lastName: nom,
-        phoneNumber: telephone,
-        vehicleType: typeDeVehicule,
-        city: ville,
-        country: pays,
-        plaqueImmatriculation: plaqueImmatriculation,
-        carMake: carMake,
-        carModel: carModel,
-        carColor: carColor,
-        rating: 0,
-        rideCount: 0,
-        onlineTime: 0,
-        status: "active",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        earnings: 0,
-        totalEarnings: 0,
-        weeklyEarnings: 0,
-        dailyEarnings: 0,
-        lastOnline: new Date(),
-        isOnline: false,
-        isAvailable: false, // New drivers start as unavailable until they go online
-        driverType: typeDeVehicule,
-        photo: facePhotoURL,
-        documentsVerified: false,
-        isApproved: false,
-        approvalStatus: 'pending', // pending, approved, rejected
-        approvalDate: null,
-        approvedBy: null,
-      };
-      try {
-        await setDoc(doc(db, "Drivers", user.uid), driverData);
-        // Documents and payout details are private: only the driver (and admins
-        // in the Console / Cloud Functions) can read them, not other users.
-        await setDoc(doc(db, "Drivers", user.uid, "private", "profile"), {
-          carteGrisePhoto: carteGrisePhotoURL,
-          paymentMethods: paymentMethods,
-          createdAt: new Date(),
-        });
-        await AsyncStorage.setItem('driverInfo', JSON.stringify(driverData));
-        
-        // Show success message about approval process
-        Alert.alert(
-          t("Inscription réussie !"),
-          t("Votre compte a été créé avec succès. Votre demande est maintenant en cours d'examen par notre équipe. Vous recevrez une notification dès que votre compte sera approuvé."),
-          [{ text: t("OK") }]
-        );
-        
-        setPendingUser(user);
-        setShowPrivacyPolicy(true);
-        setIsLoading(false);
-      } catch (firestoreError) {
-        await user.delete();
-        throw firestoreError;
-      }
-    } catch (error) {
+      const res = await registerDriver({
+        email, password,
+        firstName: prenom, lastName: nom, phone: telephone,
+        vehicleType: typeDeVehicule, city: ville, country: pays,
+        plate: plaqueImmatriculation, carMake, carModel, carColor,
+        paymentMethods,
+        facePhotoUri: facePhoto?.uri, carteGrisePhotoUri: carteGrisePhoto?.uri,
+      });
       setIsLoading(false);
-      let errorMessage = t("Une erreur est survenue lors de l'inscription. Veuillez réessayer.");
-      
-      // Check for specific Firebase auth errors and provide French messages
-      if (error.code === 'auth/email-already-in-use') {
-        errorMessage = t("Cette adresse email est déjà utilisée. Veuillez utiliser une autre adresse email ou vous connecter avec votre compte existant.");
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = t("Adresse email invalide. Veuillez entrer une adresse email valide.");
-      } else if (error.code === 'auth/weak-password') {
-        errorMessage = t("Le mot de passe est trop faible. Veuillez choisir un mot de passe plus sécurisé.");
-      } else if (error.code === 'auth/operation-not-allowed') {
-        errorMessage = t("L'inscription par email est temporairement désactivée. Veuillez réessayer plus tard.");
-      } else if (error.code === 'auth/network-request-failed') {
-        errorMessage = t("Erreur de connexion réseau. Veuillez vérifier votre connexion internet et réessayer.");
-      } else if (error.message.includes('Failed to upload image')) {
-        errorMessage = t("Erreur lors du téléchargement de la photo. Veuillez réessayer.");
+      if (res.needsEmailConfirmation) {
+        Alert.alert(
+          t("Confirmez votre email"),
+          t("Nous vous avons envoyé un lien. Ouvrez-le, puis connectez-vous : votre dossier sera envoyé automatiquement."),
+          [{ text: t("OK"), onPress: () => navigation.navigate("LoginScreen") }]
+        );
+        return;
       }
-      
+      // Signed in: the app opens on the home screen, which shows the approval status.
       Alert.alert(
-        t("Échec de l'inscription"), 
-        errorMessage,
+        t("Inscription réussie !"),
+        t("Votre compte a été créé avec succès. Votre demande est maintenant en cours d'examen par notre équipe. Vous recevrez une notification dès que votre compte sera approuvé."),
         [{ text: t("OK") }]
       );
+    } catch (error) {
+      setIsLoading(false);
+      const errorMessage = /upload|storage|bucket/i.test(error?.message || "")
+        ? t("Erreur lors du téléchargement de la photo. Veuillez réessayer.")
+        : authMessage(error, "Une erreur est survenue lors de l'inscription. Veuillez réessayer.");
+      Alert.alert(t("Échec de l'inscription"), errorMessage, [{ text: t("OK") }]);
     }
   };
 

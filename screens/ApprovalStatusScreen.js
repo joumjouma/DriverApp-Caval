@@ -12,10 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme, makeStyles } from "../context/ThemeContext";
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { auth } from '../config/firebase';
-import { signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { supabase, me } from '../config/supabase';
 import { t } from "../utils/i18n";
 
 function ApprovalStatusScreen() {
@@ -31,18 +28,11 @@ function ApprovalStatusScreen() {
 
   const checkApprovalStatus = async () => {
     try {
-      const user = auth.currentUser;
-      if (!user) {
-        console.log('No user logged in');
-        return;
-      }
-
-      // Fetch latest status from Firestore
-      
-      const driverDoc = await getDoc(doc(db, 'Drivers', user.uid));
-      if (driverDoc.exists()) {
-        const driverData = driverDoc.data();
-        const currentStatus = driverData.approvalStatus || 'pending';
+      if (!me()) return;
+      const { data: driverRow, error } = await supabase.from('drivers').select('approval_status').eq('id', me()).maybeSingle();
+      if (error) throw error;
+      if (driverRow) {
+        const currentStatus = driverRow.approval_status || 'pending';
         setApprovalStatus(currentStatus);
         
         // Update stored status
@@ -63,15 +53,12 @@ function ApprovalStatusScreen() {
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
-      await AsyncStorage.clear();
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'LoginScreen' }],
-      });
+      // Signing out switches the app to the login screen (App.js)
+      await AsyncStorage.removeItem('driverApprovalStatus').catch(() => {});
+      await supabase.auth.signOut();
     } catch (error) {
       console.error('Error logging out:', error);
-      Alert.alert('Error', 'Failed to log out. Please try again.');
+      Alert.alert(t("Erreur"), t("Déconnexion impossible. Réessayez."));
     }
   };
 

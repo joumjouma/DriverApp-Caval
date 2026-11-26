@@ -21,7 +21,7 @@ export function formatMinutes(min) {
 /** Seconds online → "2 h 15" / "12 min" */
 export const formatDuration = (sec) => formatMinutes((Number(sec) || 0) / 60);
 
-/** Firestore timestamp / Date / ISO → "07:30" */
+/** Timestamp ({toDate}) / Date / ISO → "07:30" */
 export function formatTime(v) {
   const d = v?.toDate ? v.toDate() : v ? new Date(v) : null;
   if (!d || isNaN(d)) return "";

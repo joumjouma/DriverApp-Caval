@@ -37,6 +37,10 @@
         "destination": "/track.html"
       },
       {
+        "source": "/reset",
+        "destination": "/reset.html"
+      },
+      {
         "source": "/admin/**",
         "destination": "/admin/index.html"
       }

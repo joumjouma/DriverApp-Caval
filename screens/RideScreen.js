@@ -1,5 +1,5 @@
 // The ride, from "En route vers le client" to "Course terminée" (option A).
-// Follows rideRequests/{rideId} live; each step moves the status forward:
+// Follows the ride row live (Supabase realtime); each step moves the status forward:
 //   assigned → driver_arrived → picked_up → completed
 // Rides: pickup PIN (verifyPickupPin) before picked_up.
 // Packages: photo at pickup, delivery code at drop-off (confirmDelivery).
@@ -27,17 +27,19 @@ import {
 } from "../services/driverApi";
 import { reportError } from "../utils/report";
 import { createConversation } from "../utils/messaging";
-import { auth } from "../config/firebase";
+import { me } from "../config/supabase";
 
 const PROBLEMS = [
-  { id: "customer_no_show", label: "Client absent au point de départ" },
+  { id: "no_show", label: "Client absent au point de départ" },
   { id: "wrong_address", label: "Adresse incorrecte" },
   { id: "customer_cancelled", label: "Le client annule la course" },
   { id: "vehicle_problem", label: "Problème avec le véhicule" },
   { id: "other", label: "Autre problème" },
 ];
 
-const errCode = (e) => String(e?.code || "").replace("functions/", "");
+// Database error codes → the names this screen checks
+const CODES = { "54000": "resource-exhausted", "42501": "permission-denied", "55000": "failed-precondition", "22023": "invalid-argument" };
+const errCode = (e) => CODES[String(e?.code || "")] || String(e?.code || "");
 
 export default function RideScreen() {
   const navigation = useNavigation();
@@ -184,7 +186,12 @@ export default function RideScreen() {
 
   const reportProblem = (p) => {
     setProblemOpen(false);
-    Alert.alert(t("Annuler la course ?"), t(p.label), [
+    // Waited 5 min at pickup and the passenger didn't come: the customer pays a late fee to the driver
+    const waited = ride?.arrivedAt ? (Date.now() - ride.arrivedAt.toMillis()) / 60000 : 0;
+    const msg = p.id === "no_show"
+      ? (waited >= 5 ? t("Le client paiera des frais d'annulation, ajoutés à votre solde.") : t("Attendez 5 minutes au point de départ pour que le client paie des frais d'annulation."))
+      : t(p.label);
+    Alert.alert(t("Annuler la course ?"), msg, [
       { text: t("Non"), style: "cancel" },
       { text: t("Oui, annuler"), style: "destructive", onPress: () => run(() => cancelByDriver(rideId, p.id), "cancelByDriver") },
     ]);
@@ -194,7 +201,7 @@ export default function RideScreen() {
   const openChat = async () => {
     if (!ride?.userId) { whatsapp(person.phone); return; }
     try {
-      const conversationId = await createConversation(auth.currentUser.uid, ride.userId);
+      const conversationId = await createConversation(me(), ride.userId);
       navigation.navigate("DriverInboxScreen", { conversationId, customerName: contact?.firstName || t("Client"), customerPhoto: contact?.photo || null });
     } catch (e) {
       reportError(e, { where: "openChat" });

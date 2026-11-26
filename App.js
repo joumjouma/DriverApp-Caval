@@ -5,7 +5,6 @@ import { View, ActivityIndicator, StatusBar } from "react-native";
 import { NavigationContainer, DefaultTheme, DarkTheme } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
-import { StripeProvider } from "@stripe/stripe-react-native";
 import { useFonts } from "expo-font";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -40,7 +39,6 @@ if (global.ErrorUtils?.setGlobalHandler) {
   });
 }
 
-const STRIPE_KEY = "pk_live_51R9ek8CmEzIPQVTO8V3wcapg87N24eNFOCaJ4dz2krvfKSBaNe5g0vYAW4XBHESTYpQBi6fdz7GA4fPGJh4BlGIW00L1KYPz6m";
 const Stack = createStackNavigator();
 
 function DemoBanner() {
@@ -108,17 +106,15 @@ export default function App() {
   if (!fontsLoaded) return <View style={{ flex: 1, backgroundColor: "#FAF8F5" }} />;
   return (
     <SafeAreaProvider>
-      <StripeProvider publishableKey={STRIPE_KEY}>
-        <ThemeProvider>
-          <ErrorBoundary>
-            <AuthProvider>
-              <DemoProvider>
-                <Screens />
-              </DemoProvider>
-            </AuthProvider>
-          </ErrorBoundary>
-        </ThemeProvider>
-      </StripeProvider>
+      <ThemeProvider>
+        <ErrorBoundary>
+          <AuthProvider>
+            <DemoProvider>
+              <Screens />
+            </DemoProvider>
+          </AuthProvider>
+        </ErrorBoundary>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }

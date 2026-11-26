@@ -6,16 +6,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { doc, deleteDoc, updateDoc } from "firebase/firestore";
-import { deleteUser } from "firebase/auth";
 import { AppText, Card, Header, ListRow, ModalSheet, Button, Chip } from "../components/ui";
 import { useTheme } from "../context/ThemeContext";
 import { useDemo } from "../context/DemoContext";
 import { useAuth } from "../context/AuthContext";
 import { APP_CONFIG } from "../constants/appConfig";
 import { LANGUAGES, t } from "../utils/i18n/index";
-import { watchDriver } from "../services/driverApi";
-import { auth, db } from "../config/firebase";
+import { watchDriver, updateDriver, setOnline, deleteDriverAccount } from "../services/driverApi";
+import { supabase, me } from "../config/supabase";
 import { reportError } from "../utils/report";
 
 const GENDERS = [
@@ -50,13 +48,13 @@ export default function ProfileScreen() {
 
   const setGender = async (g) => {
     setGenderOpen(false);
-    await updateDoc(doc(db, "Drivers", auth.currentUser.uid), { gender: g }).catch((e) => reportError(e, { where: "setGender" }));
+    await updateDriver({ gender: g }).catch((e) => reportError(e, { where: "setGender" }));
   };
 
   const signOut = () => Alert.alert(t("Se déconnecter ?"), undefined, [
     { text: t("Annuler"), style: "cancel" },
     { text: t("Se déconnecter"), style: "destructive", onPress: async () => {
-      if (driver?.isOnline) await updateDoc(doc(db, "Drivers", auth.currentUser.uid), { isOnline: false, isAvailable: false }).catch(() => {});
+      if (driver?.isOnline) await setOnline(false).catch(() => {});
       await logout().catch(() => {});
     } },
   ]);
@@ -65,16 +63,17 @@ export default function ProfileScreen() {
     t("Votre profil chauffeur et vos documents seront supprimés définitivement. Cette action est irréversible."), [
       { text: t("Annuler"), style: "cancel" },
       { text: t("Supprimer"), style: "destructive", onPress: async () => {
-        const user = auth.currentUser;
         try {
-          await deleteDoc(doc(db, "Drivers", user.uid, "private", "profile")).catch(() => {});
-          await deleteDoc(doc(db, "driverStats", user.uid)).catch(() => {});
-          await deleteDoc(doc(db, "Drivers", user.uid));
+          // Photo and carte grise first (the database can't delete files), then the account
+          const id = me();
+          await supabase.storage.from("avatars").remove([`${id}/photo.jpg`]).catch(() => {});
+          await supabase.storage.from("driver-documents").remove([`${id}/registration.jpg`]).catch(() => {});
+          await deleteDriverAccount();
           await AsyncStorage.clear().catch(() => {});
-          await deleteUser(user);
         } catch (e) {
-          if (e?.code === "auth/requires-recent-login") {
-            Alert.alert(t("Reconnexion nécessaire"), t("Pour des raisons de sécurité, déconnectez-vous, reconnectez-vous, puis réessayez."));
+          if (e?.code === "55000") {
+            // Ride in progress, or money still owed: the server explains which
+            Alert.alert(t("Suppression impossible pour l'instant"), e.message);
           } else {
             reportError(e, { where: "deleteDriverAccount" });
             Alert.alert(t("Erreur"), t("La suppression a échoué. Réessayez ou contactez le support."));

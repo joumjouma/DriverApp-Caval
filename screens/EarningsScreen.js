@@ -1,5 +1,6 @@
-// Gains — day / week / month, from what the server records for each
-// completed ride (Earnings/{uid}.dailyBreakdown and moneyByRider).
+// Gains — day / week / month, from what the server records for each completed
+// ride (earnings table: trip price minus commission), plus the cash balance.
+
 import React, { useEffect, useMemo, useState } from "react";
 import { View, ScrollView, Pressable, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -9,7 +10,8 @@ import { useTheme, makeStyles } from "../context/ThemeContext";
 import { radius, spacing } from "../constants/theme";
 import { t } from "../utils/i18n/index";
 import { formatFdj, formatTime, shortAddress } from "../utils/format";
-import { getDailyBreakdown, watchToday, getRides, djiboutiDay, isDelivery } from "../services/driverApi";
+import { Ionicons } from "@expo/vector-icons";
+import { getDailyBreakdown, watchToday, getRides, djiboutiDay, isDelivery, getBalance } from "../services/driverApi";
 
 const PERIODS = [
   { id: "day", label: "Jour" },
@@ -38,13 +40,19 @@ export default function EarningsScreen() {
   const [today, setToday] = useState({ total: 0, trips: [] });
   const [rides, setRides] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [balance, setBalance] = useState(null);
 
-  const load = () => getDailyBreakdown().then(setBreakdown).catch(() => {});
+  const load = () => Promise.all([
+    getDailyBreakdown().then(setBreakdown).catch(() => {}),
+    getBalance().then(setBalance).catch(() => {}),
+  ]);
   useEffect(() => { load(); return watchToday(setToday); }, []);
   useEffect(() => {
     const ids = [...today.trips].reverse().map((x) => x.rideId).filter(Boolean);
     if (ids.length) getRides(ids).then(setRides).catch(() => {}); else setRides([]);
+    getBalance().then(setBalance).catch(() => {});
   }, [today.trips.length]);
+  const earnedOn = useMemo(() => Object.fromEntries(today.trips.map((x) => [x.rideId, x.amount])), [today.trips]);
 
   const todayIso = djiboutiDay();
   const summary = useMemo(() => {
@@ -112,6 +120,20 @@ export default function EarningsScreen() {
           <Stat label={t("Meilleur jour")} value={summary.best ? dayLabel(summary.best.day) : "—"} />
         </View>
 
+        {balance ? (
+          <Pressable onPress={() => navigation.navigate("PaymentScreen")} accessibilityRole="button" style={styles.balance}>
+            <View style={{ flex: 1 }}>
+              <AppText variant="caption" color={colors.textMuted} style={{ fontWeight: "700" }}>{t("Solde avec Caval")}</AppText>
+              <AppText variant="bodyStrong" style={{ fontSize: 16, fontWeight: "800" }}
+                color={balance.balance > 0 ? colors.successText : balance.balance < 0 ? colors.errorText : colors.text}>
+                {balance.balance > 0 ? t("Caval vous doit {amount}", { amount: formatFdj(balance.balance) })
+                  : balance.balance < 0 ? t("Vous devez {amount} à Caval", { amount: formatFdj(-balance.balance) }) : t("Vous êtes à jour")}
+              </AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.chevron} />
+          </Pressable>
+        ) : null}
+
         <View>
           <AppText variant="overline" color={colors.textMuted} style={{ paddingBottom: 4 }}>{t("Aujourd'hui")}</AppText>
           {rides.length === 0 ? (
@@ -129,7 +151,7 @@ export default function EarningsScreen() {
                     r.paymentMethod === "business" ? t("entreprise") : t("espèces"), r.demo ? t("démo") : null].filter(Boolean).join(" · ")}
                 </AppText>
               </View>
-              <AppText variant="bodyStrong" style={{ fontSize: 15, fontWeight: "800" }}>{formatFdj(r.fare)}</AppText>
+              <AppText variant="bodyStrong" style={{ fontSize: 15, fontWeight: "800" }}>{formatFdj(earnedOn[r.id] ?? r.fare)}</AppText>
             </View>
           ))}
         </View>
@@ -156,5 +178,6 @@ const useStyles = makeStyles((colors) => ({
   card: { padding: 18, borderRadius: radius.xl, backgroundColor: colors.emphasis, gap: 14 },
   bars: { flexDirection: "row", alignItems: "flex-end", gap: 4, height: 96 },
   stat: { flex: 1, padding: 12, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 2 },
+  balance: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   row: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 12, paddingHorizontal: 4, borderTopWidth: 1, borderTopColor: colors.divider },
 }));

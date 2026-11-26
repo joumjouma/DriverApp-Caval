@@ -1,18 +1,21 @@
-// Signed-in driver (Firebase Auth). Firebase keeps the session on the phone
-// (config/firebase.js, AsyncStorage persistence), so there is nothing else to store.
+// Signed-in driver (Supabase Auth). The session is kept on the phone (AsyncStorage),
+// so the driver stays signed in.
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth } from "../config/firebase";
+import { supabase } from "../config/supabase";
 
 const AuthContext = createContext({ user: null, loading: true, logout: async () => {} });
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(auth.currentUser);
-  const [loading, setLoading] = useState(!auth.currentUser);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false); }), []);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => { setUser(data.session?.user || null); setLoading(false); });
+    const { data } = supabase.auth.onAuthStateChange((_e, session) => { setUser(session?.user || null); setLoading(false); });
+    return () => data.subscription.unsubscribe();
+  }, []);
 
-  const logout = () => signOut(auth);
+  const logout = () => supabase.auth.signOut();
 
   return <AuthContext.Provider value={{ user, loading, logout }}>{children}</AuthContext.Provider>;
 }

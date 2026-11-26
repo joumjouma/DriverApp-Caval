@@ -71,16 +71,11 @@
       "favicon": "./assets/icone.png"
     },
     "extra": {
-      "firebaseApiKey": "AIzaSyBMQW59pFle0vVp0xotmnpVTYqAlTbdbQQ",
-      "firebaseAuthDomain": "eco-share-92ef1.firebaseapp.com",
-      "firebaseProjectId": "eco-share-92ef1",
-      "firebaseStorageBucket": "eco-share-92ef1.firebasestorage.app",
-      "firebaseMessagingSenderId": "747419763478",
-      "firebaseAppId": "1:747419763478:android:32f44f9a3306b9c32c8637",
-      "firebaseMeasurementId": "G-XXXXXXXXXX",
       "eas": {
         "projectId": "1e8c2798-d613-4170-935f-9c44dd58f328"
-      }
+      },
+      "supabaseUrl": "https://ysuoieejgophdyrcotnv.supabase.co",
+      "supabaseKey": "sb_publishable_fi7REKnxGTcMx1NggU_WdA_RXrCDGJY"
     },
     "plugins": [
       "expo-secure-store",

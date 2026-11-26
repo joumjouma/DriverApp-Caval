@@ -5,24 +5,15 @@ import React, { useState } from "react";
 import { View, KeyboardAvoidingView, Platform, ScrollView, Image, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { Ionicons } from "@expo/vector-icons";
 import { AppText, Button, Input, ErrorBanner } from "../components/ui";
 import { useTheme } from "../context/ThemeContext";
-import { auth } from "../config/firebase";
+import { supabase } from "../config/supabase";
+import { authMessage, RESET_URL } from "../utils/authErrors";
 import { t } from "../utils/i18n/index";
 import CavalLogo from "../assets/Caval_courrier_logo-removebg-preview.png";
 
-const MESSAGES = {
-  "auth/invalid-email": "Adresse email invalide.",
-  "auth/user-not-found": "Email ou mot de passe incorrect.",
-  "auth/wrong-password": "Email ou mot de passe incorrect.",
-  "auth/invalid-credential": "Email ou mot de passe incorrect.",
-  "auth/too-many-requests": "Trop de tentatives. Réessayez dans quelques minutes.",
-  "auth/network-request-failed": "Pas de connexion internet. Vérifiez votre réseau.",
-  "auth/user-disabled": "Ce compte a été désactivé. Contactez le support.",
-};
-const message = (e) => t(MESSAGES[e?.code] || "Connexion impossible. Réessayez.");
+const message = (e) => authMessage(e);
 
 export default function LoginScreen() {
   const navigation = useNavigation();
@@ -40,7 +31,8 @@ export default function LoginScreen() {
     if (!email.trim() || !password) { setError(t("Entrez votre email et votre mot de passe.")); return; }
     setBusy(true);
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+      if (err) throw err;
     } catch (e) {
       setError(message(e));
       setBusy(false);
@@ -51,7 +43,8 @@ export default function LoginScreen() {
     setError(""); setInfo("");
     if (!email.trim()) { setError(t("Entrez votre email pour recevoir le lien de réinitialisation.")); return; }
     try {
-      await sendPasswordResetEmail(auth, email.trim());
+      const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: RESET_URL });
+      if (err) throw err;
       setInfo(t("Email envoyé. Pensez à vérifier vos spams."));
     } catch (e) {
       setError(message(e));

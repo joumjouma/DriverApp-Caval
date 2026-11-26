@@ -14,7 +14,7 @@ import { radius } from "../constants/theme";
 import { t } from "../utils/i18n/index";
 
 const STEPS = [
-  "Ajoutez l'identifiant ci-dessous dans Firestore : appConfig/demo, champ testers (liste).",
+  "Ajoutez l'identifiant ci-dessous dans Supabase : table app_config, ligne demo, liste testers.",
   "Faites de même avec le compte client de l'application Caval.",
   "Activez le mode démo dans les deux applications.",
   "Passez en ligne ici, puis commandez une course ou un colis côté client.",
