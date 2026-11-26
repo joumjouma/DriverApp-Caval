@@ -1,9 +1,14 @@
 # Caval Driver (DriverApp-Caval)
 
 Driver app for Caval (Expo SDK 53, React Native 0.79, React 19) **and the
-backend for both apps**: Cloud Functions, Firestore rules, Storage rules and
-the hosted admin dashboard for the Firebase project `eco-share-92ef1`. The
-customer app is `Caval-Customer-Clean`.
+backend for both apps**. The customer app is `Caval-Customer-Clean`.
+
+> **Branch `claude/supabase-app`:** this app runs on **Supabase** (project
+> *Caval Official Database*, Paris). The backend (database, prices, dispatch,
+> notifications, WhatsApp) is in `supabase/`, explained in
+> [`supabase/README.md`](supabase/README.md). `main` still runs on Firebase
+> until switch-over day; the Firebase code (`functions/`, `firestore.rules`) stays
+> until then.
 
 - **Look:** same design system as the customer app (orange `#FF6F00`, Plus
   Jakarta Sans, light and dark themes). Tokens in `constants/theme.js`,
@@ -11,49 +16,54 @@ customer app is `Caval-Customer-Clean`.
 - **Language of the UI:** French by default; English, Arabic (right-to-left)
   and Somali (draft) in Profil → Langue.
 
-## Moving to Supabase
-
-The backend is being moved to Supabase (project **Caval Official Database**, Paris).
-Progress, and **all prices, commission, driver pay, cancellation fees and rewards
-with the market research behind them**, are in [`supabase/README.md`](supabase/README.md).
-Until the cutover, the live apps keep the Firebase prices in `functions/`.
-
 ## Layout
 
 | Path | What |
 |---|---|
 | `App.js` | Fonts, theme/language, auth, demo mode, navigation |
+| `config/supabase.js` | The Supabase client (URL + publishable key from `app.json` → `extra`) |
 | `screens/HomeScreen.js` | Full-screen map, today's earnings, Go button, ride offers |
 | `components/OfferSheet.js` | "Nouvelle course" sheet with the 15-second countdown |
 | `screens/RideScreen.js` | The ride: pickup, PIN, package photo, stops, hourly timer, delivery code, end |
-| `screens/EarningsScreen.js` | Day / week / month earnings |
-| `screens/ProfileScreen.js`, `PreferencesScreen.js`, `DemoScreen.js` | Profile, language and appearance, demo mode |
-| `services/driverApi.js` | Every Firestore / Cloud Functions call the driver app makes |
-| `hooks/useDriverLocation.js` | Position on the map and sent to Firestore while online |
+| `screens/EarningsScreen.js` | Day / week / month earnings, balance with Caval |
+| `screens/PaymentScreen.js` | Paiements: balance owed either way, commission, payout methods (Waafi, D-Money…) |
+| `screens/ProfileScreen.js`, `ModifyInfo.js`, `PreferencesScreen.js`, `DemoScreen.js` | Profile, my info, language and appearance, demo mode |
+| `screens/DriverInboxScreen.js` | Chat with the customer |
+| `services/driverApi.js` | Every database call the driver app makes; converts rows to the shape screens use |
+| `services/registration.js` | Sign-up: login, photo, carte grise, driver profile |
+| `services/NotificationService.js` | Push token, Android channel `rides`, opening the right screen on tap |
+| `hooks/useDriverLocation.js` | Position on the map, sent to `driver_locations` while online |
 | `context/` | Theme + language, auth, demo mode |
 | `utils/i18n/` | `t()` and translations (en, ar, so; aa empty) |
-| `functions/` | Cloud Functions — pricing, ride assignment, earnings, WhatsApp, packages, PIN, … |
-| `firestore.rules`, `storage.rules` | Security rules for both apps |
-| `firestore-tests/` | Emulator tests for the Firestore rules |
-| `public/` | Admin dashboard (`/admin`) and live tracking page (`track.html`) |
-| `types/firestore.d.ts` | Shared data model (same file in the customer repo) |
-| `docs/` | Feature specs (`PACKAGES.md`, `CUSTOMER_FEATURES.md`, `WAVE3.md`) and older notes |
+| `supabase/` | **Backend:** migrations, Edge Function (WhatsApp webhook), database tests |
+| `scripts/migrate-auth`, `scripts/migrate-data` | Switch-over day: copy logins (passwords kept) and data from Firebase |
+| `public/` | Admin dashboard (`/admin`), tracking page (`/t/…`), password reset page (`/reset`) |
+| `functions/`, `firestore.rules`, `storage.rules` | Old Firebase backend, still live until switch-over |
 
 ## Who does what
 
-- **Server only** (Cloud Functions): ride price, choosing and reassigning
-  drivers (`selectBestDriverForNewRideRequest`, `declineRide`), driver
-  earnings (`moneyByRider`, `Earnings`), delivery codes (`confirmDelivery`),
-  pickup PINs (`verifyPickupPin`), WhatsApp.
-- **Driver app**: go online, accept a ride offer, move a ride through
-  `assigned → driver_arrived → picked_up → completed`. Packages are
-  completed by `confirmDelivery` with the recipient's code, never by the app.
-- **Admins**: approve drivers and change feature switches / prices in the
-  dashboard (`/admin`) or the Firebase Console.
+- **Server only** (Postgres functions in `supabase/migrations`): ride price,
+  choosing and reassigning drivers (`dispatch_ride`, `expire_offers`), driver
+  earnings and commission, delivery codes (`confirm_delivery`), pickup PINs
+  (`verify_pickup_pin`), notifications and WhatsApp.
+- **Driver app:** go online, accept an offer, move a ride through
+  `assigned → driver_arrived → picked_up → completed` with RPCs (`accept_ride`,
+  `driver_arrived`, `start_ride`, `complete_ride`). Packages are completed by
+  `confirm_delivery` with the recipient's code, never by the app. The app can't
+  edit a ride directly.
+- **Admins:** approve drivers, settle balances and change prices in the
+  dashboard (`/admin`) or the Supabase table editor (`app_config`).
 
-The driver app follows the customer feature switches in `appConfig/customer`
-where it matters: it asks for the pickup PIN only when `pickupPinEnabled` is
-on (that's when customers see it).
+Files: photos in the `avatars` bucket (public), carte grise in
+`driver-documents` (the driver and admins only), package photos in
+`package-photos` (the ride's customer, driver and admins only).
+
+The driver app follows the customer feature switches in `app_config` →
+`customer` where it matters: it asks for the pickup PIN only when
+`pickupPinEnabled` is on (that's when customers see it).
+
+**Changing the plate or vehicle type** keeps the driver approved but marks the
+documents for checking again (`documents_verified = false`).
 
 ## Languages
 
@@ -66,39 +76,40 @@ Never call `t()` at module level: keep constants in French and call
 
 ## Demo mode (test both apps together)
 
-1. In Firestore, create `appConfig/demo` with a field `testers` (array of
-   user IDs): the driver account and the customer account you test with.
-   Each app shows its user ID in Mode démo.
+1. In Supabase, table `app_config`, row `demo`: add the user IDs of the driver
+   and customer accounts you test with to `testers`. Each app shows its user ID
+   in Mode démo. (Your two accounts are already in it.)
 2. In each app: Profil → tap the version number 5 times → **Mode démo** → on.
    A "MODE DÉMO" tab shows at the top of the screen.
 3. Go online in the driver app, then book a ride or a package in the
    customer app.
 
-What changes in demo mode: both phones act as if they were in Djibouti
-(Plateau du Serpent); every customer feature switch is on; rides carry
-`demo: true` and only go to drivers whose profile has `demo: true`
-(`sameWorld` in `functions/index.js`), and real rides never go to demo
-drivers. Demo rides earn no loyalty points and are left out of business
-statements. The Firestore rules only let listed testers create demo rides or
-put a driver profile in demo mode.
+What changes in demo mode:
+- Both phones act as if they were in Djibouti (Plateau du Serpent).
+- Every customer feature switch is on.
+- Rides carry `demo: true` and only go to drivers whose profile has
+  `demo: true`, and real rides never go to demo drivers (`dispatch_ride`).
+- Demo rides earn no loyalty points and never charge a cancellation fee. They're
+  left out of balances, business statements and reports.
+- Only listed testers can create demo rides or put a driver profile in demo
+  mode (`is_demo_tester()`).
 
 ## Develop
 
 ```bash
-yarn install
+npm install
 npx expo start
-yarn typecheck
 node scripts/check-i18n.js
-cd firestore-tests && npm install && npm test   # needs Java 11+
 ```
 
-## Deploy (from this repo only)
+Database tests: paste `supabase/tests/*.sql` into the Supabase SQL editor (each
+runs in a transaction that undoes itself and prints its results).
+
+## Build
 
 ```bash
-firebase functions:secrets:set ULTRAMSG_TOKEN    # once
-firebase deploy --only storage,firestore:rules,firestore:indexes,functions,hosting
 eas build --platform ios --profile production --auto-submit
 ```
 
-Deploy the server (functions + rules) **before** releasing app builds that
-depend on it.
+Database changes go in `supabase/migrations/` (newest last) and are applied to
+the project **before** releasing app builds that depend on them.
