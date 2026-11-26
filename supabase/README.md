@@ -12,14 +12,65 @@ organization **Caval**.
 | `20261126000003_rides.sql` | Pricing, ride creation, dispatch, every driver/customer step, earnings, commission, cancellation fees, rewards, cron jobs |
 | `20261126000004_rides_search_path.sql` | Linter fix |
 | `20261126000005_commission_waiver.sql` | 90-day commission-free period for each new driver |
+| `20261126000006_notifications.sql` | Push notifications, WhatsApp, share links, rewards/promo/business, delete account, admin report, auto-offline |
+| `20261126000007_drivers_guard_fix.sql` | Fix: the driver-row guard was also blocking server functions (rating, approvals) |
+| `20261126000008_whatsapp_bot.sql` | WhatsApp bot replies |
 
-Still to come: WhatsApp, push and share links (Edge Functions), admin tools, then
-switching both apps to `supabase-js`, and moving users and data over from Firebase.
+Edge Function: `functions/whatsapp-webhook` (deployed). Tests: `tests/`.
+
+Still to come: switching both apps to `supabase-js`, the admin dashboard, and moving
+users and data over from Firebase.
 
 The apps call ride actions with `supabase.rpc(...)`: `accept_ride`, `decline_ride`,
 `driver_arrived`, `verify_pickup_pin`, `start_ride`, `complete_ride`, `confirm_delivery`,
-`driver_cancel_ride`, `customer_cancel_ride`, `retry_ride`, `rate_driver`. Each checks
-who is calling. The apps cannot update rides directly.
+`driver_cancel_ride`, `customer_cancel_ride`, `retry_ride`, `rate_driver`, and
+`my_rewards`, `redeem_referral`, `check_promo`, `send_receipt`, `create_share_link`,
+`join_business`, `leave_business`, `delete_my_account`, `admin_monthly_report` (admins).
+Each checks who is calling. The apps cannot update rides directly. `track_ride(token)`
+is public, for the tracking page.
+
+---
+
+## Notifications and WhatsApp
+
+Sent straight from the database (pg_net): nothing to deploy, and a failed send never
+blocks a ride.
+
+| When | Who | How |
+|---|---|---|
+| Ride offered | Driver | Push "Nouvelle course" (+ WhatsApp if `messaging.whatsappDriverOffers` is on; off by default) |
+| Driver found / arrived / package picked up / done / no drivers / driver cancelled | Customer | Push |
+| Delivery booked | Recipient | WhatsApp with the delivery code and a tracking link |
+| Customer taps "receipt" | Customer | WhatsApp receipt (`send_receipt`) |
+| Driver approved | Driver | Push |
+| Support replies | Customer or driver | Push |
+| Chat message | The other person | Push |
+| WhatsApp message to the Caval number | Sender | Bot: 1 order (location → lead), 2 track, 3 prices, 4 support |
+
+Each WhatsApp message is sent once (`whatsapp_log`), so retries never spam anyone.
+Settings are in `app_config.messaging`: UltraMsg instance, tracking page address, app link.
+
+**To switch WhatsApp on** (whoever has UltraMsg access, once):
+1. Supabase → SQL editor:
+   `select vault.create_secret('<new UltraMsg token>', 'ultramsg_token');`
+   Until then, WhatsApp is skipped and everything else works.
+2. Supabase → Edge Functions → Secrets: add `WHATSAPP_WEBHOOK_KEY` = any long random text.
+3. UltraMsg → Webhook URL:
+   `https://ysuoieejgophdyrcotnv.supabase.co/functions/v1/whatsapp-webhook?key=<that same text>`
+   Without the key, the function refuses every call.
+
+**Tracking page** (`public/track.html`, `/t/<token>`): it asks Supabase first and
+falls back to the old Firebase function, so links work before and after the switch.
+It is still hosted on Firebase Hosting; it can move to caval.tech later (it is one
+static file).
+
+**Auto-offline:** every 5 minutes, drivers whose phone sent no position for 10 minutes
+go offline (never during a ride).
+
+**Deleting an account** (customers): rides stay for the driver's records and the
+accounts. They are moved to a "Compte supprimé" placeholder, and names, phone numbers
+and notes are removed. The profile, rewards, chats, ratings and tickets are deleted
+with the login. The app deletes the profile photo through Storage first.
 
 ---
 

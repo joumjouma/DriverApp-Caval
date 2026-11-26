@@ -58,14 +58,30 @@
     if (!markers[key]) markers[key] = L.marker([pos.lat, pos.lng], { icon: dot(color) }).addTo(map);
     else markers[key].setLatLng([pos.lat, pos.lng]);
   }
+  // Supabase first (public RPC track_ride, publishable key is meant to be public),
+  // then the old Firebase function for links made before the switch.
+  const SUPABASE_URL = "https://ysuoieejgophdyrcotnv.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_fi7REKnxGTcMx1NggU_WdA_RXrCDGJY";
+  async function load() {
+    try {
+      const s = await fetch(`${SUPABASE_URL}/rest/v1/rpc/track_ride`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY },
+        body: JSON.stringify({ p_token: token }),
+      });
+      if (s.ok) { const d = await s.json(); if (d && !d.error) return { ok: true, d }; }
+    } catch (e) { /* fall back */ }
+    const r = await fetch(`/api/track?t=${encodeURIComponent(token)}`);
+    return r.ok ? { ok: true, d: await r.json() } : { ok: false, status: r.status };
+  }
   async function refresh() {
     try {
-      const r = await fetch(`/api/track?t=${encodeURIComponent(token)}`);
-      if (!r.ok) {
-        document.getElementById("title").textContent = r.status === 404 ? "Ce lien a expiré." : "Suivi indisponible.";
+      const res = await load();
+      if (!res.ok) {
+        document.getElementById("title").textContent = res.status === 404 ? "Ce lien a expiré." : "Suivi indisponible.";
         return;
       }
-      const d = await r.json();
+      const d = res.d;
       const labels = LABELS[d.serviceType === "delivery" ? "delivery" : "ride"];
       document.getElementById("over").textContent = d.serviceType === "delivery" ? (d.recipientName ? `Colis pour ${d.recipientName}` : "Livraison Caval") : "Course Caval";
       document.getElementById("title").textContent = labels[d.status] || "En cours";
