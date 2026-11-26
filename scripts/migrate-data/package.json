@@ -1,0 +1,6 @@
+{
+  "name": "caval-migrate-data",
+  "private": true,
+  "description": "Copy Caval data from Firestore + Firebase Storage to Supabase",
+  "dependencies": { "@supabase/supabase-js": "^2.45.0", "dotenv": "^16.4.5", "firebase-admin": "^12.7.0" }
+}
