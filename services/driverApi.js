@@ -177,7 +177,8 @@ export async function reportPosition(position) {
 
 export async function savePushToken(token) {
   if (!me() || !token) return;
-  await supabase.from("drivers").update({ push_token: token }).eq("id", me()).then(() => {}, () => {});
+  // Private table: a push token lets anyone send this phone notifications
+  await supabase.from("driver_private").upsert({ driver_id: me(), push_token: token }).then(() => {}, () => {});
 }
 
 // ---------------------------------------------------------------- offers

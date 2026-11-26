@@ -127,7 +127,6 @@ async function allDocs(name) {
       plate: txt(v.plaqueImmatriculation, 20), city: txt(v.city, 60), country: txt(v.country, 60),
       photo_url: await copyFile(v.photo, "avatars", `${uid}/photo.jpg`),
       gender: ["female", "male"].includes(v.gender) ? v.gender : null,
-      push_token: txt(v.expoPushToken, 200),
       demo: false, is_online: false, is_available: false,
       approval_status: status, approved_at: status === "approved" ? ts(v.approvalDate) || ts(v.updatedAt) : null,
       documents_verified: !!v.documentsVerified,
@@ -138,6 +137,7 @@ async function allDocs(name) {
       driver_id: uid, email: txt(v.email, 200), phone: txt(v.phoneNumber, 30),
       registration_card_url: await copyFile(priv.carteGrisePhoto || v.carteGrisePhoto, "driver-documents", `${uid}/registration.jpg`),
       payout: priv.paymentMethods || v.paymentMethods || null,
+      push_token: txt(v.expoPushToken, 200),
     });
   }
   await importRows("drivers", [...drivers.values()]);

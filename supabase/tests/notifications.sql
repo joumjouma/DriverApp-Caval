@@ -12,9 +12,9 @@ begin
   insert into auth.users (id, email, aud, role) values (c1,'t-c1@test.caval','authenticated','authenticated'),
     (c2,'t-c2@test.caval','authenticated','authenticated'), (d1,'t-d1@test.caval','authenticated','authenticated');
   insert into customers (id, first_name, phone, push_token) values (c1,'Amina','77001122','ExponentPushToken[cust]'), (c2,'Omar',null,null);
-  insert into drivers (id, first_name, last_name, driver_type, approval_status, approved_at, is_online, is_available, push_token)
-    values (d1,'Ali','Hassan','Caval moto','pending', null, false, false, 'ExponentPushToken[drv]');
-  insert into driver_private (driver_id, phone) values (d1, '77998877');
+  insert into drivers (id, first_name, last_name, driver_type, approval_status, approved_at, is_online, is_available)
+    values (d1,'Ali','Hassan','Caval moto','pending', null, false, false);
+  insert into driver_private (driver_id, phone, push_token) values (d1, '77998877', 'ExponentPushToken[drv]');
   insert into driver_locations (driver_id, position) values (d1, extensions.st_makepoint(43.1480, 11.5950)::extensions.geography);
 
   perform set_config('request.jwt.claims', json_build_object('sub',d1,'role','authenticated')::text, true);
