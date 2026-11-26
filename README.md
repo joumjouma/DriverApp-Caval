@@ -11,6 +11,13 @@ customer app is `Caval-Customer-Clean`.
 - **Language of the UI:** French by default; English, Arabic (right-to-left)
   and Somali (draft) in Profil → Langue.
 
+## Moving to Supabase
+
+The backend is being moved to Supabase (project **Caval Official Database**, Paris).
+Progress, and **all prices, commission, driver pay, cancellation fees and rewards
+with the market research behind them**, are in [`supabase/README.md`](supabase/README.md).
+Until the cutover, the live apps keep the Firebase prices in `functions/`.
+
 ## Layout
 
 | Path | What |

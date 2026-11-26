@@ -9,7 +9,159 @@ organization **Caval**.
 |---|---|
 | `20261126000001_schema.sql` | Tables, indexes, row-level security, realtime |
 | `20261126000002_hardening.sql` | Advisor fixes: search_path, function grants, per-query `auth.uid()`, foreign-key indexes |
+| `20261126000003_rides.sql` | Pricing, ride creation, dispatch, every driver/customer step, earnings, commission, cancellation fees, rewards, cron jobs |
+| `20261126000004_rides_search_path.sql` | Linter fix |
 
-Still to come: ride functions (accept, arrive, PIN, delivery code, finish, cancel),
-dispatch (nearest driver, 15 s offers, reassignment), pricing, earnings, rewards and
-promos, WhatsApp (Edge Functions), data migration from Firebase.
+Still to come: WhatsApp, push and share links (Edge Functions), admin tools, then
+switching both apps to `supabase-js`, and moving users and data over from Firebase.
+
+The apps call ride actions with `supabase.rpc(...)`: `accept_ride`, `decline_ride`,
+`driver_arrived`, `verify_pickup_pin`, `start_ride`, `complete_ride`, `confirm_delivery`,
+`driver_cancel_ride`, `customer_cancel_ride`, `retry_ride`, `rate_driver`. Each checks
+who is calling. The apps cannot update rides directly.
+
+---
+
+## Pricing and driver pay
+
+Every number below is stored in `app_config` (keys `pricing` and `dispatch`). Change
+it there and it applies to the next ride, with no code change or app update. The
+same values are the built-in defaults in `pricing()` / `dispatch_settings()`.
+
+### What the market looks like (Nov 2026)
+
+| | Figure | Source |
+|---|---|---|
+| Street taxi, flag fall | 500 Fdj | combien-coute.net (Numbeo), gobytaxi.com |
+| Street taxi, short trip in town | 500–1,000 Fdj, negotiated, no meter | Culture Trip; cyriljarnias.com |
+| Airport → city (≈7 km) | 1,000–1,500 Fdj (up to 1,800, more at night) | appsavvytraveller.com; welcomepickups.com |
+| Minibus in town | 100–200 Fdj | cyriljarnias.com |
+| Petrol | ≈283–309 Fdj/L | AfroFuel (Mar 2026); combien-coute.net (Jul 2026) |
+| Minimum wage | 35,000 Fdj/month (one source says 100,000) | WageIndicator; africarrieres.com |
+| Average salary | ≈120,000–150,000 Fdj/month | wage.is; wagecentre.com |
+| Local apps | Sahaal Ride (launched 2024; cash or mobile money), X Drive (private chauffeurs), RIDE (mainly Addis) | WeAreTech Africa; App Store |
+| Commissions elsewhere in Africa | Uber 25%, Bolt 20–21%, Didi 13%, inDrive ≈9.5%, Yango 15–20% | TechCrunch; BusinessDay; Kolonell |
+| Launch offers | Bolt and inDrive have waived commission for the first 6–12 months in new countries | TechCrunch; TechCabal |
+| Who pays for promos | The platform: the driver is paid as if the customer paid full price | Uber UK driver statement; Pulse Kenya |
+| Cancellation | Free for the first ~2 min after a driver accepts; driver waits 5 min before a no-show; fee goes to the driver | Bolt rider and driver help pages |
+
+Taxis have no meters and prices are negotiated, so Caval's case is a **fixed price
+shown before the ride, at or slightly under street-taxi prices**.
+
+### Fares (`pricing.fares`)
+
+| | Base (includes 3 km) | Each extra km | 3 km | 7 km (airport) | 10 km |
+|---|---|---|---|---|---|
+| **Caval Privé** (car) | 500 | 130 | 500 | 1,000 | 1,400 |
+| **Caval moto** | 250 | 80 | 250 | 550 | 800 |
+
+Before: car 400 + 150/km, moto 150 + 150/km.
+
+- **Car base 500** is the street flag fall, so a short trip costs the same as a taxi.
+- **130/km** puts the airport run at 1,000, the bottom of the 1,000–1,500 taxi range.
+  It beats taxis on price without leaving money on the table.
+- **Fuel** is ≈25 Fdj/km for a car (8 L/100 km × ≈300 Fdj/L), so a driver keeps well
+  over 100 Fdj per paid km.
+- **Moto is about half the car price.** The old moto rate (150/km) cost the same per
+  km as a car, which made no sense for a bike that burns a third of the fuel.
+- Prices round to the nearest 50 Fdj.
+
+**Intercity** (trips of 25 km or more, `pricing.intercity`): car 1,000 + 110/km over
+the whole trip; moto 500 + 70/km. For example, 40 km by car costs 5,400. The higher
+base pays for the empty drive back. *I could not find published taxi prices for
+Arta, Ali Sabieh or Tadjourah, so check these against what drivers actually charge.*
+
+**Deliveries** (`pricing.deliverySurcharge`): the moto fare (car for large parcels)
+plus petit 0, moyen 100, grand 300. Before, grand was 200. A large parcel needs a car,
+so 5 km costs 1,050 against 400 for a small one.
+
+**Hourly hire** (`pricing.hourly`): car 3,000/h, moto 1,500/h, 8 h maximum.
+Unchanged; this matches the 3,000 Fdj/h waiting rate gobytaxi lists.
+
+### Commission (`pricing.commission`)
+
+**12% of the trip price**, set by `percent`. `waivedUntil` is a date: until then the
+commission is 0.
+
+- 12% sits between inDrive (≈9.5%) and Didi (13%), and well under Bolt (20%) and
+  Uber (25%). Driver unions in Nigeria are lobbying to bring 20% down to 10%. Being
+  the cheaper app for drivers is how you win them, and a new app needs drivers first.
+- **Recommendation:** at public launch, set `waivedUntil` to about 3 months out. Bolt
+  and inDrive both opened new countries with no commission. It costs nothing until
+  rides exist.
+
+### Promos and Caval credit: Caval pays
+
+The driver is paid on the **full price**; the discount is Caval's marketing cost.
+This is how Uber and Bolt do it. Before, the driver's earnings were the fare
+*after* discount, which made every promo come out of the driver's pocket.
+
+### Cash, and what drivers owe
+
+Most rides are cash. Each ride writes one row to `earnings`:
+
+| Column | Meaning |
+|---|---|
+| `gross` | Trip price before any discount |
+| `platform_discount` | Promo + credit, paid by Caval |
+| `commission` | `gross × percent` |
+| `amount` | What the driver earned: `gross − commission` |
+| `cash_collected` | Cash the driver took from the customer (0 for business invoices) |
+| `balance` | `amount − cash_collected`. Positive: Caval owes the driver. Negative: the driver owes Caval |
+
+Example, a 1,000 Fdj cash ride with a 300 Fdj promo: the customer pays 700. The
+driver earns 880 (1,000 − 120) and has 700 in hand. Balance +180: Caval owes the driver 180.
+
+Example, a normal 1,000 Fdj cash ride: the driver earns 880 and has 1,000 in hand.
+Balance −120: the driver owes Caval its commission.
+
+- The view `driver_balances` gives each driver's running total.
+- The plan is to settle weekly, by mobile money (Waafi / D-Money) or at the office.
+- The driver app's earnings screen should show both what the driver earned and
+  their balance.
+
+### Cancellation fees (`pricing.cancellation`)
+
+| | Car | Moto |
+|---|---|---|
+| Customer cancels more than **2 min** after a driver accepted | 200 | 100 |
+| Driver cancels as *no-show* after waiting **5 min** at pickup | 200 | 100 |
+
+Earlier cancellations are free, and searching for a driver can always be cancelled.
+The fee goes to the driver (less commission), the same as on Bolt.
+
+Because the ride never happened, the customer pays it in cash with **their next
+ride**: it is added to the next fare as `previous_fee` and shown on the price. That
+driver collects it, and it counts against their balance, so the driver who waited is
+the one paid. 200 Fdj is about the cost of the trip to the pickup point, and about
+one minibus fare. It is enough to discourage no-shows without scaring off new
+customers. Demo and business rides are never charged.
+
+### Loyalty and referrals (`pricing.rewards`)
+
+Unchanged:
+- Every completed ride earns 1 point.
+- Every **10 rides** earns **500 Fdj** of credit, about 5–6% back at the new fares (an
+  average ride is ≈800–1,000 Fdj).
+- A **referral** gives **500 Fdj** to both people after the new customer's first
+  completed ride.
+- Credit pays for future rides; Caval funds it, as with promos.
+
+### Dispatch (`dispatch`)
+
+| Setting | Value | Before | Why |
+|---|---|---|---|
+| `offerSeconds` | 15 | 15 | Time a driver has to accept, in line with other apps |
+| `maxKm` | 10 | 20 | Djibouti city is ≈10 km across. A driver 20 km away is a 30+ minute wait, so it's better to try the next driver |
+| `locationFreshMinutes` | 3 | 3 | Ignore drivers whose GPS went quiet |
+| `maxOffers` | 10 | 10 | After 10 declines or timeouts: "no drivers available" |
+
+### What the apps must change when they switch
+
+- **Driver app:**
+  - Earnings screen: show `amount`, `cash_collected` and `balance` (from `driver_daily_earnings` / `driver_balances`).
+  - Cancel sheet: send reason `no_show`.
+- **Customer app:**
+  - Use the new fare table from `app_config.pricing`.
+  - Show `previous_fee` on the price.
+  - Warn before a cancel that will cost a fee (after 2 min).
