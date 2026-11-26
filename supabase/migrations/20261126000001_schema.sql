@@ -143,10 +143,6 @@ create table public.driver_locations (
 create index driver_locations_gist on driver_locations using gist (position);
 alter table public.driver_locations enable row level security;
 create policy driver_locations_own on driver_locations for all to authenticated using (driver_id = auth.uid()) with check (driver_id = auth.uid());
--- A customer sees their driver's car from acceptance to drop-off.
-create policy driver_locations_customer on driver_locations for select to authenticated using (exists (
-  select 1 from rides r where r.driver_id = driver_locations.driver_id and r.customer_id = auth.uid()
-    and r.status in ('assigned', 'driver_arrived', 'picked_up')));
 create policy driver_locations_admin on driver_locations for select to authenticated using (is_admin());
 
 -- ---------------------------------------------------------------- businesses
@@ -257,6 +253,11 @@ create policy rides_customer_insert on rides for insert to authenticated with ch
 );
 -- Updates go through functions (accept_ride, driver_arrived, cancel_ride, …),
 -- so the apps get no direct UPDATE on rides.
+
+-- A customer sees their driver's car from acceptance to drop-off.
+create policy driver_locations_customer on driver_locations for select to authenticated using (exists (
+  select 1 from rides r where r.driver_id = driver_locations.driver_id and r.customer_id = auth.uid()
+    and r.status in ('assigned', 'driver_arrived', 'picked_up')));
 
 -- Who to call: copied from the customer profile when the ride is created
 -- (rideRequestsDriver). Readable by the offered / assigned driver.
