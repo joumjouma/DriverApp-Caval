@@ -10,28 +10,43 @@
   * { box-sizing: border-box; }
   body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--t); font-size: 14px; }
   header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--s); border-bottom: 1px solid var(--b); position: sticky; top: 0; z-index: 2; }
-  .mark { width: 26px; height: 26px; border-radius: 8px; background: var(--o); }
+  .mark { width: 26px; height: 26px; border-radius: 8px; background: var(--o); flex: none; }
   nav { display: flex; gap: 4px; flex-wrap: wrap; margin-left: 16px; }
-  nav button { border: 0; background: transparent; padding: 8px 12px; border-radius: 10px; font-weight: 600; color: var(--m); cursor: pointer; }
+  nav button { border: 0; background: transparent; padding: 8px 12px; border-radius: 10px; font-weight: 600; color: var(--m); cursor: pointer; font: inherit; }
   nav button.on { background: #FFF1E6; color: var(--ot); }
-  main { padding: 20px; max-width: 1200px; margin: 0 auto; }
-  h2 { margin: 0 0 12px; font-size: 20px; }
-  .card { background: var(--s); border: 1px solid var(--b); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  nav .n { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--o); color: #1F1300; font-size: 11px; text-align: center; }
+  main { padding: 20px; max-width: 1240px; margin: 0 auto; }
+  h2 { margin: 0 0 12px; font-size: 20px; } h3 { margin: 0 0 8px; font-size: 15px; }
+  .card { background: var(--s); border: 1px solid var(--b); border-radius: 14px; padding: 16px; margin-bottom: 14px; overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--b); vertical-align: top; }
   th { color: var(--m); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   input, select, textarea { font: inherit; padding: 8px 10px; border: 1.5px solid var(--b); border-radius: 10px; background: var(--s); color: var(--t); }
-  textarea { width: 100%; min-height: 260px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
-  button.p, button.s, button.d { font: inherit; font-weight: 700; padding: 8px 14px; border-radius: 10px; border: 0; cursor: pointer; }
+  textarea { width: 100%; min-height: 220px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  button.p, button.s, button.d { font: inherit; font-weight: 700; padding: 7px 12px; border-radius: 10px; border: 0; cursor: pointer; }
   button.p { background: var(--o); color: #1F1300; } button.s { background: #F3F0EC; color: var(--t); } button.d { background: transparent; color: var(--r); }
+  button:disabled { opacity: .5; cursor: default; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
-  .muted { color: var(--m); } .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #F3F0EC; font-size: 12px; font-weight: 700; }
-  .chip.g { background: #E8F5EC; color: var(--g); } .chip.o { background: #FFF1E6; color: var(--ot); }
+  .muted { color: var(--m); } .small { font-size: 12px; }
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #F3F0EC; font-size: 12px; font-weight: 700; white-space: nowrap; }
+  .chip.g { background: #E8F5EC; color: var(--g); } .chip.o { background: #FFF1E6; color: var(--ot); } .chip.r { background: #FBE9E9; color: var(--r); }
+  .neg { color: var(--r); font-weight: 700; } .pos { color: var(--g); font-weight: 700; }
   #login { max-width: 360px; margin: 10vh auto; } #login input { width: 100%; margin-bottom: 10px; }
-  .err { color: var(--r); } .split { display: grid; grid-template-columns: 320px 1fr; gap: 14px; }
-  .msgs { max-height: 50vh; overflow: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-  .msg { padding: 8px 12px; border-radius: 12px; max-width: 75%; background: #F3F0EC; } .msg.support { align-self: flex-end; background: #FFE0C7; }
-  .pick { cursor: pointer; } .pick:hover { background: #FFF7F0; }
+  .err { color: var(--r); } .split { display: grid; grid-template-columns: 340px 1fr; gap: 14px; }
+  @media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
+  .msgs { max-height: 55vh; overflow: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .msg { padding: 8px 12px; border-radius: 12px; max-width: 75%; background: #F3F0EC; white-space: pre-wrap; } .msg.support { align-self: flex-end; background: #FFE0C7; }
+  .pick { cursor: pointer; } .pick:hover, .pick.on { background: #FFF7F0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .tile { background: var(--s); border: 1px solid var(--b); border-radius: 14px; padding: 14px; }
+  .tile b { display: block; font-size: 24px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tile.link { cursor: pointer; } .tile.link:hover { border-color: var(--o); }
+  dialog { border: 0; border-radius: 16px; padding: 20px; max-width: 460px; width: 92vw; box-shadow: 0 10px 40px rgba(0,0,0,.2); }
+  dialog::backdrop { background: rgba(23,19,15,.35); }
+  dialog label { display: block; margin: 10px 0 4px; font-weight: 600; } dialog input, dialog select { width: 100%; }
+  img.doc { max-width: 100%; border-radius: 10px; border: 1px solid var(--b); }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--t); color: #fff; padding: 10px 16px; border-radius: 12px; display: none; z-index: 10; }
 </style>
 </head>
 <body>
@@ -43,208 +58,399 @@
     <input id="pw" type="password" placeholder="Mot de passe" autocomplete="current-password">
     <button class="p" id="go">Se connecter</button>
     <p class="err" id="loginErr"></p>
-    <p class="muted">Accès réservé aux comptes administrateurs (functions/scripts/set-admin.js).</p>
+    <p class="muted small">Accès réservé aux administrateurs (table <code>admins</code> dans Supabase).</p>
   </div>
 </main>
+<dialog id="dlg"></dialog>
+<div id="toast"></div>
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
-import { getFirestore, collection, query, where, orderBy, limit, onSnapshot, getDocs, doc, getDoc, setDoc, updateDoc, addDoc, serverTimestamp, Timestamp }
-  from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-functions.js";
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-const app = initializeApp({ apiKey: "AIzaSyBMQW59pFle0vVp0xotmnpVTYqAlTbdbQQ", authDomain: "eco-share-92ef1.firebaseapp.com", projectId: "eco-share-92ef1",
-  storageBucket: "eco-share-92ef1.firebasestorage.app" });
-const auth = getAuth(app), db = getFirestore(app), fns = getFunctions(app);
+const sb = createClient("https://ysuoieejgophdyrcotnv.supabase.co", "sb_publishable_fi7REKnxGTcMx1NggU_WdA_RXrCDGJY");
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const fmt = (ts) => ts?.toDate ? ts.toDate().toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "";
-let stop = [];
-const clearSubs = () => { stop.forEach((f) => f()); stop = []; };
+const fmt = (ts) => ts ? new Date(ts).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Africa/Djibouti" }) : "";
+const day = (ts) => ts ? new Date(ts).toLocaleDateString("fr-FR", { timeZone: "Africa/Djibouti" }) : "";
+const fdj = (n) => `${Number(n || 0).toLocaleString("fr-FR")} Fdj`;
+const money = (n) => `<span class="${n < 0 ? "neg" : n > 0 ? "pos" : ""}">${fdj(n)}</span>`;
+const wa = (phone) => phone ? `<a href="https://wa.me/${String(phone).replace(/\D/g, "")}" target="_blank" rel="noopener">${esc(phone)}</a>` : "—";
+const toast = (t) => { const el = $("toast"); el.textContent = t; el.style.display = "block"; clearTimeout(toast.h); toast.h = setTimeout(() => (el.style.display = "none"), 3000); };
+const ok = ({ data, error }) => { if (error) throw error; return data; };
+const run = (fn) => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message || String(e)); } };
+const debounce = (fn, ms = 400) => { let h; return () => { clearTimeout(h); h = setTimeout(fn, ms); }; };
 
+// Live updates: reload the tab when one of its tables changes.
+let channels = [];
+const clearSubs = () => { channels.forEach((c) => sb.removeChannel(c)); channels = []; };
+function listen(tables, reload) {
+  const r = debounce(reload);
+  const ch = sb.channel("admin-" + Math.random().toString(36).slice(2));
+  tables.forEach((table) => ch.on("postgres_changes", { event: "*", schema: "public", table }, r));
+  ch.subscribe(); channels.push(ch);
+}
+
+// ---------- sign-in
 $("go").onclick = async () => {
   $("loginErr").textContent = "";
-  try { await signInWithEmailAndPassword(auth, $("email").value.trim(), $("pw").value); }
-  catch (e) { $("loginErr").textContent = "Connexion refusée."; }
+  const { error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("pw").value });
+  if (error) $("loginErr").textContent = "Connexion refusée.";
 };
+$("pw").onkeydown = (e) => e.key === "Enter" && $("go").click();
 
-const TABS = { rides: "Courses", drivers: "Chauffeurs", support: "Support", whatsapp: "WhatsApp", promo: "Codes promo", business: "Entreprises", settings: "Réglages" };
-onAuthStateChanged(auth, async (u) => {
-  if (!u) return;
-  const t = await u.getIdTokenResult(true);
-  if (!t.claims.admin) { $("loginErr").textContent = "Ce compte n'est pas administrateur."; await signOut(auth); return; }
-  $("who").innerHTML = `${esc(u.email)} · <a href="#" id="out">Déconnexion</a>`;
-  $("out").onclick = (e) => { e.preventDefault(); signOut(auth).then(() => location.reload()); };
+const TABS = { overview: "Aperçu", rides: "Courses", drivers: "Chauffeurs", balances: "Soldes", support: "Support", whatsapp: "WhatsApp",
+  promo: "Codes promo", business: "Entreprises", settings: "Réglages" };
+let started = false, current = "overview";
+sb.auth.onAuthStateChange(async (_ev, session) => {
+  if (!session || started) return;
+  const { data: admin } = await sb.rpc("is_admin");
+  if (!admin) { $("loginErr").textContent = "Ce compte n'est pas administrateur."; await sb.auth.signOut(); return; }
+  started = true;
+  $("who").innerHTML = `${esc(session.user.email)} · <a href="#" id="out">Déconnexion</a>`;
+  $("out").onclick = (e) => { e.preventDefault(); sb.auth.signOut().then(() => location.reload()); };
   $("nav").hidden = false;
-  $("nav").innerHTML = Object.entries(TABS).map(([k, v]) => `<button data-t="${k}">${v}</button>`).join("");
-  $("nav").querySelectorAll("button").forEach((b) => (b.onclick = () => show(b.dataset.t)));
-  show("rides");
+  show(location.hash.slice(1) in TABS ? location.hash.slice(1) : "overview");
+  badges(); setInterval(badges, 30000);
 });
 
 function show(tab) {
-  clearSubs();
-  $("nav").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.t === tab));
-  ({ rides, drivers, support, whatsapp, promo, business, settings })[tab]();
+  clearSubs(); current = tab; location.hash = tab;
+  $("nav").innerHTML = Object.entries(TABS).map(([k, v]) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${v}<span class="n" id="n-${k}" hidden></span></button>`).join("");
+  $("nav").querySelectorAll("button").forEach((b) => (b.onclick = () => show(b.dataset.t)));
+  badges();
+  ({ overview, rides, drivers, balances, support, whatsapp, promo, business, settings })[tab]();
+}
+async function badges() {
+  const { data: o } = await sb.rpc("admin_overview");
+  if (!o) return;
+  const set = (k, n) => { const el = $("n-" + k); if (el) { el.hidden = !n; el.textContent = n; } };
+  set("drivers", o.toReview); set("support", o.openTickets); set("whatsapp", o.newLeads); set("rides", o.activeRides);
 }
 
-// ---------- Courses en cours
-const ACTIVE = ["waiting", "driver_selected", "assigned", "driver_arrived", "arrived_at_pickup", "picked_up", "scheduled"];
-function rides() {
-  $("app").innerHTML = `<h2>Courses en cours</h2><div class="card"><table><thead><tr><th>Créée</th><th>Statut</th><th>Service</th><th>Trajet</th><th>Chauffeur</th><th>Prix</th><th></th></tr></thead><tbody id="rb"></tbody></table></div>`;
-  stop.push(onSnapshot(query(collection(db, "rideRequests"), where("status", "in", ACTIVE), limit(150)), (s) => {
-    const rows = s.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    $("rb").innerHTML = rows.map((r) => `<tr><td>${fmt(r.createdAt)}${r.scheduledFor ? `<br><span class="chip o">prog. ${fmt(r.scheduledFor)}</span>` : ""}</td>
-      <td><span class="chip ${r.status === "waiting" ? "o" : "g"}">${esc(r.status)}</span></td>
-      <td>${esc(r.serviceType || "ride")} · ${esc(r.rideType)}</td>
-      <td>${esc(r.pickupAddress || "")}<br><span class="muted">→ ${esc(r.destinationAddress || "")}</span></td>
-      <td>${esc(r.driverName || "—")}</td><td>${esc(r.fare)} Fdj</td>
-      <td><button class="d" data-c="${r.id}">Annuler</button></td></tr>`).join("") || `<tr><td colspan="7" class="muted">Aucune course en cours.</td></tr>`;
-    $("rb").querySelectorAll("[data-c]").forEach((b) => (b.onclick = () => confirm("Annuler cette course ?") &&
-      updateDoc(doc(db, "rideRequests", b.dataset.c), { status: "cancelled", cancelledBy: "admin", cancelledAt: serverTimestamp() })));
-  }, (e) => ($("rb").innerHTML = `<tr><td class="err">${esc(e.message)}</td></tr>`)));
+// ---------- Aperçu
+async function overview() {
+  const load = run(async () => {
+    const o = ok(await sb.rpc("admin_overview"));
+    const tile = (label, v, tab) => `<div class="tile ${tab ? "link" : ""}" ${tab ? `data-go="${tab}"` : ""}><span class="muted">${label}</span><b>${v}</b></div>`;
+    $("app").innerHTML = `<h2>Aujourd'hui</h2><div class="tiles">
+      ${tile("Courses terminées", o.todayRides)}${tile("Chiffre d'affaires", fdj(o.todayRevenue))}${tile("Commission Caval", fdj(o.todayCommission))}
+      ${tile("Sans chauffeur trouvé", o.todayNoDriver, "rides")}</div>
+      <h2>En ce moment</h2><div class="tiles">
+      ${tile("Courses en cours", o.activeRides, "rides")}${tile("Programmées", o.scheduled, "rides")}${tile("Chauffeurs en ligne", o.onlineDrivers, "drivers")}
+      ${tile("Chauffeurs à vérifier", o.toReview, "drivers")}${tile("Support en attente", o.openTickets, "support")}${tile("WhatsApp à traiter", o.newLeads, "whatsapp")}</div>
+      <h2>Soldes</h2><div class="tiles">${tile("Dû par les chauffeurs", fdj(o.owedByDrivers), "balances")}${tile("Dû aux chauffeurs", fdj(o.owedToDrivers), "balances")}</div>`;
+    document.querySelectorAll("[data-go]").forEach((el) => (el.onclick = () => show(el.dataset.go)));
+  });
+  await load(); listen(["rides", "drivers", "support_tickets", "whatsapp_leads", "earnings", "settlements"], load);
 }
 
-// ---------- Chauffeurs en attente
-function drivers() {
-  $("app").innerHTML = `<h2>Chauffeurs en attente de validation</h2><div class="card"><table><thead><tr><th>Nom</th><th>Téléphone</th><th>Véhicule</th><th>Type</th><th></th></tr></thead><tbody id="db"></tbody></table></div>`;
-  stop.push(onSnapshot(query(collection(db, "Drivers"), where("approvalStatus", "==", "pending"), limit(100)), (s) => {
-    $("db").innerHTML = s.docs.map((d) => { const x = d.data(); return `<tr><td>${esc(x.firstName)} ${esc(x.lastName)}</td><td>${esc(x.phoneNumber)}</td>
-      <td>${esc([x.carMake, x.carModel, x.carColor, x.plaqueImmatriculation].filter(Boolean).join(" · "))}</td><td>${esc(x.driverType)}</td>
-      <td><button class="p" data-a="${d.id}">Valider</button> <button class="d" data-r="${d.id}">Refuser</button></td></tr>`; }).join("")
-      || `<tr><td colspan="5" class="muted">Personne en attente.</td></tr>`;
-    const set = (id, ok) => updateDoc(doc(db, "Drivers", id), { isApproved: ok, approvalStatus: ok ? "approved" : "rejected",
-      approvedBy: auth.currentUser.email, approvalDate: serverTimestamp(), documentsVerified: ok });
-    $("db").querySelectorAll("[data-a]").forEach((b) => (b.onclick = () => set(b.dataset.a, true)));
-    $("db").querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => confirm("Refuser ce chauffeur ?") && set(b.dataset.r, false)));
-  }));
+// ---------- Courses
+const ACTIVE = ["scheduled", "waiting", "driver_selected", "assigned", "driver_arrived", "picked_up"];
+const STATUS = { scheduled: "programmée", waiting: "recherche", driver_selected: "proposée", assigned: "chauffeur en route", driver_arrived: "chauffeur arrivé",
+  picked_up: "à bord", completed: "terminée", declined: "annulée (client)", cancelled: "annulée", cancelled_by_driver: "annulée (chauffeur)", no_drivers_available: "aucun chauffeur" };
+const SERVICE = { ride: "Course", delivery: "Colis", hourly: "Mise à dispo." };
+async function rides() {
+  $("app").innerHTML = `<h2>Courses</h2><div class="row"><select id="rf"><option value="active">En cours</option><option value="today">Aujourd'hui (toutes)</option>
+    <option value="nodriver">Aucun chauffeur (7 jours)</option><option value="cancelled">Annulées (7 jours)</option></select>
+    <label class="muted"><input type="checkbox" id="rd"> afficher le mode démo</label></div>
+    <div class="card"><table><thead><tr><th>Créée</th><th>Statut</th><th>Service</th><th>Trajet</th><th>Client</th><th>Chauffeur</th><th class="num">Prix</th><th></th></tr></thead><tbody id="rb"></tbody></table></div>`;
+  const load = run(async () => {
+    const f = $("rf").value, since = new Date(Date.now() - 7 * 864e5).toISOString();
+    let q = sb.from("rides").select("*, customers(first_name, last_name, phone)").order("created_at", { ascending: false }).limit(200);
+    if (f === "active") q = q.in("status", ACTIVE);
+    if (f === "today") q = q.gte("created_at", new Date(new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Djibouti" }) + "T00:00:00+03:00").toISOString());
+    if (f === "nodriver") q = q.eq("status", "no_drivers_available").gte("created_at", since);
+    if (f === "cancelled") q = q.in("status", ["declined", "cancelled", "cancelled_by_driver"]).gte("created_at", since);
+    if (!$("rd").checked) q = q.eq("demo", false);
+    const rows = ok(await q);
+    $("rb").innerHTML = rows.map((r) => {
+      const c = r.customers || {}, pass = r.passenger?.name ? `<br><span class="muted small">pour ${esc(r.passenger.name)} ${esc(r.passenger.phone || "")}</span>` : "";
+      return `<tr><td>${fmt(r.created_at)}${r.scheduled_for ? `<br><span class="chip o">pour ${fmt(r.scheduled_for)}</span>` : ""}</td>
+      <td><span class="chip ${ACTIVE.includes(r.status) ? "o" : r.status === "completed" ? "g" : "r"}">${esc(STATUS[r.status] || r.status)}</span>
+        ${r.cancelled_by ? `<br><span class="muted small">par ${esc(r.cancelled_by)}${r.cancellation_reason ? " · " + esc(r.cancellation_reason) : ""}</span>` : ""}
+        ${r.cancellation_fee ? `<br><span class="chip">frais ${fdj(r.cancellation_fee)}</span>` : ""}</td>
+      <td>${esc(SERVICE[r.service_type] || r.service_type)} · ${esc(r.ride_type)}${r.package?.size ? `<br><span class="muted small">${esc(r.package.size)}</span>` : ""}${r.demo ? ' <span class="chip">démo</span>' : ""}</td>
+      <td>${esc(r.pickup_address || "")}<br><span class="muted">→ ${esc(r.destination_address || (r.hours ? r.hours + " h" : ""))}</span></td>
+      <td>${esc([c.first_name, c.last_name].filter(Boolean).join(" ") || "—")}<br>${wa(c.phone)}${pass}</td>
+      <td>${esc(r.driver_name || "—")}${r.driver_phone ? "<br>" + wa(r.driver_phone) : ""}</td>
+      <td class="num">${r.fare != null ? fdj(r.fare) : "—"}${r.discount ? `<br><span class="muted small">−${fdj(r.discount)}</span>` : ""}</td>
+      <td>${ACTIVE.includes(r.status) || r.status === "no_drivers_available" ? `<button class="d" data-c="${r.id}">Annuler</button>` : ""}</td></tr>`;
+    }).join("") || `<tr><td colspan="8" class="muted">Aucune course.</td></tr>`;
+    $("rb").querySelectorAll("[data-c]").forEach((b) => (b.onclick = run(async () => {
+      const reason = prompt("Annuler cette course ? Raison (visible dans les apps du client et du chauffeur) :", "Annulée par Caval");
+      if (reason === null) return;
+      ok(await sb.rpc("admin_cancel_ride", { p_ride_id: b.dataset.c, p_reason: reason })); toast("Course annulée."); load();
+    })));
+  });
+  $("rf").onchange = load; $("rd").onchange = load;
+  await load(); listen(["rides"], load);
+}
+
+// ---------- Chauffeurs
+const PAYOUT = { waafi: "Waafi", dmoney: "D-Money", cacpay: "CAC Pay", saba: "Saba Pay" };
+const payoutText = (p) => Object.entries(p || {}).filter(([, v]) => v).map(([k]) => PAYOUT[k] || k).join(", ");
+async function drivers() {
+  $("app").innerHTML = `<h2>Chauffeurs</h2><div class="row"><select id="df"><option value="review">À vérifier</option><option value="approved">Validés</option>
+    <option value="rejected">Refusés</option><option value="">Tous</option></select><input id="ds" placeholder="Nom, téléphone, plaque" style="min-width:220px"></div>
+    <p class="muted small">« À vérifier » : nouveaux comptes, et chauffeurs validés qui ont changé de plaque ou de type de véhicule.</p>
+    <div class="card"><table><thead><tr><th>Chauffeur</th><th>Contact</th><th>Véhicule</th><th>Statut</th><th class="num">Courses</th><th class="num">Solde</th><th></th></tr></thead><tbody id="db"></tbody></table></div>`;
+  let all = [];
+  const render = () => {
+    const s = $("ds").value.trim().toLowerCase();
+    const rows = all.filter((d) => !s || [d.first_name, d.last_name, d.phone, d.plate, d.email].join(" ").toLowerCase().includes(s));
+    $("db").innerHTML = rows.map((d) => `<tr>
+      <td><strong>${esc(d.first_name)} ${esc(d.last_name)}</strong>${d.demo ? ' <span class="chip">démo</span>' : ""}<br>
+        <span class="muted small">inscrit ${day(d.created_at)}${d.rating_count ? ` · ★ ${Number(d.rating_avg).toFixed(1)} (${d.rating_count})` : ""}</span></td>
+      <td>${wa(d.phone)}<br><span class="muted small">${esc(d.email || "")}</span></td>
+      <td>${esc(d.driver_type)}<br><span class="muted small">${esc([d.car_make, d.car_model, d.car_color].filter(Boolean).join(" "))}</span> <strong>${esc(d.plate || "")}</strong></td>
+      <td>${d.approval_status === "pending" ? '<span class="chip o">en attente</span>' : d.approval_status === "rejected" ? '<span class="chip r">refusé</span>'
+          : d.documents_verified ? '<span class="chip g">validé</span>' : '<span class="chip o">véhicule modifié</span>'}
+        ${d.is_online ? ' <span class="chip g">en ligne</span>' : ""}
+        ${d.commission_free_until && new Date(d.commission_free_until) > new Date() ? `<br><span class="muted small">sans commission jusqu'au ${day(d.commission_free_until)}</span>` : ""}</td>
+      <td class="num">${d.rides}<br><span class="muted small">${d.rides_7d} cette sem.</span></td>
+      <td class="num">${money(d.balance)}</td>
+      <td style="white-space:nowrap"><button class="s" data-v="${d.id}">Dossier</button></td></tr>`).join("") || `<tr><td colspan="7" class="muted">Personne.</td></tr>`;
+    $("db").querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => driverFile(all.find((d) => d.id === b.dataset.v), load)));
+  };
+  const load = run(async () => { all = ok(await sb.rpc("admin_drivers", { p_status: $("df").value || null })); render(); });
+  $("df").onchange = load; $("ds").oninput = render;
+  await load(); listen(["drivers"], load);
+}
+async function driverFile(d, reload) {
+  const dlg = $("dlg");
+  let card = "";
+  if (d.registration_card_url) {
+    const { data } = await sb.storage.from("driver-documents").createSignedUrl(d.registration_card_url, 600);
+    card = data?.signedUrl ? `<a href="${esc(data.signedUrl)}" target="_blank" rel="noopener"><img class="doc" src="${esc(data.signedUrl)}" alt="Carte grise"></a>` : "";
+  }
+  dlg.innerHTML = `<h2>${esc(d.first_name)} ${esc(d.last_name)}</h2>
+    ${d.photo_url ? `<img src="${esc(d.photo_url)}" alt="" style="width:72px;height:72px;border-radius:50%;object-fit:cover;float:right">` : ""}
+    <p>${wa(d.phone)} · ${esc(d.email || "")}<br>${esc(d.driver_type)} · ${esc([d.car_make, d.car_model, d.car_color].filter(Boolean).join(" "))} · <strong>${esc(d.plate || "pas de plaque")}</strong>
+    <br><span class="muted">Paiement mobile : ${esc(payoutText(d.payout) || "non renseigné")}</span></p>
+    <h3>Carte grise</h3>${card || '<p class="muted">Pas de photo.</p>'}
+    <p class="muted small">Vérifiez que le nom et la plaque correspondent au compte avant de valider.</p>
+    <div class="row" style="margin-top:14px">
+      ${d.approval_status !== "approved" || !d.documents_verified ? `<button class="p" id="fa">${d.approval_status === "approved" ? "Véhicule vérifié" : "Valider"}</button>` : ""}
+      ${d.approval_status !== "rejected" ? `<button class="d" id="fr">${d.approval_status === "approved" ? "Suspendre" : "Refuser"}</button>` : ""}
+      <button class="s" id="fc" style="margin-left:auto">Fermer</button></div>`;
+  dlg.showModal();
+  const set = (status) => run(async () => { ok(await sb.rpc("admin_set_driver_status", { p_driver_id: d.id, p_status: status })); dlg.close(); toast("Enregistré."); reload(); });
+  $("fa") && ($("fa").onclick = set("approved"));
+  $("fr") && ($("fr").onclick = () => confirm(d.approval_status === "approved" ? "Suspendre ce chauffeur ? Il sera mis hors ligne." : "Refuser ce chauffeur ?") && set("rejected")());
+  $("fc").onclick = () => dlg.close();
+}
+
+// ---------- Soldes (règlement hebdomadaire)
+async function balances() {
+  $("app").innerHTML = `<h2>Soldes des chauffeurs</h2>
+    <div class="card"><p style="margin:0">Le chauffeur garde l'argent liquide des courses. <span class="neg">Négatif</span> : il doit ce montant à Caval (la commission).
+    <span class="pos">Positif</span> : Caval lui doit de l'argent (codes promo, crédit, courses entreprise). Réglez chaque semaine, puis enregistrez le paiement ici.</p></div>
+    <div class="row"><label class="muted"><input type="checkbox" id="bz"> afficher les soldes à 0</label></div>
+    <div class="card"><table><thead><tr><th>Chauffeur</th><th>Paiement mobile</th><th class="num">Courses 7 j</th><th class="num">Liquide 7 j</th><th class="num">Commission 7 j</th><th class="num">Solde</th><th>Dernier règlement</th><th></th></tr></thead><tbody id="bb"></tbody></table></div>
+    <div class="card"><h3>Derniers règlements</h3><table><thead><tr><th>Date</th><th>Chauffeur</th><th>Sens</th><th class="num">Montant</th><th>Moyen</th><th>Note</th></tr></thead><tbody id="bh"></tbody></table></div>`;
+  const load = run(async () => {
+    const all = ok(await sb.rpc("admin_drivers", { p_status: null })).filter((d) => d.approval_status === "approved" || d.balance);
+    const rows = all.filter((d) => $("bz").checked || d.balance).sort((a, b) => a.balance - b.balance);
+    $("bb").innerHTML = rows.map((d) => `<tr><td><strong>${esc(d.first_name)} ${esc(d.last_name)}</strong><br>${wa(d.phone)}</td>
+      <td>${esc(payoutText(d.payout) || "—")}</td><td class="num">${d.rides_7d}</td><td class="num">${fdj(d.cash_7d)}</td><td class="num">${fdj(d.commission_7d)}</td>
+      <td class="num">${money(d.balance)}</td><td>${d.last_settled_at ? day(d.last_settled_at) : '<span class="muted">jamais</span>'}</td>
+      <td>${d.balance ? `<button class="p" data-s="${d.id}">Régler</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="8" class="muted">Tous les soldes sont à 0.</td></tr>`;
+    $("bb").querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => settle(all.find((d) => d.id === b.dataset.s), load)));
+    const names = Object.fromEntries(all.map((d) => [d.id, `${d.first_name} ${d.last_name}`]));
+    const hist = ok(await sb.from("settlements").select("*").order("created_at", { ascending: false }).limit(50));
+    $("bh").innerHTML = hist.map((s) => `<tr><td>${fmt(s.created_at)}</td><td>${esc(names[s.driver_id] || s.driver_id.slice(0, 8))}</td>
+      <td>${s.amount > 0 ? "chauffeur → Caval" : "Caval → chauffeur"}</td><td class="num">${fdj(Math.abs(s.amount))}</td><td>${esc(PAYOUT[s.method] || s.method)}</td>
+      <td>${esc(s.note || "")}</td></tr>`).join("") || `<tr><td colspan="6" class="muted">Aucun règlement.</td></tr>`;
+  });
+  $("bz").onchange = load;
+  await load(); listen(["earnings", "settlements"], load);
+}
+function settle(d, reload) {
+  const owes = d.balance < 0, due = Math.abs(d.balance), dlg = $("dlg");
+  const week = (() => { const n = new Date(), j = new Date(Date.UTC(n.getFullYear(), 0, 1)); return Math.ceil(((n - j) / 864e5 + j.getUTCDay() + 1) / 7); })();
+  dlg.innerHTML = `<h2>Règlement · ${esc(d.first_name)} ${esc(d.last_name)}</h2>
+    <p>${owes ? `Le chauffeur doit <strong>${fdj(due)}</strong> à Caval.` : `Caval doit <strong>${fdj(due)}</strong> au chauffeur.`}</p>
+    <label>Montant ${owes ? "reçu du chauffeur" : "versé au chauffeur"} (Fdj)</label><input id="sa" type="number" min="1" value="${due}">
+    <label>Moyen</label><select id="sm"><option value="cash">Espèces</option>${Object.entries(PAYOUT).map(([k, v]) => `<option value="${k}" ${d.payout?.[k] ? "selected" : ""}>${v}</option>`).join("")}<option value="other">Autre</option></select>
+    <label>Note</label><input id="sn" value="Semaine ${week}" maxlength="200">
+    <div class="row" style="margin-top:16px"><button class="p" id="sok">Enregistrer</button><button class="s" id="sx">Annuler</button></div>`;
+  dlg.showModal();
+  $("sx").onclick = () => dlg.close();
+  $("sok").onclick = run(async () => {
+    const amount = Math.round(Number($("sa").value));
+    if (!(amount > 0)) return toast("Montant invalide.");
+    if (amount > due && !confirm(`${fdj(amount)} est plus que le solde (${fdj(due)}). Continuer ?`)) return;
+    $("sok").disabled = true;
+    const r = ok(await sb.rpc("admin_settle_driver", { p_driver_id: d.id, p_amount: owes ? amount : -amount, p_method: $("sm").value, p_note: $("sn").value }));
+    dlg.close(); toast(`Enregistré. Nouveau solde : ${fdj(r.balance)}`); reload();
+  });
 }
 
 // ---------- Support
-function support() {
-  $("app").innerHTML = `<h2>Support</h2><div class="split"><div class="card" id="tl"></div><div class="card" id="tv"><p class="muted">Choisissez une conversation.</p></div></div>`;
-  stop.push(onSnapshot(query(collection(db, "supportTickets"), where("status", "in", ["open", "answered"]), orderBy("updatedAt", "desc"), limit(100)), (s) => {
-    $("tl").innerHTML = s.docs.map((d) => { const t = d.data(); return `<div class="pick card" data-id="${d.id}" style="margin:0 0 8px">
-      <strong>${esc(t.subject || "Sans objet")}</strong> ${t.unreadBySupport ? '<span class="chip o">nouveau</span>' : ""}<br>
-      <span class="muted">${esc(t.userName || t.uid)} · ${fmt(t.updatedAt)}</span><br>${esc(t.lastMessage || "")}</div>`; }).join("") || `<p class="muted">Aucune demande ouverte.</p>`;
-    $("tl").querySelectorAll("[data-id]").forEach((el) => (el.onclick = () => openTicket(el.dataset.id)));
-  }));
+let openId = null;
+async function support() {
+  $("app").innerHTML = `<h2>Support</h2><div class="row"><label class="muted"><input type="checkbox" id="sc"> afficher les demandes closes</label></div>
+    <div class="split"><div class="card" id="tl"></div><div class="card" id="tv"><p class="muted">Choisissez une conversation.</p></div></div>`;
+  let tickets = [];
+  const load = run(async () => {
+    tickets = ok(await sb.rpc("admin_tickets", { p_include_closed: $("sc").checked }));
+    $("tl").innerHTML = tickets.map((t) => `<div class="pick card ${t.id === openId ? "on" : ""}" data-id="${t.id}" style="margin:0 0 8px">
+      <strong>${esc(t.subject || "Sans objet")}</strong> ${t.status === "open" && t.unread_by_support ? '<span class="chip o">à répondre</span>' : t.status === "closed" ? '<span class="chip">close</span>' : ""}<br>
+      <span class="muted small">${esc(t.name || "?")} · ${t.role === "driver" ? "chauffeur" : "client"} · ${fmt(t.updated_at)}</span><br>
+      <span class="small">${esc((t.last_message || "").slice(0, 90))}</span></div>`).join("") || `<p class="muted">Aucune demande ouverte.</p>`;
+    $("tl").querySelectorAll("[data-id]").forEach((el) => (el.onclick = () => openTicket(tickets.find((t) => t.id === el.dataset.id), load)));
+  });
+  $("sc").onchange = load;
+  await load(); listen(["support_tickets"], load);
 }
-let ticketSub = null;
-function openTicket(id) {
-  ticketSub?.();
-  updateDoc(doc(db, "supportTickets", id), { unreadBySupport: false }).catch(() => {});
-  $("tv").innerHTML = `<div class="msgs" id="ml"></div><div class="row"><input id="rt" style="flex:1" placeholder="Votre réponse"><button class="p" id="rs">Envoyer</button>
-    <button class="s" id="rc">Clore</button></div>`;
-  ticketSub = onSnapshot(query(collection(db, "supportTickets", id, "messages"), orderBy("at", "asc")), (s) => {
-    $("ml").innerHTML = s.docs.map((d) => { const m = d.data(); return `<div class="msg ${m.from}">${esc(m.text)}<br><span class="muted" style="font-size:11px">${fmt(m.at)}</span></div>`; }).join("");
+async function openTicket(t, reloadList) {
+  openId = t.id;
+  document.querySelectorAll("#tl .pick").forEach((el) => el.classList.toggle("on", el.dataset.id === t.id));
+  $("tv").innerHTML = `<div class="row"><div><strong>${esc(t.subject)}</strong><br><span class="muted small">${esc(t.name)} · ${t.role === "driver" ? "chauffeur" : "client"} · ${wa(t.phone)}
+    ${t.ride_id ? ` · course ${esc(t.ride_id.slice(0, 8))}` : ""}</span></div><button class="s" id="rc" style="margin-left:auto">${t.status === "closed" ? "Rouvrir" : "Clore"}</button></div>
+    <div class="msgs" id="ml"></div><div class="row"><textarea id="rt" style="flex:1;min-height:60px" placeholder="Votre réponse (le client reçoit une notification)"></textarea>
+    <button class="p" id="rs">Envoyer</button></div>`;
+  const loadMsgs = run(async () => {
+    const msgs = ok(await sb.from("support_messages").select("*").eq("ticket_id", t.id).order("created_at"));
+    $("ml").innerHTML = msgs.map((m) => `<div class="msg ${m.sender}">${esc(m.body)}<br><span class="muted" style="font-size:11px">${fmt(m.created_at)}</span></div>`).join("");
     $("ml").scrollTop = 1e9;
   });
-  stop.push(() => ticketSub?.());
-  $("rs").onclick = async () => {
-    const text = $("rt").value.trim(); if (!text) return;
-    await addDoc(collection(db, "supportTickets", id, "messages"), { text, from: "support", authorUid: auth.currentUser.uid, at: serverTimestamp() });
-    $("rt").value = "";
-  };
-  $("rc").onclick = () => updateDoc(doc(db, "supportTickets", id), { status: "closed" });
+  await loadMsgs();
+  const ch = sb.channel("ticket-" + t.id).on("postgres_changes", { event: "INSERT", schema: "public", table: "support_messages", filter: `ticket_id=eq.${t.id}` }, loadMsgs).subscribe();
+  channels.push(ch);
+  $("rs").onclick = run(async () => {
+    const body = $("rt").value.trim(); if (!body) return;
+    $("rs").disabled = true;
+    try {
+      const { data: { user } } = await sb.auth.getUser();
+      ok(await sb.from("support_messages").insert({ ticket_id: t.id, author_id: user.id, sender: "support", body }));
+      $("rt").value = "";
+    } finally { $("rs").disabled = false; }
+  });
+  $("rt").onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("rs").click(); };
+  $("rc").onclick = run(async () => {
+    ok(await sb.from("support_tickets").update({ status: t.status === "closed" ? "open" : "closed", unread_by_support: false }).eq("id", t.id));
+    t.status = t.status === "closed" ? "open" : "closed"; reloadList(); openTicket(t, reloadList);
+  });
 }
 
 // ---------- WhatsApp
-function whatsapp() {
-  $("app").innerHTML = `<h2>Messages WhatsApp à traiter</h2><div class="card"><table><thead><tr><th>Reçu</th><th>Type</th><th>Client</th><th>Message / position</th><th></th></tr></thead><tbody id="wb"></tbody></table></div>`;
-  stop.push(onSnapshot(query(collection(db, "whatsappLeads"), where("status", "==", "new"), orderBy("createdAt", "desc"), limit(100)), (s) => {
-    $("wb").innerHTML = s.docs.map((d) => { const l = d.data(); const digits = String(l.phone || "").replace(/\D/g, "");
-      return `<tr><td>${fmt(l.createdAt)}</td><td><span class="chip ${l.type === "ride" ? "o" : ""}">${esc(l.type)}</span></td>
-      <td>${esc(l.name || "")}<br><a href="https://wa.me/${digits}" target="_blank" rel="noopener">${esc(l.phone)}</a></td>
-      <td>${l.lat ? `<a href="https://maps.google.com/?q=${l.lat},${l.lng}" target="_blank" rel="noopener">Voir la position</a>` : esc(l.text || "")}</td>
-      <td><button class="s" data-h="${d.id}">Traité</button></td></tr>`; }).join("") || `<tr><td colspan="5" class="muted">Rien à traiter.</td></tr>`;
-    $("wb").querySelectorAll("[data-h]").forEach((b) => (b.onclick = () => updateDoc(doc(db, "whatsappLeads", b.dataset.h),
-      { status: "handled", handledBy: auth.currentUser.email, handledAt: serverTimestamp() })));
-  }));
+async function whatsapp() {
+  $("app").innerHTML = `<h2>Messages WhatsApp</h2><div class="row"><label class="muted"><input type="checkbox" id="wh"> afficher les messages traités</label></div>
+    <p class="muted small">Demandes reçues par le numéro WhatsApp de Caval que le robot n'a pas pu traiter seul. Répondez depuis WhatsApp, puis marquez « Traité ».</p>
+    <div class="card"><table><thead><tr><th>Reçu</th><th>Type</th><th>Client</th><th>Message / position</th><th></th></tr></thead><tbody id="wb"></tbody></table></div>`;
+  const load = run(async () => {
+    let q = sb.from("whatsapp_leads").select("*").order("created_at", { ascending: false }).limit(150);
+    if (!$("wh").checked) q = q.eq("handled", false);
+    const rows = ok(await q);
+    $("wb").innerHTML = rows.map((l) => `<tr><td>${fmt(l.created_at)}</td><td><span class="chip ${l.kind === "ride" ? "o" : ""}">${esc(l.kind)}</span></td>
+      <td>${esc(l.name || "")}<br>${wa(l.phone)}</td>
+      <td>${l.lat ? `<a href="https://maps.google.com/?q=${l.lat},${l.lng}" target="_blank" rel="noopener">Voir la position</a><br>` : ""}${esc(l.body || "")}</td>
+      <td>${l.handled ? `<span class="muted small">traité ${fmt(l.handled_at)}</span>` : `<button class="s" data-h="${l.id}">Traité</button>`}</td></tr>`).join("")
+      || `<tr><td colspan="5" class="muted">Rien à traiter.</td></tr>`;
+    $("wb").querySelectorAll("[data-h]").forEach((b) => (b.onclick = run(async () => {
+      const { data: { user } } = await sb.auth.getUser();
+      ok(await sb.from("whatsapp_leads").update({ handled: true, handled_by: user.id, handled_at: new Date().toISOString() }).eq("id", b.dataset.h)); load();
+    })));
+  });
+  $("wh").onchange = load;
+  await load(); listen(["whatsapp_leads"], load);
 }
 
 // ---------- Codes promo
-function promo() {
+async function promo() {
   $("app").innerHTML = `<h2>Codes promo</h2><div class="card"><div class="row">
-    <input id="pc" placeholder="CODE" style="text-transform:uppercase;width:130px"><select id="pt"><option value="amount">Montant (Fdj)</option><option value="percent">Pourcentage</option></select>
-    <input id="pv" type="number" placeholder="Valeur" style="width:100px"><input id="pm" type="number" placeholder="Utilisations max" style="width:140px">
-    <input id="pu" type="number" placeholder="Par client (1)" style="width:120px"><label><input id="pf" type="checkbox"> 1re course seulement</label>
-    <input id="pe" type="date" title="Expire le"><input id="pl" placeholder="Libellé (facultatif)">
-    <button class="p" id="padd">Créer</button></div><p class="err" id="perr"></p></div>
-    <div class="card"><table><thead><tr><th>Code</th><th>Réduction</th><th>Utilisé</th><th>Expire</th><th>Actif</th></tr></thead><tbody id="pb"></tbody></table></div>`;
-  $("padd").onclick = async () => {
-    const code = $("pc").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, ""), value = Number($("pv").value);
-    if (!code || !value) return ($("perr").textContent = "Code et valeur obligatoires.");
-    const ref = doc(db, "promoCodes", code);
-    if ((await getDoc(ref)).exists()) return ($("perr").textContent = "Ce code existe déjà.");
-    await setDoc(ref, { active: true, type: $("pt").value, value, usedCount: 0, maxUses: Number($("pm").value) || null, perUser: Number($("pu").value) || 1,
-      firstRideOnly: $("pf").checked, label: $("pl").value.trim() || null,
-      expiresAt: $("pe").value ? Timestamp.fromDate(new Date($("pe").value + "T23:59:59")) : null, createdAt: serverTimestamp() });
-    $("perr").textContent = ""; $("pc").value = ""; $("pv").value = "";
-  };
-  stop.push(onSnapshot(collection(db, "promoCodes"), (s) => {
-    $("pb").innerHTML = s.docs.map((d) => { const p = d.data(); return `<tr><td><strong>${esc(d.id)}</strong> <span class="muted">${esc(p.label || "")}</span></td>
-      <td>${p.type === "percent" ? `${esc(p.value)} %` : `${esc(p.value)} Fdj`}${p.firstRideOnly ? ' <span class="chip">1re course</span>' : ""}</td>
-      <td>${esc(p.usedCount || 0)}${p.maxUses ? ` / ${esc(p.maxUses)}` : ""}</td><td>${p.expiresAt ? fmt(p.expiresAt) : "—"}</td>
-      <td><input type="checkbox" data-p="${d.id}" ${p.active !== false ? "checked" : ""}></td></tr>`; }).join("") || `<tr><td colspan="5" class="muted">Aucun code.</td></tr>`;
-    $("pb").querySelectorAll("[data-p]").forEach((c) => (c.onchange = () => updateDoc(doc(db, "promoCodes", c.dataset.p), { active: c.checked })));
-  }));
+    <input id="pc" placeholder="CODE" style="text-transform:uppercase;width:130px" maxlength="20"><select id="pt"><option value="amount">Montant (Fdj)</option><option value="percent">Pourcentage</option></select>
+    <input id="pv" type="number" placeholder="Valeur" style="width:100px"><input id="px" type="number" placeholder="Plafond (Fdj)" title="Réduction maximale pour un pourcentage" style="width:120px">
+    <input id="pm" type="number" placeholder="Utilisations max" style="width:140px"><input id="pu" type="number" placeholder="Par client (1)" style="width:120px">
+    <label><input id="pf" type="checkbox"> 1re course seulement</label><input id="pe" type="date" title="Expire le"><input id="pl" placeholder="Libellé (facultatif)">
+    <button class="p" id="padd">Créer</button></div>
+    <p class="muted small">La réduction est payée par Caval : le chauffeur est payé sur le prix plein, la différence est ajoutée à son solde.</p></div>
+    <div class="card"><table><thead><tr><th>Code</th><th>Réduction</th><th class="num">Utilisé</th><th>Expire</th><th>Actif</th></tr></thead><tbody id="pb"></tbody></table></div>`;
+  const load = run(async () => {
+    const rows = ok(await sb.from("promo_codes").select("*").order("created_at", { ascending: false }));
+    $("pb").innerHTML = rows.map((p) => `<tr><td><strong>${esc(p.code)}</strong> <span class="muted">${esc(p.label || "")}</span></td>
+      <td>${p.kind === "percent" ? `${esc(p.value)} %${p.max_discount ? ` (max ${fdj(p.max_discount)})` : ""}` : fdj(p.value)}${p.first_ride_only ? ' <span class="chip">1re course</span>' : ""}${p.per_user > 1 ? ` <span class="chip">${p.per_user}× par client</span>` : ""}</td>
+      <td class="num">${esc(p.used_count)}${p.max_uses ? ` / ${esc(p.max_uses)}` : ""}</td><td>${p.expires_at ? day(p.expires_at) : "—"}</td>
+      <td><input type="checkbox" data-p="${esc(p.code)}" ${p.active ? "checked" : ""}></td></tr>`).join("") || `<tr><td colspan="5" class="muted">Aucun code.</td></tr>`;
+    $("pb").querySelectorAll("[data-p]").forEach((c) => (c.onchange = run(async () => { ok(await sb.from("promo_codes").update({ active: c.checked }).eq("code", c.dataset.p)); })));
+  });
+  $("padd").onclick = run(async () => {
+    const code = $("pc").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, ""), value = Math.round(Number($("pv").value));
+    if (!code || !(value > 0)) return toast("Code et valeur obligatoires.");
+    if ($("pt").value === "percent" && value > 100) return toast("Pourcentage entre 1 et 100.");
+    const { error } = await sb.from("promo_codes").insert({ code, kind: $("pt").value, value, max_discount: Number($("px").value) || null,
+      max_uses: Number($("pm").value) || null, per_user: Number($("pu").value) || 1, first_ride_only: $("pf").checked, label: $("pl").value.trim() || null,
+      expires_at: $("pe").value ? new Date($("pe").value + "T23:59:59+03:00").toISOString() : null });
+    if (error) return toast(error.code === "23505" ? "Ce code existe déjà." : error.message);
+    ["pc", "pv", "px", "pm", "pu", "pl", "pe"].forEach((id) => ($(id).value = "")); $("pf").checked = false; toast("Code créé."); load();
+  });
+  await load();
 }
 
 // ---------- Entreprises
-function business() {
+async function business() {
   $("app").innerHTML = `<h2>Entreprises</h2><div class="card"><div class="row"><input id="bn" placeholder="Nom de l'entreprise"><input id="be" placeholder="Email de facturation">
-    <button class="p" id="badd">Créer</button></div></div>
+    <button class="p" id="badd">Créer</button></div><p class="muted small">Donnez le code d'invitation aux employés : ils le saisissent dans Profil → Compte entreprise, puis choisissent « Entreprise » comme paiement.</p></div>
     <div class="card"><div class="row"><select id="bsel"><option value="">Toutes les courses</option></select><input id="bm" type="month">
     <button class="s" id="brep">Télécharger le relevé (CSV)</button><span id="bres" class="muted"></span></div>
-    <table><thead><tr><th>Entreprise</th><th>Code d'invitation</th><th>Membres</th><th>Active</th></tr></thead><tbody id="bb"></tbody></table></div>`;
+    <table><thead><tr><th>Entreprise</th><th>Code d'invitation</th><th class="num">Membres</th><th>Active</th></tr></thead><tbody id="bb"></tbody></table></div>`;
   $("bm").value = new Date().toISOString().slice(0, 7);
-  $("badd").onclick = async () => {
+  const load = run(async () => {
+    const rows = ok(await sb.from("businesses").select("*, business_members(count)").order("created_at", { ascending: false }));
+    $("bsel").innerHTML = `<option value="">Toutes les courses</option>` + rows.map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
+    $("bb").innerHTML = rows.map((b) => `<tr><td>${esc(b.name)}<br><span class="muted">${esc(b.billing_email || "")}</span></td>
+      <td><strong>${esc(b.invite_code)}</strong></td><td class="num">${b.business_members?.[0]?.count ?? 0}</td>
+      <td><input type="checkbox" data-b="${b.id}" ${b.active ? "checked" : ""}></td></tr>`).join("") || `<tr><td colspan="4" class="muted">Aucune entreprise.</td></tr>`;
+    $("bb").querySelectorAll("[data-b]").forEach((c) => (c.onchange = run(async () => { ok(await sb.from("businesses").update({ active: c.checked }).eq("id", c.dataset.b)); })));
+  });
+  $("badd").onclick = run(async () => {
     const name = $("bn").value.trim(); if (!name) return;
-    const inviteCode = "ENT" + Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
-    await addDoc(collection(db, "businesses"), { name, billingEmail: $("be").value.trim() || null, inviteCode, active: true, memberUids: [], adminUids: [], createdAt: serverTimestamp() });
-    $("bn").value = ""; $("be").value = "";
-  };
-  stop.push(onSnapshot(collection(db, "businesses"), (s) => {
-    $("bsel").innerHTML = `<option value="">Toutes les courses</option>` + s.docs.map((d) => `<option value="${d.id}">${esc(d.data().name)}</option>`).join("");
-    $("bb").innerHTML = s.docs.map((d) => { const b = d.data(); return `<tr><td>${esc(b.name)}<br><span class="muted">${esc(b.billingEmail || "")}</span></td>
-      <td><strong>${esc(b.inviteCode)}</strong></td><td>${(b.memberUids || []).length}</td>
-      <td><input type="checkbox" data-b="${d.id}" ${b.active ? "checked" : ""}></td></tr>`; }).join("") || `<tr><td colspan="4" class="muted">Aucune entreprise.</td></tr>`;
-    $("bb").querySelectorAll("[data-b]").forEach((c) => (c.onchange = () => updateDoc(doc(db, "businesses", c.dataset.b), { active: c.checked })));
-  }));
-  $("brep").onclick = async () => {
+    const invite_code = "ENT" + Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
+    ok(await sb.from("businesses").insert({ name, billing_email: $("be").value.trim() || null, invite_code, active: true }));
+    $("bn").value = ""; $("be").value = ""; toast(`Créée. Code : ${invite_code}`); load();
+  });
+  $("brep").onclick = run(async () => {
     $("bres").textContent = "…";
-    try {
-      const { data } = await httpsCallable(fns, "adminMonthlyReport")({ businessId: $("bsel").value || null, month: $("bm").value });
-      const cols = ["id", "date", "service", "passenger", "from", "to", "km", "driver", "fare"];
-      const csv = [cols.join(";"), ...data.rows.map((r) => cols.map((c) => `"${String(r[c] ?? "").replace(/"/g, '""')}"`).join(";"))].join("\n");
-      const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" })),
-        download: `caval-${$("bm").value}${$("bsel").value ? "-" + $("bsel").selectedOptions[0].text : ""}.csv` });
-      a.click();
-      $("bres").textContent = `${data.count} courses · ${data.total} Fdj`;
-    } catch (e) { $("bres").textContent = e.message; }
-  };
+    const data = ok(await sb.rpc("admin_monthly_report", { p_month: $("bm").value, p_business_id: $("bsel").value || null }));
+    const cols = ["id", "date", "service", "passenger", "from", "to", "km", "driver", "discount", "fare", "business"];
+    const csv = [cols.join(";"), ...data.rows.map((r) => cols.map((c) => `"${String(c === "date" ? fmt(r[c]) : r[c] ?? "").replace(/"/g, '""')}"`).join(";"))].join("\n");
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" })),
+      download: `caval-${$("bm").value}${$("bsel").value ? "-" + $("bsel").selectedOptions[0].text : ""}.csv` });
+    a.click();
+    $("bres").textContent = `${data.count} courses · ${fdj(data.total)}`;
+  });
+  await load();
 }
 
 // ---------- Réglages
 const FLAGS = { packagesEnabled: "Colis", schedulingEnabled: "Courses programmées", stopsEnabled: "Arrêts", promoEnabled: "Codes promo",
   rewardsEnabled: "Récompenses / parrainage", femaleDriversEnabled: "Conductrice si possible", hourlyEnabled: "Mise à disposition",
-  pickupPinEnabled: "Code de prise en charge", receiptsEnabled: "Reçus WhatsApp", businessEnabled: "Comptes entreprise", supportChatEnabled: "Chat support",
-  shareLinkEnabled: "Lien de suivi" };
+  pickupPinEnabled: "Code de prise en charge", receiptsEnabled: "Reçus WhatsApp (UltraMsg requis)", businessEnabled: "Comptes entreprise",
+  supportChatEnabled: "Chat support", shareLinkEnabled: "Lien de suivi" };
 async function settings() {
-  const cfgRef = doc(db, "appConfig", "customer"), priceRef = doc(db, "appConfig", "pricing");
-  const [cfg, pr] = await Promise.all([getDoc(cfgRef), getDoc(priceRef)]);
-  const c = cfg.data() || {};
-  $("app").innerHTML = `<h2>Réglages de l'application client</h2>
-    <div class="card"><p class="muted">Activez une fonction seulement quand le serveur et l'app chauffeur sont prêts (voir docs/CUSTOMER_FEATURES.md).</p>
-    ${Object.entries(FLAGS).map(([k, v]) => `<label class="row"><input type="checkbox" data-f="${k}" ${c[k] ? "checked" : ""}> ${v} <span class="muted">(${k})</span></label>`).join("")}</div>
-    <div class="card"><h2>Tarifs (appConfig/pricing)</h2><p class="muted">JSON. Laissez vide pour les valeurs par défaut du serveur. Appliqué en 1 minute.</p>
-    <textarea id="pj">${esc(JSON.stringify(pr.data() || {}, null, 2))}</textarea>
-    <div class="row"><button class="p" id="ps">Enregistrer les tarifs</button><span id="pmsg" class="muted"></span></div></div>`;
-  document.querySelectorAll("[data-f]").forEach((el) => (el.onchange = () => setDoc(cfgRef, { [el.dataset.f]: el.checked }, { merge: true })));
-  $("ps").onclick = async () => {
-    try { await setDoc(priceRef, JSON.parse($("pj").value || "{}")); $("pmsg").textContent = "Enregistré."; }
-    catch (e) { $("pmsg").textContent = e instanceof SyntaxError ? "JSON invalide." : e.message; }
-  };
+  const rows = ok(await sb.from("app_config").select("*").in("key", ["customer", "pricing", "dispatch"]));
+  const cfg = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const c = cfg.customer || {};
+  $("app").innerHTML = `<h2>Réglages</h2>
+    <div class="card"><h3>Fonctions de l'app client</h3><p class="muted small">Effet immédiat dans l'app.</p>
+    ${Object.entries(FLAGS).map(([k, v]) => `<label class="row" style="margin:0 0 6px"><input type="checkbox" data-f="${k}" ${c[k] ? "checked" : ""}> ${v} <span class="muted small">(${k})</span></label>`).join("")}</div>
+    ${["pricing", "dispatch"].map((k) => `<div class="card"><h3>${k === "pricing" ? "Tarifs, commission, annulation (pricing)" : "Attribution des courses (dispatch)"}</h3>
+      <p class="muted small">JSON. Seules les valeurs écrites ici remplacent celles par défaut du serveur (voir supabase/README.md). Appliqué à la prochaine course.</p>
+      <textarea id="j-${k}">${esc(JSON.stringify(cfg[k] || {}, null, 2))}</textarea>
+      <div class="row"><button class="p" data-j="${k}">Enregistrer</button><span id="m-${k}" class="muted"></span></div></div>`).join("")}`;
+  document.querySelectorAll("[data-f]").forEach((el) => (el.onchange = run(async () => {
+    const { data: cur } = await sb.from("app_config").select("value").eq("key", "customer").maybeSingle();
+    ok(await sb.from("app_config").upsert({ key: "customer", value: { ...(cur?.value || {}), [el.dataset.f]: el.checked }, updated_at: new Date().toISOString() }));
+    toast("Enregistré.");
+  })));
+  document.querySelectorAll("[data-j]").forEach((b) => (b.onclick = async () => {
+    const k = b.dataset.j; let value;
+    try { value = JSON.parse($("j-" + k).value || "{}"); } catch { $("m-" + k).textContent = "JSON invalide."; return; }
+    if (typeof value !== "object" || Array.isArray(value)) { $("m-" + k).textContent = "Il faut un objet { … }."; return; }
+    if (!confirm("Enregistrer ces réglages ? Ils s'appliquent tout de suite à toutes les nouvelles courses.")) return;
+    const { error } = await sb.from("app_config").upsert({ key: k, value, updated_at: new Date().toISOString() });
+    $("m-" + k).textContent = error ? error.message : "Enregistré.";
+  }));
 }
 </script>
 </body>

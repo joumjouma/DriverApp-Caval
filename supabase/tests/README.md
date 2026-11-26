@@ -21,4 +21,10 @@ check, support and chat pushes, receipt sent once, rating, account deletion,
 auto-offline, WhatsApp bot. Messages are queued then discarded with the rollback,
 so nobody gets a real text.
 
+`admin.sql`: the admin dashboard functions. A non-admin is refused; a pending
+driver shows in the review list and is approved; a cash ride leaves the driver
+owing 120, and a 120 settlement brings it to 0 (the driver can see it but not add
+one); a driver's support ticket shows with his name and goes to "answered" after
+a reply; an admin cancels a ride; the overview numbers.
+
 Last run, 2026-11-26: all pass. (Found and fixed one bug: drivers_guard blocked rate_driver.)

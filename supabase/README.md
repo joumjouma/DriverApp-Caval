@@ -15,23 +15,62 @@ organization **Caval**.
 | `20261126000006_notifications.sql` | Push notifications, WhatsApp, share links, rewards/promo/business, delete account, admin report, auto-offline |
 | `20261126000007_drivers_guard_fix.sql` | Fix: the driver-row guard was also blocking server functions (rating, approvals) |
 | `20261126000008_whatsapp_bot.sql` | WhatsApp bot replies |
+| `20261126000009_storage_and_import.sql` | Storage buckets and their access rules; `import_rows` for the data copy |
+| `20261126000010_refresh_driver_ratings.sql` | Recomputes driver ratings after the data copy |
+| `20261126000011_driver_app.sql` | Driver app: earnings in realtime, account deletion (`delete_driver_account`) |
+| `20261126000012_vehicle_recheck.sql` | A new plate or vehicle type sends the driver back to document check |
+| `20261126000013_driver_push_token_private.sql` | Driver push tokens moved out of the public driver card |
+| `20261126000014_customer_app.sql` | Customer app: driver position during the ride, support read receipts, realtime, feature switches on |
+| `20261126000015_admin.sql` | Admin dashboard: settlements, driver review list, support inbox, overview numbers |
 
 Edge Function: `functions/whatsapp-webhook` (deployed). Tests: `tests/`.
 
 Logins: `scripts/migrate-auth/` copies Firebase users with their passwords (format tested).
 
-Still to come: switching both apps to `supabase-js`, the admin dashboard, and moving
-users and data over from Firebase.
+Both apps (branch `claude/supabase-app`) and the admin dashboard (`public/admin`) run on
+this project. Still to do on switch-over day: copy users and data from Firebase
+(`scripts/migrate-auth`, `scripts/migrate-data`), then merge the app branches.
 
 The apps call ride actions with `supabase.rpc(...)`: `accept_ride`, `decline_ride`,
 `driver_arrived`, `verify_pickup_pin`, `start_ride`, `complete_ride`, `confirm_delivery`,
 `driver_cancel_ride`, `customer_cancel_ride`, `retry_ride`, `rate_driver`, and
 `my_rewards`, `redeem_referral`, `check_promo`, `send_receipt`, `create_share_link`,
 `join_business`, `leave_business`, `delete_my_account`, `admin_monthly_report` (admins).
-Each checks who is calling. The apps cannot update rides directly. `track_ride(token)`
+Each checks who is calling. The apps cannot update rides directly.
+Admin-only: `admin_overview`, `admin_drivers`, `admin_set_driver_status`, `admin_settle_driver`,
+`admin_cancel_ride`, `admin_tickets`. `track_ride(token)`
 is public, for the tracking page.
 
 ---
+
+## Admins and the dashboard
+
+The dashboard is `public/admin/index.html`, served at `https://eco-share-92ef1.web.app/admin`
+(Firebase Hosting, `firebase deploy --only hosting`). Admins sign in with their normal
+Caval email and password. An account is an admin when it has a row in `admins`:
+
+```sql
+insert into admins (user_id) select id from auth.users where email = 'someone@example.com';
+```
+
+| Tab | What |
+|---|---|
+| Aperçu | Today's rides, revenue, commission, rides with no driver; what needs attention now |
+| Courses | Live rides (cancel one), today, no-driver and cancelled rides of the last 7 days |
+| Chauffeurs | Review list (new sign-ups, and approved drivers who changed plate or vehicle type), carte grise photo, approve / refuse / suspend |
+| Soldes | Each driver's balance; record a payment either way (cash, Waafi, D-Money, CAC Pay, Saba Pay) |
+| Support | Tickets from customers and drivers; replies send a push |
+| WhatsApp | Messages the bot passed on; mark handled |
+| Codes promo, Entreprises | Create codes and companies; monthly CSV statement per company |
+| Réglages | Customer app switches, `pricing` and `dispatch` JSON |
+
+**Weekly settlement.** Drivers keep the cash. Each ride adds `earned − cash` to their
+balance, so a cash ride makes it go down by the commission, and a promo or business ride
+makes it go up. Negative: the driver owes Caval. Positive: Caval owes the driver. Once a
+week, collect or pay the amount, then press *Régler* in Soldes: that adds a row to
+`settlements` (positive = driver paid Caval, negative = Caval paid the driver) and the
+balance moves back to 0. Drivers see the same balance in the app (Paiement). They can't
+delete their account while it isn't 0.
 
 ## Notifications and WhatsApp
 
