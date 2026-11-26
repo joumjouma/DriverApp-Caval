@@ -11,6 +11,7 @@ organization **Caval**.
 | `20261126000002_hardening.sql` | Advisor fixes: search_path, function grants, per-query `auth.uid()`, foreign-key indexes |
 | `20261126000003_rides.sql` | Pricing, ride creation, dispatch, every driver/customer step, earnings, commission, cancellation fees, rewards, cron jobs |
 | `20261126000004_rides_search_path.sql` | Linter fix |
+| `20261126000005_commission_waiver.sql` | 90-day commission-free period for each new driver |
 
 Still to come: WhatsApp, push and share links (Edge Functions), admin tools, then
 switching both apps to `supabase-js`, and moving users and data over from Firebase.
@@ -80,15 +81,20 @@ Unchanged; this matches the 3,000 Fdj/h waiting rate gobytaxi lists.
 
 ### Commission (`pricing.commission`)
 
-**12% of the trip price**, set by `percent`. `waivedUntil` is a date: until then the
-commission is 0.
+**12% of the trip price** (`percent`), with a **launch waiver: each driver pays 0% for
+their first 90 days after approval** (`newDriverFreeDays`).
 
 - 12% sits between inDrive (≈9.5%) and Didi (13%), and well under Bolt (20%) and
-  Uber (25%). Driver unions in Nigeria are lobbying to bring 20% down to 10%. Being
-  the cheaper app for drivers is how you win them, and a new app needs drivers first.
-- **Recommendation:** at public launch, set `waivedUntil` to about 3 months out. Bolt
-  and inDrive both opened new countries with no commission. It costs nothing until
-  rides exist.
+  Uber (25%). Driver unions in Nigeria are pushing to cut 20% to 10%. Being the cheaper
+  app for drivers is how you win them, and a new app needs drivers first.
+- The waiver copies how Bolt and inDrive enter new countries (no commission for the
+  first months). Counting from each driver's approval means it needs no launch date:
+  drivers approved at launch get ~3 months free, and later recruits get the same
+  welcome. Set `newDriverFreeDays` to 0 to end it.
+- `waivedUntil` (a date) turns commission off for **everyone** until then, for a
+  promotion week, for example. It is not set.
+- Commission is decided when the ride is completed and stored on the earnings row,
+  so a later change never rewrites past rides.
 
 ### Promos and Caval credit: Caval pays
 
