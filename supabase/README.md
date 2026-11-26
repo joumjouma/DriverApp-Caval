@@ -18,6 +18,8 @@ organization **Caval**.
 
 Edge Function: `functions/whatsapp-webhook` (deployed). Tests: `tests/`.
 
+Logins: `scripts/migrate-auth/` copies Firebase users with their passwords (format tested).
+
 Still to come: switching both apps to `supabase-js`, the admin dashboard, and moving
 users and data over from Firebase.
 

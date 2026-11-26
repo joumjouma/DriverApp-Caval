@@ -1,0 +1,7 @@
+{
+  "name": "caval-migrate-auth",
+  "private": true,
+  "description": "Copy Firebase Auth users (with their passwords) to Supabase Auth",
+  "scripts": { "check": "node migrate-users.js --check" },
+  "dependencies": { "@supabase/supabase-js": "^2.45.0", "dotenv": "^16.4.5" }
+}
