@@ -466,4 +466,13 @@ export default {
   "payés par Caval": "تدفعها Caval",
   "vous gardez l'argent": "تحتفظ بالمال",
   "Écrivez au client ou utilisez une réponse rapide.": "اكتب للعميل أو استخدم ردًا سريعًا.",
+  "Essayer la démo": "جرّب النسخة التجريبية",
+  "Quitter la démo ?": "الخروج من النسخة التجريبية؟",
+  "Vous serez déconnecté du compte de démonstration.": "سيتم تسجيل خروجك من الحساب التجريبي.",
+  "Quitter la démo": "الخروج من النسخة التجريبية",
+  "Quitter": "خروج",
+  "Course test": "رحلة تجريبية",
+  "Colis test": "طرد تجريبي",
+  "Réessayez.": "حاول مرة أخرى.",
+  "Démo : le code est {code}": "تجريبي: الرمز هو {code}",
 };

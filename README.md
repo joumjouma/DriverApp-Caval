@@ -27,7 +27,7 @@ backend for both apps**. The customer app is `Caval-Customer-Clean`.
 | `screens/RideScreen.js` | The ride: pickup, PIN, package photo, stops, hourly timer, delivery code, end |
 | `screens/EarningsScreen.js` | Day / week / month earnings, balance with Caval |
 | `screens/PaymentScreen.js` | Paiements: balance owed either way, commission, payout methods (Waafi, D-Money…) |
-| `screens/ProfileScreen.js`, `ModifyInfo.js`, `PreferencesScreen.js`, `DemoScreen.js` | Profile, my info, language and appearance, demo mode |
+| `screens/ProfileScreen.js`, `ModifyInfo.js`, `PreferencesScreen.js` | Profile, my info, language and appearance |
 | `screens/DriverInboxScreen.js` | Chat with the customer |
 | `services/driverApi.js` | Every database call the driver app makes; converts rows to the shape screens use |
 | `services/registration.js` | Sign-up: login, photo, carte grise, driver profile |
@@ -74,25 +74,30 @@ to `en.js`, `ar.js` and `so.js` in `utils/i18n/`, and run
 Never call `t()` at module level: keep constants in French and call
 `t(value)` where they are shown. The privacy policy text stays French only.
 
-## Demo mode (test both apps together)
+## Demo mode
 
-1. In Supabase, table `app_config`, row `demo`: add the user IDs of the driver
-   and customer accounts you test with to `testers`. Each app shows its user ID
-   in Mode démo. (Your two accounts are already in it.)
-2. In each app: Profil → tap the version number 5 times → **Mode démo** → on.
-   A "MODE DÉMO" tab shows at the top of the screen.
-3. Go online in the driver app, then book a ride or a package in the
-   customer app.
+Tap **Essayer la démo** on the login screen of either app. That's all: no IDs,
+no settings. A "MODE DÉMO · QUITTER" tab shows at the top; tap it (or sign out)
+to leave.
 
-What changes in demo mode:
+| App | Login used | Alone | With two phones |
+|---|---|---|---|
+| Customer | `demo-client@caval.tech` | Book anything: a robot driver (Ahmed by car, Moussa by moto) accepts, drives to you on the map, arrives after 40 s, picks up at 55 s and finishes 40–90 s later | Rides go to the demo driver first if he's online |
+| Driver | `demo-chauffeur@caval.tech` | Go online, then **Course test** or **Colis test**: a robot customer books a ride near you. For a test package the delivery code is shown on screen | Takes the demo customer's rides |
+
+Password for both: `CavalDemo2026`. It's public on purpose (Apple's reviewers
+can use the same logins): demo accounts only ever see demo rides.
+
+What demo mode changes:
 - Both phones act as if they were in Djibouti (Plateau du Serpent).
 - Every customer feature switch is on.
-- Rides carry `demo: true` and only go to drivers whose profile has
-  `demo: true`, and real rides never go to demo drivers (`dispatch_ride`).
+- Demo rides only go to demo drivers and robots; real rides never go to demo
+  drivers (`dispatch_ride`).
 - Demo rides earn no loyalty points and never charge a cancellation fee. They're
-  left out of balances, business statements and reports.
-- Only listed testers can create demo rides or put a driver profile in demo
-  mode (`is_demo_tester()`).
+  left out of balances, business statements and reports, and deleted after
+  2 days (`demo_cleanup`).
+- Backend: migration `0016_demo_simple.sql` (accounts, robots, `demo_robot_tick`
+  every 5 s, `demo_request_ride`). Test: `supabase/tests/demo.sql`.
 
 ## Develop
 

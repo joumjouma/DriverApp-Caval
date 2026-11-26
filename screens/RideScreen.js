@@ -23,7 +23,7 @@ import { formatFdj, formatMinutes, shortAddress, distanceKm, etaMinutes, call, w
 import useDriverLocation from "../hooks/useDriverLocation";
 import {
   watchRide, getContact, markArrived, verifyPickupPin, uploadPickupPhoto, markPickedUp,
-  completeRide, confirmDelivery, cancelByDriver, isDelivery, isHourly, cashMoment, getFeatureFlags,
+  completeRide, confirmDelivery, cancelByDriver, demoDeliveryCode, isDelivery, isHourly, cashMoment, getFeatureFlags,
 } from "../services/driverApi";
 import { reportError } from "../utils/report";
 import { createConversation } from "../utils/messaging";
@@ -64,7 +64,13 @@ export default function RideScreen() {
   const handledEnd = useRef(false);
 
   useEffect(() => { getFeatureFlags().then((f) => setPinOn(f.pickupPinEnabled === true)).catch(() => {}); }, []);
-  const pinRequired = demo || pinOn;
+  // Demo rides always ask for the PIN, except robot rides (already verified)
+  const pinRequired = (demo || pinOn) && !ride?.pickupPinVerified;
+  // Robot customer's package: show the code, since nobody can give it to you
+  const [demoCode, setDemoCode] = useState(null);
+  useEffect(() => {
+    if (ride?.robotCustomer && ride?.status === "picked_up" && !demoCode) demoDeliveryCode(ride.id).then(setDemoCode).catch(() => {});
+  }, [ride?.robotCustomer, ride?.status]);
 
   useEffect(() => {
     if (!rideId) { navigation.goBack(); return undefined; }
@@ -327,6 +333,7 @@ export default function RideScreen() {
               <>
                 <AppText variant="bodyStrong">{t("Code de livraison")}</AppText>
                 <AppText variant="caption" color={colors.textSecondary} style={{ fontSize: 14, marginTop: -10 }}>{t("Demandez au destinataire le code à 4 chiffres reçu par WhatsApp.")}</AppText>
+                {demoCode ? <Chip tone="orange" label={t("Démo : le code est {code}", { code: demoCode })} /> : null}
                 <CodeInput value={code} onChange={setCode} label={t("Code de livraison")} error={!!codeError} />
                 <ErrorBanner message={codeError} />
                 <Button title={t("Confirmer la livraison")} onPress={deliver} loading={busy} />

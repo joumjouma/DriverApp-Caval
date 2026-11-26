@@ -11,6 +11,7 @@ const LANGS = ["en", "ar", "so"];
 const ALLOW = new Set([
   "Caval Privé", "Caval moto", "Caval Moto", "Caval", "OK", "nom@exemple.com", "Ahmed Ali", "MM/AA", "CVV",
   "Chauffeur", // stored driver name fallback (data)
+  "demo-chauffeur@caval.tech", // demo login (data)
   // Android notification channels (system settings, French only)
   "Course Caval", "Approbation Chauffeur", "Notifications Générales",
   "Notifications pour les nouvelles courses et demandes de transport",

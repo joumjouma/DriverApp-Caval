@@ -1,19 +1,20 @@
-// Demo mode: test the customer and driver apps together without touching
-// real rides.
+// Demo mode = signed in with the shared demo driver account.
 //
-// - Only accounts listed in app_config 'demo' → testers (user IDs) can turn it
-//   on. The database checks the same list (is_demo_tester()).
-// - A demo driver gets only demo rides, and demo rides only go to demo
+// - "Essayer la démo" on the login screen signs in as demo-chauffeur@caval.tech
+//   (startDemo). Signing out leaves demo mode. Nothing to set up.
+// - The demo driver only gets demo rides, and demo rides only go to demo
 //   drivers (dispatch_ride: d.demo = r.demo). Real customers never see one.
+// - Alone? Go online, then "Course test" / "Colis test" on the home screen:
+//   a robot customer books a ride near you (demo_request_ride).
+// - With a second phone in the customer demo, its rides come to you first.
 // - The phone pretends to be in Djibouti (DEMO_CENTER), so you can test
 //   from anywhere.
-//
-// Hidden entry: Profil → tap the version number 5 times → Mode démo.
+// The database decides who is a demo account (is_demo_tester, migration 0016).
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../config/supabase";
 
-const KEY = "demoMode";
+// Public on purpose: demo accounts only ever see demo rides.
+export const DEMO_LOGIN = { email: "demo-chauffeur@caval.tech", password: "CavalDemo2026" };
 
 // Plateau du Serpent, Djibouti-ville
 export const DEMO_CENTER = { latitude: 11.5946, longitude: 43.1475 };
@@ -30,49 +31,35 @@ export function demoPosition(meters = 0) {
   return { latitude: DEMO_CENTER.latitude + d * Math.sin(a), longitude: DEMO_CENTER.longitude + d * Math.cos(a) };
 }
 
-const DemoContext = createContext({ demo: false, allowed: false, uid: null, setDemo: async () => false, refresh: () => {} });
+/** Sign in with the shared demo driver account. Throws on failure. */
+export async function startDemo() {
+  const { error } = await supabase.auth.signInWithPassword(DEMO_LOGIN);
+  if (error) throw error;
+  demoOn = true;
+}
+
+const DemoContext = createContext({ demo: false, leaveDemo: async () => {} });
 
 export function DemoProvider({ children }) {
   const [uid, setUid] = useState(null);
-  const [allowed, setAllowed] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [tick, setTick] = useState(0);
+  const [demo, setDemo] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setUid(data.session?.user?.id || null));
     const { data } = supabase.auth.onAuthStateChange((_e, s) => setUid(s?.user?.id || null));
     return () => data.subscription.unsubscribe();
   }, []);
-  useEffect(() => { AsyncStorage.getItem(KEY).then((v) => setSaved(v === "1")).catch(() => {}); }, []);
   useEffect(() => {
-    if (!uid) { setAllowed(false); return; }
-    supabase.rpc("is_demo_tester")
-      .then(({ data }) => setAllowed(data === true))
-      .catch(() => setAllowed(false));
-  }, [uid, tick]);
+    if (!uid) { setDemo(false); return; }
+    supabase.rpc("is_demo_tester").then(({ data }) => setDemo(data === true), () => setDemo(false));
+  }, [uid]);
 
-  const demo = saved && allowed;
   demoOn = demo;
-
-  // Keep the driver profile in the same world as the app
-  useEffect(() => {
-    if (!uid || !allowed) return;
-    supabase.from("drivers").update({ demo }).eq("id", uid).then(() => {}, () => {});
-  }, [uid, allowed, demo]);
 
   const value = useMemo(() => ({
     demo,
-    allowed,
-    uid,
-    refresh: () => setTick((n) => n + 1),
-    /** Returns false if this account isn't a tester. */
-    setDemo: async (on) => {
-      if (on && !allowed) return false;
-      setSaved(on);
-      await AsyncStorage.setItem(KEY, on ? "1" : "0").catch(() => {});
-      return true;
-    },
-  }), [demo, allowed, uid]);
+    leaveDemo: () => supabase.auth.signOut(),
+  }), [demo]);
 
   return <DemoContext.Provider value={value}>{children}</DemoContext.Provider>;
 }

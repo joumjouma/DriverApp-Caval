@@ -466,4 +466,13 @@ export default {
   "payés par Caval": "paid by Caval",
   "vous gardez l'argent": "you keep the cash",
   "Écrivez au client ou utilisez une réponse rapide.": "Write to the customer or use a quick reply.",
+  "Essayer la démo": "Try the demo",
+  "Quitter la démo ?": "Leave the demo?",
+  "Vous serez déconnecté du compte de démonstration.": "You'll be signed out of the demo account.",
+  "Quitter la démo": "Leave the demo",
+  "Quitter": "Leave",
+  "Course test": "Test ride",
+  "Colis test": "Test package",
+  "Réessayez.": "Try again.",
+  "Démo : le code est {code}": "Demo: the code is {code}",
 };

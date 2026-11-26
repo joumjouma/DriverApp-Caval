@@ -1,7 +1,7 @@
 // Profil chauffeur — identity, vehicle, settings, help, demo mode (hidden),
 // sign out and account deletion.
-import React, { useEffect, useRef, useState } from "react";
-import { View, ScrollView, Image, Alert, Pressable, Linking } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, ScrollView, Image, Alert, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import Constants from "expo-constants";
@@ -24,15 +24,12 @@ const GENDERS = [
 export default function ProfileScreen() {
   const navigation = useNavigation();
   const { colors, language } = useTheme();
-  const { demo, allowed } = useDemo();
+  const { demo } = useDemo();
   const { logout } = useAuth();
   const [driver, setDriver] = useState(null);
   const [genderOpen, setGenderOpen] = useState(false);
-  const [showDemo, setShowDemo] = useState(false);
-  const taps = useRef(0);
 
   useEffect(() => watchDriver(setDriver), []);
-  useEffect(() => { if (allowed || demo) setShowDemo(true); }, [allowed, demo]);
 
   const version = Constants.expoConfig?.version || APP_CONFIG.version;
   const name = [driver?.firstName, driver?.lastName].filter(Boolean).join(" ") || t("Chauffeur");
@@ -41,10 +38,6 @@ export default function ProfileScreen() {
   const languageName = LANGUAGES.find((l) => l.id === language)?.label;
   const genderName = GENDERS.find((g) => g.id === driver?.gender)?.label;
 
-  const tapVersion = () => {
-    taps.current += 1;
-    if (taps.current >= 5) { taps.current = 0; setShowDemo(true); navigation.navigate("DemoScreen"); }
-  };
 
   const setGender = async (g) => {
     setGenderOpen(false);
@@ -118,19 +111,16 @@ export default function ProfileScreen() {
 
         <Card style={{ overflow: "hidden" }}>
           <ListRow icon="language-outline" label={t("Langue")} hint={languageName} onPress={() => navigation.navigate("PreferencesScreen")} />
-          <ListRow icon="color-palette-outline" label={t("Préférences")} sublabel={t("Apparence, taille du texte")} onPress={() => navigation.navigate("PreferencesScreen")} last={!showDemo} />
-          {showDemo ? <ListRow icon="flask-outline" label={t("Mode démo")} hint={demo ? t("Activé") : t("Désactivé")} onPress={() => navigation.navigate("DemoScreen")} last /> : null}
+          <ListRow icon="color-palette-outline" label={t("Préférences")} sublabel={t("Apparence, taille du texte")} onPress={() => navigation.navigate("PreferencesScreen")} last />
         </Card>
 
         <Card style={{ overflow: "hidden" }}>
           <ListRow icon="logo-whatsapp" label={t("Aide et support")} sublabel={t("WhatsApp, 7j/7")} onPress={help} />
-          <ListRow icon="log-out-outline" label={t("Se déconnecter")} onPress={signOut} />
-          <ListRow icon="trash-outline" label={t("Supprimer mon compte")} destructive onPress={deleteAccount} last />
+          <ListRow icon="log-out-outline" label={demo ? t("Quitter la démo") : t("Se déconnecter")} onPress={signOut} last={demo} />
+          {demo ? null : <ListRow icon="trash-outline" label={t("Supprimer mon compte")} destructive onPress={deleteAccount} last />}
         </Card>
 
-        <Pressable onPress={tapVersion} accessibilityRole="text" style={{ alignSelf: "center", padding: 12 }}>
-          <AppText variant="caption" color={colors.textMuted}>{t("Caval chauffeur · version {v}", { v: version })}</AppText>
-        </Pressable>
+        <AppText variant="caption" color={colors.textMuted} style={{ alignSelf: "center", padding: 12 }}>{t("Caval chauffeur · version {v}", { v: version })}</AppText>
       </ScrollView>
 
       <ModalSheet visible={genderOpen} onClose={() => setGenderOpen(false)} title={t("Genre")}>

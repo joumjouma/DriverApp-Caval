@@ -55,6 +55,7 @@ export function toRide(r) {
     driverName: r.driver_name,
     pickupPhotoUrl: r.pickup_photo_url,
     pickupPinVerified: r.pickup_pin_verified,
+    robotCustomer: r.customer_id === DEMO_ROBOT_CUSTOMER,
     countdownExpiryTime: when(r.offer_expires_at),
     createdAt: when(r.created_at),
     acceptedAt: when(r.accepted_at),
@@ -64,6 +65,20 @@ export function toRide(r) {
     cancelledBy: r.cancelled_by,
     cancellationFee: r.cancellation_fee,
   };
+}
+
+// Demo mode: the robot customer behind "Recevoir une course test" (migration 0016)
+const DEMO_ROBOT_CUSTOMER = "d0000000-0000-4000-a000-00000000c0b0";
+
+/** Demo driver only: a test ride ("ride") or package ("delivery") from the robot customer, offered to me. */
+export async function demoRequestRide(service = "ride") {
+  return check(await supabase.rpc("demo_request_ride", { p_service: service }));
+}
+
+/** Demo only: the delivery code of a robot customer's package (nobody can tell it to you). */
+export async function demoDeliveryCode(rideId) {
+  const { data } = await supabase.rpc("demo_delivery_code", { p_ride_id: rideId });
+  return data || null;
 }
 
 export function toDriver(d, priv) {

@@ -16,7 +16,7 @@ import { t } from "../utils/i18n/index";
 import { formatFdj, formatDuration } from "../utils/format";
 import useDriverLocation, { currentPosition, stopBackground } from "../hooks/useDriverLocation";
 import {
-  watchDriver, watchOffer, watchActiveRide, watchToday, setOnline, acceptOffer, declineOffer,
+  watchDriver, watchOffer, watchActiveRide, watchToday, setOnline, acceptOffer, declineOffer, demoRequestRide,
 } from "../services/driverApi";
 import notificationService from "../services/NotificationService";
 import PrivacyPolicyModal from "../components/PrivacyPolicyModal";
@@ -43,6 +43,7 @@ export default function HomeScreen() {
   const [busy, setBusy] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [asking, setAsking] = useState(null); // demo: "ride" | "delivery" while a test ride is being created
 
   const online = driver?.isOnline === true;
   const approved = driver?.isApproved === true || driver?.approvalStatus === "approved";
@@ -198,6 +199,23 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
+      {/* Demo: a robot customer books a ride near you */}
+      {demo && online && !offer ? (
+        <View style={styles.demoWrap} pointerEvents="box-none">
+          {[["ride", "car-outline", t("Course test")], ["delivery", "cube-outline", t("Colis test")]].map(([kind, icon, label]) => (
+            <Pressable key={kind} disabled={!!asking} accessibilityRole="button" accessibilityLabel={label}
+              onPress={async () => {
+                setAsking(kind);
+                try { await demoRequestRide(kind); } catch (e) { Alert.alert(t("Mode démo"), e?.message || t("Réessayez.")); } finally { setAsking(null); }
+              }}
+              style={({ pressed }) => [styles.demoBtn, (pressed || asking === kind) && { opacity: 0.7 }]}>
+              {asking === kind ? <ActivityIndicator size="small" color={colors.primaryText} /> : <Ionicons name={icon} size={18} color={colors.primaryText} />}
+              <AppText variant="bodyStrong" color={colors.primaryText}>{label}</AppText>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
       {/* Status bar */}
       <SafeAreaView edges={["bottom"]} style={styles.bottom} pointerEvents="box-none">
         <Pressable style={styles.status} onPress={driver === null ? () => logout().catch(() => {}) : !approved && driver ? () => navigation.navigate("ApprovalStatusScreen") : undefined}
@@ -226,6 +244,11 @@ const useStyles = makeStyles((colors) => ({
   pill: { paddingVertical: 8, paddingHorizontal: 18, borderRadius: radius.pill, backgroundColor: colors.emphasis, alignItems: "center", ...shadow.float },
   car: { width: 32, height: 32, borderRadius: 10, backgroundColor: colors.emphasis, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: colors.white },
   goWrap: { position: "absolute", left: 0, right: 0, bottom: 150, alignItems: "center" },
+  demoWrap: { position: "absolute", left: 0, right: 0, bottom: 268, flexDirection: "row", justifyContent: "center", gap: 10 },
+  demoBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 16, minHeight: 44,
+    borderRadius: radius.pill, backgroundColor: colors.primarySoft, ...shadow.float,
+  },
   go: {
     width: 104, height: 104, borderRadius: 52, borderWidth: 6, borderColor: colors.surface, backgroundColor: colors.primary,
     alignItems: "center", justifyContent: "center", gap: 2, ...shadow.sheet,

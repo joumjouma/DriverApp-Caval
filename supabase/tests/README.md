@@ -27,4 +27,10 @@ owing 120, and a 120 settlement brings it to 0 (the driver can see it but not ad
 one); a driver's support ticket shows with his name and goes to "answered" after
 a reply; an admin cancels a ride; the overview numbers.
 
+`demo.sql`: demo mode. The demo customer's ride goes to the robot driver, which
+moves on the map, arrives, picks up and finishes; a moto package goes to the moto
+robot; the demo driver can't ask for a test ride while offline, then gets one,
+completes it, and delivers a test package with the code from `demo_delivery_code`;
+a normal account is refused.
+
 Last run, 2026-11-26: all pass. (Found and fixed one bug: drivers_guard blocked rate_driver.)

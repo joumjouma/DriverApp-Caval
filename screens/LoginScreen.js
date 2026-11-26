@@ -11,6 +11,7 @@ import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../config/supabase";
 import { authMessage, RESET_URL } from "../utils/authErrors";
 import { t } from "../utils/i18n/index";
+import { startDemo } from "../context/DemoContext";
 import CavalLogo from "../assets/Caval_courrier_logo-removebg-preview.png";
 
 const message = (e) => authMessage(e);
@@ -37,6 +38,12 @@ export default function LoginScreen() {
       setError(message(e));
       setBusy(false);
     }
+  };
+
+  // Shared demo driver account: nothing to set up
+  const tryDemo = async () => {
+    setError(""); setInfo(""); setBusy(true);
+    try { await startDemo(); } catch (e) { setError(message(e)); setBusy(false); }
   };
 
   const reset = async () => {
@@ -79,6 +86,7 @@ export default function LoginScreen() {
 
           <Button title={t("Se connecter")} onPress={signIn} loading={busy} />
           <Button title={t("Mot de passe oublié ?")} variant="ghost" size="sm" onPress={reset} style={{ marginTop: 4 }} />
+          <Button title={t("Essayer la démo")} icon="flask-outline" variant="ghost" size="sm" onPress={tryDemo} />
 
           <View style={{ flex: 1 }} />
           <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingTop: 24 }}>

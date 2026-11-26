@@ -466,4 +466,13 @@ export default {
   "payés par Caval": "Caval ayaa bixisa",
   "vous gardez l'argent": "lacagta adigaa haysta",
   "Écrivez au client ou utilisez une réponse rapide.": "U qor macmiilka ama isticmaal jawaab degdeg ah.",
+  "Essayer la démo": "Tijaabi demo-ga",
+  "Quitter la démo ?": "Ka bax demo-ga?",
+  "Vous serez déconnecté du compte de démonstration.": "Waxaa lagaa saarayaa koontada demo-ga.",
+  "Quitter la démo": "Ka bax demo-ga",
+  "Quitter": "Ka bax",
+  "Course test": "Safar tijaabo ah",
+  "Colis test": "Xirmo tijaabo ah",
+  "Réessayez.": "Isku day mar kale.",
+  "Démo : le code est {code}": "Demo: koodhku waa {code}",
 };

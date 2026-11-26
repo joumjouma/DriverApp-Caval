@@ -22,6 +22,7 @@ organization **Caval**.
 | `20261126000013_driver_push_token_private.sql` | Driver push tokens moved out of the public driver card |
 | `20261126000014_customer_app.sql` | Customer app: driver position during the ride, support read receipts, realtime, feature switches on |
 | `20261126000015_admin.sql` | Admin dashboard: settlements, driver review list, support inbox, overview numbers |
+| `20261126000016_demo_simple.sql` | Demo mode: shared demo logins, robot drivers and robot customer |
 
 Edge Function: `functions/whatsapp-webhook` (deployed). Tests: `tests/`.
 

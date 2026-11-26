@@ -1,7 +1,7 @@
 // Caval chauffeur — app entry: fonts, theme/language, auth, demo mode, navigation.
 import "react-native-get-random-values";
 import React, { useRef } from "react";
-import { View, ActivityIndicator, StatusBar } from "react-native";
+import { View, ActivityIndicator, StatusBar, Pressable, Alert } from "react-native";
 import { NavigationContainer, DefaultTheme, DarkTheme } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,6 +14,7 @@ import { AppText } from "./components/ui";
 import { FONT_FILES, installAppFont } from "./utils/fonts";
 import { reportError } from "./utils/report";
 import { t } from "./utils/i18n/index";
+import { setOnline } from "./services/driverApi";
 
 import LoginScreen from "./screens/LoginScreen";
 import RegisterScreen from "./screens/RegisterScreen";
@@ -22,7 +23,6 @@ import RideScreen from "./screens/RideScreen";
 import EarningsScreen from "./screens/EarningsScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import PreferencesScreen from "./screens/PreferencesScreen";
-import DemoScreen from "./screens/DemoScreen";
 import ModifyInfo from "./screens/ModifyInfo";
 import PaymentScreen from "./screens/PaymentScreen";
 import ApprovalStatusScreen from "./screens/ApprovalStatusScreen";
@@ -41,16 +41,22 @@ if (global.ErrorUtils?.setGlobalHandler) {
 
 const Stack = createStackNavigator();
 
+// "MODE DÉMO" tab at the top while signed in to the demo account. Tap to leave.
 function DemoBanner() {
-  const { demo } = useDemo();
+  const { demo, leaveDemo } = useDemo();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   if (!demo) return null;
+  const ask = () => Alert.alert(t("Quitter la démo ?"), t("Vous serez déconnecté du compte de démonstration."), [
+    { text: t("Annuler"), style: "cancel" },
+    { text: t("Quitter"), style: "destructive", onPress: async () => { await setOnline(false).catch(() => {}); await leaveDemo().catch(() => {}); } },
+  ]);
   return (
-    <View pointerEvents="none" style={{ position: "absolute", top: insets.top, left: 0, right: 0, alignItems: "center" }}>
-      <View style={{ paddingHorizontal: 10, paddingVertical: 2, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, backgroundColor: colors.primary }}>
-        <AppText variant="overline" color={colors.onPrimary} style={{ fontSize: 11 }}>{t("Mode démo")}</AppText>
-      </View>
+    <View pointerEvents="box-none" style={{ position: "absolute", top: insets.top, left: 0, right: 0, alignItems: "center" }}>
+      <Pressable onPress={ask} accessibilityRole="button" accessibilityLabel={t("Quitter la démo")} hitSlop={8}
+        style={{ paddingHorizontal: 10, paddingVertical: 2, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, backgroundColor: colors.primary }}>
+        <AppText variant="overline" color={colors.onPrimary} style={{ fontSize: 11 }}>{t("Mode démo")} · {t("Quitter")}</AppText>
+      </Pressable>
     </View>
   );
 }
@@ -83,7 +89,6 @@ function Screens() {
             <Stack.Screen name="EarningsScreen" component={EarningsScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
             <Stack.Screen name="PreferencesScreen" component={PreferencesScreen} />
-            <Stack.Screen name="DemoScreen" component={DemoScreen} />
             <Stack.Screen name="ModifyInfo" component={ModifyInfo} />
             <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
             <Stack.Screen name="ApprovalStatusScreen" component={ApprovalStatusScreen} />
