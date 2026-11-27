@@ -1,19 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  SafeAreaView,
-  ActivityIndicator,
-  Alert,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, makeStyles } from "../context/ThemeContext";
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, me } from '../config/supabase';
 import { t } from "../utils/i18n";
+import { showAlert } from "../components/Dialog";
 
 function ApprovalStatusScreen() {
   const styles = useStyles();
@@ -58,7 +51,7 @@ function ApprovalStatusScreen() {
       await supabase.auth.signOut();
     } catch (error) {
       console.error('Error logging out:', error);
-      Alert.alert(t("Erreur"), t("Déconnexion impossible. Réessayez."));
+      showAlert(t("Erreur"), t("Déconnexion impossible. Réessayez."));
     }
   };
 

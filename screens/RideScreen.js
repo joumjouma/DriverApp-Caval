@@ -5,7 +5,7 @@
 // Packages: photo at pickup, delivery code at drop-off (confirmDelivery).
 // Hourly hire: timer from pickup.
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, ScrollView, Alert, Pressable, Image, Linking, KeyboardAvoidingView, Platform, StatusBar } from "react-native";
+import { View, ScrollView, Pressable, Image, Linking, KeyboardAvoidingView, Platform, StatusBar } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -28,6 +28,7 @@ import {
 import { reportError } from "../utils/report";
 import { createConversation } from "../utils/messaging";
 import { me } from "../config/supabase";
+import { showAlert } from "../components/Dialog";
 
 const PROBLEMS = [
   { id: "no_show", label: "Client absent au point de départ" },
@@ -85,7 +86,7 @@ export default function RideScreen() {
     if (["cancelled", "declined", "cancelled_by_driver", "no_drivers_available"].includes(ride.status)) {
       handledEnd.current = true;
       if (ride.cancelledBy !== "driver") {
-        Alert.alert(t("Course annulée"), t("Le client a annulé la course."), [{ text: t("OK"), onPress: () => navigation.navigate("Home") }]);
+        showAlert(t("Course annulée"), t("Le client a annulé la course."), [{ text: t("OK"), onPress: () => navigation.navigate("Home") }]);
       } else navigation.navigate("Home");
     }
   }, [ride?.status]);
@@ -127,7 +128,7 @@ export default function RideScreen() {
     setBusy(true);
     try { await fn(); } catch (e) {
       reportError(e, { where });
-      Alert.alert(t("Erreur"), t("Action impossible. Vérifiez votre connexion et réessayez."));
+      showAlert(t("Erreur"), t("Action impossible. Vérifiez votre connexion et réessayez."));
     } finally { setBusy(false); }
   };
 
@@ -156,7 +157,7 @@ export default function RideScreen() {
 
   const takePhoto = async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) { Alert.alert(t("Appareil photo"), t("Autorisez l'appareil photo pour photographier le colis.")); return; }
+    if (!perm.granted) { showAlert(t("Appareil photo"), t("Autorisez l'appareil photo pour photographier le colis.")); return; }
     const res = await ImagePicker.launchCameraAsync({ quality: 0.5, allowsEditing: false });
     if (!res.canceled && res.assets?.[0]?.uri) setPhotoUri(res.assets[0].uri);
   };
@@ -169,7 +170,7 @@ export default function RideScreen() {
 
   const finish = () => {
     if (nextStop) { setStopIndex((i) => i + 1); return; }
-    Alert.alert(hourly ? t("Terminer la mise à disposition ?") : t("Terminer la course ?"),
+    showAlert(hourly ? t("Terminer la mise à disposition ?") : t("Terminer la course ?"),
       cash === "dropoff" ? t("Vérifiez que vous avez encaissé {fare}.", { fare: formatFdj(ride.fare) }) : undefined, [
         { text: t("Annuler"), style: "cancel" },
         { text: t("Terminer"), onPress: () => run(() => completeRide(rideId), "completeRide") },
@@ -197,7 +198,7 @@ export default function RideScreen() {
     const msg = p.id === "no_show"
       ? (waited >= 5 ? t("Le client paiera des frais d'annulation, ajoutés à votre solde.") : t("Attendez 5 minutes au point de départ pour que le client paie des frais d'annulation."))
       : t(p.label);
-    Alert.alert(t("Annuler la course ?"), msg, [
+    showAlert(t("Annuler la course ?"), msg, [
       { text: t("Non"), style: "cancel" },
       { text: t("Oui, annuler"), style: "destructive", onPress: () => run(() => cancelByDriver(rideId, p.id), "cancelByDriver") },
     ]);

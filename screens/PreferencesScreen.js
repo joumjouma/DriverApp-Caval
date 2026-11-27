@@ -1,6 +1,6 @@
 // Préférences — language, appearance (light/dark/system), text size, data saver.
 import React from "react";
-import { View, ScrollView, Pressable, Alert } from "react-native";
+import { View, ScrollView, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +8,7 @@ import { radius } from "../constants/theme";
 import { AppText, Card, Header } from "../components/ui";
 import { useTheme, TEXT_SIZES } from "../context/ThemeContext";
 import { LANGUAGES, t } from "../utils/i18n/index";
+import { showAlert } from "../components/Dialog";
 
 const MODES = [
   { id: "system", label: "Système", detail: "Suit le réglage du téléphone", icon: "phone-portrait-outline" },
@@ -39,7 +40,7 @@ export default function PreferencesScreen() {
   const chooseLanguage = (id) => {
     const restart = setLanguage(id);
     if (restart) {
-      Alert.alert(t("Langue"), t("Fermez et rouvrez l'application pour appliquer le sens de lecture."));
+      showAlert(t("Langue"), t("Fermez et rouvrez l'application pour appliquer le sens de lecture."));
     }
   };
   return (

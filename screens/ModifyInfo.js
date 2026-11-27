@@ -1,7 +1,7 @@
 // Mes informations: name, phone, photo, vehicle, email and password.
 // Changing the vehicle plate or type sends the profile back for review.
 import React, { useEffect, useState } from "react";
-import { View, Alert, Image, Pressable, ActivityIndicator } from "react-native";
+import { View, Image, Pressable, ActivityIndicator } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,6 +13,7 @@ import { supabase } from "../config/supabase";
 import { getDriver, updateDriver, uploadProfilePhoto } from "../services/driverApi";
 import { authMessage } from "../utils/authErrors";
 import { reportError } from "../utils/report";
+import { showAlert } from "../components/Dialog";
 
 const validPhone = (p) => /^\+?[0-9]{8,15}$/.test(String(p).replace(/\s/g, ""));
 const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e).trim());
@@ -49,7 +50,7 @@ export default function ModifyInfo() {
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
   const run = async (key, fn, okMessage) => {
     setBusy(key); setError("");
-    try { await fn(); if (okMessage) Alert.alert(t("Enregistré"), t(okMessage)); }
+    try { await fn(); if (okMessage) showAlert(t("Enregistré"), t(okMessage)); }
     catch (e) { reportError(e, { where: `ModifyInfo.${key}` }); setError(authMessage(e, "Impossible d'enregistrer. Vérifiez votre connexion et réessayez.")); }
     finally { setBusy(null); }
   };
@@ -67,7 +68,7 @@ export default function ModifyInfo() {
       carMake: form.carMake.trim(), carModel: form.carModel.trim(), carColor: form.carColor.trim(), plaqueImmatriculation: form.plate.trim().toUpperCase(),
     }), plateChanged ? "Véhicule enregistré. L'équipe Caval vérifiera la nouvelle plaque." : "Véhicule enregistré.");
     if (plateChanged) {
-      Alert.alert(t("Changer de plaque ?"), t("L'équipe Caval vérifiera votre nouveau véhicule."), [
+      showAlert(t("Changer de plaque ?"), t("L'équipe Caval vérifiera votre nouveau véhicule."), [
         { text: t("Annuler"), style: "cancel" }, { text: t("Continuer"), onPress: save },
       ]);
     } else save();
@@ -75,7 +76,7 @@ export default function ModifyInfo() {
 
   const changePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") { Alert.alert(t("Caméra refusée"), t("Autorisez la caméra dans les réglages du téléphone.")); return; }
+    if (status !== "granted") { showAlert(t("Caméra refusée"), t("Autorisez la caméra dans les réglages du téléphone.")); return; }
     const res = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.6, cameraType: ImagePicker.CameraType.front });
     if (res.canceled) return;
     run("photo", async () => { const url = await uploadProfilePhoto(res.assets[0].uri); setD((x) => ({ ...x, photo: url })); }, "Photo mise à jour.");

@@ -1,19 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-  StatusBar,
-  Image,
-  Modal,
-} from "react-native";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, StatusBar, Image, Modal } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -26,6 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { t } from "../utils/i18n";
 import { registerDriver } from "../services/registration";
 import { authMessage } from "../utils/authErrors";
+import { showAlert } from "../components/Dialog";
 
 function RegisterScreen() {
   const { colors } = useTheme();
@@ -106,7 +93,7 @@ function RegisterScreen() {
       });
     } catch (error) {
       console.error("Error saving privacy policy acceptance:", error);
-      Alert.alert(t("Erreur"), t("Impossible d'enregistrer votre accord. Réessayez."));
+      showAlert(t("Erreur"), t("Impossible d'enregistrer votre accord. Réessayez."));
     }
   };
 
@@ -115,7 +102,7 @@ function RegisterScreen() {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Camera permission is required to take your photo.');
+        showAlert('Permission Required', 'Camera permission is required to take your photo.');
         return;
       }
 
@@ -132,7 +119,7 @@ function RegisterScreen() {
       }
     } catch (error) {
       console.error('Error taking photo:', error);
-      Alert.alert('Error', 'Failed to take photo. Please try again.');
+      showAlert('Error', 'Failed to take photo. Please try again.');
     }
   };
 
@@ -141,7 +128,7 @@ function RegisterScreen() {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Camera permission is required to take a photo of your carte-grise.');
+        showAlert('Permission Required', 'Camera permission is required to take a photo of your carte-grise.');
         return;
       }
 
@@ -158,13 +145,13 @@ function RegisterScreen() {
       }
     } catch (error) {
       console.error('Error taking carte-grise photo:', error);
-      Alert.alert('Error', 'Failed to take photo. Please try again.');
+      showAlert('Error', 'Failed to take photo. Please try again.');
     }
   };
 
   const handleRegister = async () => {
     if (!email || !password || !confirmPassword || !prenom || !nom || !telephone || !facePhoto || !carteGrisePhoto || !plaqueImmatriculation || !carMake || !carModel || !carColor) {
-      Alert.alert(
+      showAlert(
         t("Informations manquantes"),
         t("Veuillez remplir tous les champs obligatoires, prendre une photo de votre visage et de votre carte-grise, et entrer votre plaque d'immatriculation, marque, modèle et couleur du véhicule."),
         [{ text: t("OK") }]
@@ -172,7 +159,7 @@ function RegisterScreen() {
       return;
     }
     if (password !== confirmPassword) {
-      Alert.alert(
+      showAlert(
         t("Erreur de mot de passe"),
         t("Les mots de passe ne correspondent pas. Veuillez vérifier et réessayer."),
         [{ text: t("OK") }]
@@ -180,7 +167,7 @@ function RegisterScreen() {
       return;
     }
     if (password.length < 6) {
-      Alert.alert(
+      showAlert(
         t("Mot de passe trop court"),
         t("Le mot de passe doit contenir au moins 6 caractères."),
         [{ text: t("OK") }]
@@ -188,7 +175,7 @@ function RegisterScreen() {
       return;
     }
     if (!paymentMethods.dmoney && !paymentMethods.cacpay && !paymentMethods.waafi && !paymentMethods.sabapay) {
-      Alert.alert(
+      showAlert(
         t("Méthodes de paiement requises"),
         t("Veuillez sélectionner au moins une méthode de paiement pour recevoir vos gains."),
         [{ text: t("OK") }]
@@ -196,7 +183,7 @@ function RegisterScreen() {
       return;
     }
     if (!telephone || telephone.replace(/\s/g, '').length < 8) {
-      Alert.alert(
+      showAlert(
         t("Numéro de téléphone invalide"),
         t("Veuillez entrer un numéro de téléphone valide."),
         [{ text: t("OK") }]
@@ -215,7 +202,7 @@ function RegisterScreen() {
       });
       setIsLoading(false);
       if (res.needsEmailConfirmation) {
-        Alert.alert(
+        showAlert(
           t("Confirmez votre email"),
           t("Nous vous avons envoyé un lien. Ouvrez-le, puis connectez-vous : votre dossier sera envoyé automatiquement."),
           [{ text: t("OK"), onPress: () => navigation.navigate("LoginScreen") }]
@@ -223,7 +210,7 @@ function RegisterScreen() {
         return;
       }
       // Signed in: the app opens on the home screen, which shows the approval status.
-      Alert.alert(
+      showAlert(
         t("Inscription réussie !"),
         t("Votre compte a été créé avec succès. Votre demande est maintenant en cours d'examen par notre équipe. Vous recevrez une notification dès que votre compte sera approuvé."),
         [{ text: t("OK") }]
@@ -233,7 +220,7 @@ function RegisterScreen() {
       const errorMessage = /upload|storage|bucket/i.test(error?.message || "")
         ? t("Erreur lors du téléchargement de la photo. Veuillez réessayer.")
         : authMessage(error, "Une erreur est survenue lors de l'inscription. Veuillez réessayer.");
-      Alert.alert(t("Échec de l'inscription"), errorMessage, [{ text: t("OK") }]);
+      showAlert(t("Échec de l'inscription"), errorMessage, [{ text: t("OK") }]);
     }
   };
 

@@ -7,6 +7,19 @@ import * as TaskManager from "expo-task-manager";
 import { reportPosition } from "../services/driverApi";
 import { isDemo, demoPosition, DEMO_CENTER } from "../context/DemoContext";
 import { t } from "../utils/i18n/index";
+import { ensurePermission } from "../components/Dialog";
+
+// One explanation at a time, even if several screens ask together
+let asking = null;
+function askLocation() {
+  asking = asking || ensurePermission({
+    get: Location.getForegroundPermissionsAsync, request: Location.requestForegroundPermissionsAsync, icon: "location-outline",
+    title: t("Votre position"),
+    message: t("Caval utilise votre position pour vous proposer les courses proches et guider le client jusqu'à vous pendant que vous êtes en ligne."),
+    settingsHint: t("Activez la localisation dans les réglages pour passer en ligne."),
+  }).finally(() => { asking = null; });
+  return asking;
+}
 
 const TASK = "background-location-task";
 const SEND_EVERY_MS = 10000;
@@ -24,8 +37,12 @@ async function startBackground() {
   try {
     if (!(await Location.isBackgroundLocationAvailableAsync())) return;
     if (await Location.hasStartedLocationUpdatesAsync(TASK)) return;
-    const { status } = await Location.requestBackgroundPermissionsAsync();
-    if (status !== "granted") return;
+    const ok = await ensurePermission({
+      get: Location.getBackgroundPermissionsAsync, request: Location.requestBackgroundPermissionsAsync, icon: "navigate-outline",
+      title: t("Position en arrière-plan"),
+      message: t("Choisissez « Toujours » pour continuer à recevoir des courses quand l'écran est éteint ou que vous utilisez le GPS."),
+    });
+    if (!ok) return;
     await Location.startLocationUpdatesAsync(TASK, {
       accuracy: Location.Accuracy.Balanced,
       timeInterval: 15000,
@@ -46,8 +63,7 @@ export async function stopBackground() {
 export async function currentPosition() {
   if (isDemo()) return demoPosition(150);
   try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") return null;
+    if (!(await askLocation())) return null;
     // Last known position first (instant); a fresh fix can take long indoors, so give up after 8 s
     const last = await Location.getLastKnownPositionAsync({ maxAge: 5 * 60000 }).catch(() => null);
     if (last) return { latitude: last.coords.latitude, longitude: last.coords.longitude, heading: last.coords.heading };
@@ -97,8 +113,7 @@ export default function useDriverLocation({ share, demo }) {
         await stopBackground();
         return;
       }
-      const { status } = await Location.requestForegroundPermissionsAsync().catch(() => ({ status: "denied" }));
-      if (status !== "granted") { setDenied(true); return; }
+      if (!(await askLocation())) { setDenied(true); return; }
       setDenied(false);
       const first = await Location.getLastKnownPositionAsync().catch(() => null);
       if (first) handle({ latitude: first.coords.latitude, longitude: first.coords.longitude });

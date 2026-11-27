@@ -1,7 +1,7 @@
 // Profil chauffeur — identity, vehicle, settings, help, demo mode (hidden),
 // sign out and account deletion.
 import React, { useEffect, useState } from "react";
-import { View, ScrollView, Image, Alert, Linking } from "react-native";
+import { View, ScrollView, Image, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import Constants from "expo-constants";
@@ -15,6 +15,7 @@ import { LANGUAGES, t } from "../utils/i18n/index";
 import { watchDriver, updateDriver, setOnline, deleteDriverAccount } from "../services/driverApi";
 import { supabase, me } from "../config/supabase";
 import { reportError } from "../utils/report";
+import { showAlert } from "../components/Dialog";
 
 const GENDERS = [
   { id: "female", label: "Femme" },
@@ -44,7 +45,7 @@ export default function ProfileScreen() {
     await updateDriver({ gender: g }).catch((e) => reportError(e, { where: "setGender" }));
   };
 
-  const signOut = () => Alert.alert(t("Se déconnecter ?"), undefined, [
+  const signOut = () => showAlert(t("Se déconnecter ?"), undefined, [
     { text: t("Annuler"), style: "cancel" },
     { text: t("Se déconnecter"), style: "destructive", onPress: async () => {
       if (driver?.isOnline) await setOnline(false).catch(() => {});
@@ -52,7 +53,7 @@ export default function ProfileScreen() {
     } },
   ]);
 
-  const deleteAccount = () => Alert.alert(t("Supprimer votre compte ?"),
+  const deleteAccount = () => showAlert(t("Supprimer votre compte ?"),
     t("Votre profil chauffeur et vos documents seront supprimés définitivement. Cette action est irréversible."), [
       { text: t("Annuler"), style: "cancel" },
       { text: t("Supprimer"), style: "destructive", onPress: async () => {
@@ -66,10 +67,10 @@ export default function ProfileScreen() {
         } catch (e) {
           if (e?.code === "55000") {
             // Ride in progress, or money still owed: the server explains which
-            Alert.alert(t("Suppression impossible pour l'instant"), e.message);
+            showAlert(t("Suppression impossible pour l'instant"), e.message);
           } else {
             reportError(e, { where: "deleteDriverAccount" });
-            Alert.alert(t("Erreur"), t("La suppression a échoué. Réessayez ou contactez le support."));
+            showAlert(t("Erreur"), t("La suppression a échoué. Réessayez ou contactez le support."));
           }
         }
       } },

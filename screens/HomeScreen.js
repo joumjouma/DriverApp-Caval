@@ -1,7 +1,7 @@
 // Accueil chauffeur (option C): full-screen map, today's earnings at the top,
 // one big Go button to go online, and the offer sheet when a ride comes in.
 import React, { useEffect, useRef, useState } from "react";
-import { View, Pressable, Alert, Image, StatusBar, ActivityIndicator } from "react-native";
+import { View, Pressable, Image, StatusBar, ActivityIndicator } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useIsFocused } from "@react-navigation/native";
@@ -24,6 +24,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../context/AuthContext";
 import { reportError } from "../utils/report";
 import { finishPendingRegistration } from "../services/registration";
+import { showAlert } from "../components/Dialog";
 
 const initials = (d) => `${(d?.firstName || "")[0] || ""}${(d?.lastName || "")[0] || ""}`.toUpperCase() || "C";
 
@@ -90,25 +91,25 @@ export default function HomeScreen() {
   }, [position?.latitude ? Math.round(position.latitude * 1000) : 0, position?.longitude ? Math.round(position.longitude * 1000) : 0]);
 
   const toggle = async () => {
-    if (driver === undefined) { Alert.alert(t("Un instant"), t("Votre profil se charge encore. Réessayez dans quelques secondes.")); return; }
-    if (driver === null) { Alert.alert(t("Profil chauffeur introuvable"), t("Ce compte n'a pas de profil chauffeur. Connectez-vous avec votre compte chauffeur.")); return; }
+    if (driver === undefined) { showAlert(t("Un instant"), t("Votre profil se charge encore. Réessayez dans quelques secondes.")); return; }
+    if (driver === null) { showAlert(t("Profil chauffeur introuvable"), t("Ce compte n'a pas de profil chauffeur. Connectez-vous avec votre compte chauffeur.")); return; }
     if (!approved) { navigation.navigate("ApprovalStatusScreen"); return; }
     if (!online && denied && !demo) {
-      Alert.alert(t("Localisation désactivée"), t("Autorisez la localisation dans les réglages du téléphone pour recevoir des courses."));
+      showAlert(t("Localisation désactivée"), t("Autorisez la localisation dans les réglages du téléphone pour recevoir des courses."));
       return;
     }
     setSwitching(true);
     try {
       const pos = online ? null : position || (await currentPosition());
       if (!online && !pos) {
-        Alert.alert(t("Position introuvable"), t("Impossible d'obtenir votre position. Vérifiez que la localisation est activée, puis réessayez."));
+        showAlert(t("Position introuvable"), t("Impossible d'obtenir votre position. Vérifiez que la localisation est activée, puis réessayez."));
         return;
       }
       await setOnline(!online, pos);
       if (online) stopBackground();
     } catch (e) {
       reportError(e, { where: "toggleOnline" });
-      Alert.alert(t("Erreur"), `${t("Impossible de changer votre statut. Vérifiez votre connexion.")}\n(${e?.code || e?.message || "?"})`);
+      showAlert(t("Erreur"), `${t("Impossible de changer votre statut. Vérifiez votre connexion.")}\n(${e?.code || e?.message || "?"})`);
     } finally {
       setSwitching(false);
     }
@@ -124,7 +125,7 @@ export default function HomeScreen() {
       navigation.navigate("Ride", { rideId: id });
     } catch (e) {
       reportError(e, { where: "acceptOffer" });
-      Alert.alert(t("Course indisponible"), t("Cette course n'est plus disponible."));
+      showAlert(t("Course indisponible"), t("Cette course n'est plus disponible."));
       setOffer(null);
     } finally {
       setBusy(false);
@@ -206,7 +207,7 @@ export default function HomeScreen() {
             <Pressable key={kind} disabled={!!asking} accessibilityRole="button" accessibilityLabel={label}
               onPress={async () => {
                 setAsking(kind);
-                try { await demoRequestRide(kind); } catch (e) { Alert.alert(t("Mode démo"), e?.message || t("Réessayez.")); } finally { setAsking(null); }
+                try { await demoRequestRide(kind); } catch (e) { showAlert(t("Mode démo"), e?.message || t("Réessayez.")); } finally { setAsking(null); }
               }}
               style={({ pressed }) => [styles.demoBtn, (pressed || asking === kind) && { opacity: 0.7 }]}>
               {asking === kind ? <ActivityIndicator size="small" color={colors.primaryText} /> : <Ionicons name={icon} size={18} color={colors.primaryText} />}
