@@ -13,6 +13,7 @@ import { Platform, Linking } from "react-native";
 import { CommonActions } from "@react-navigation/native";
 import { savePushToken } from "./driverApi";
 import { t } from "../utils/i18n/index";
+import { ensurePermission } from "../components/Dialog";
 
 const EXPO_PROJECT_ID = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
 
@@ -48,10 +49,13 @@ class NotificationService {
 
   async requestPermissions() {
     if (!Device.isDevice) return false;
-    const current = await Notifications.getPermissionsAsync();
-    if (current.status === "granted") return true;
-    const asked = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowSound: true, allowBadge: true } });
-    return asked.status === "granted";
+    return ensurePermission({
+      get: Notifications.getPermissionsAsync,
+      request: () => Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowSound: true, allowBadge: true } }),
+      icon: "notifications-outline",
+      title: t("Ne ratez aucune course"),
+      message: t("Activez les notifications pour être prévenu des nouvelles courses, même quand l'application est fermée."),
+    });
   }
 
   openAppSettings() {

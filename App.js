@@ -1,7 +1,7 @@
 // Caval chauffeur — app entry: fonts, theme/language, auth, demo mode, navigation.
 import "react-native-get-random-values";
 import React, { useRef } from "react";
-import { View, ActivityIndicator, StatusBar, Pressable, Alert } from "react-native";
+import { View, ActivityIndicator, StatusBar, Pressable } from "react-native";
 import { NavigationContainer, DefaultTheme, DarkTheme } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,6 +27,7 @@ import ModifyInfo from "./screens/ModifyInfo";
 import PaymentScreen from "./screens/PaymentScreen";
 import ApprovalStatusScreen from "./screens/ApprovalStatusScreen";
 import DriverInboxScreen from "./screens/DriverInboxScreen";
+import { showAlert, DialogHost } from "./components/Dialog";
 
 installAppFont();
 
@@ -47,7 +48,7 @@ function DemoBanner() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   if (!demo) return null;
-  const ask = () => Alert.alert(t("Quitter la démo ?"), t("Vous serez déconnecté du compte de démonstration."), [
+  const ask = () => showAlert(t("Quitter la démo ?"), t("Vous serez déconnecté du compte de démonstration."), [
     { text: t("Annuler"), style: "cancel" },
     { text: t("Quitter"), style: "destructive", onPress: async () => { await setOnline(false).catch(() => {}); await leaveDemo().catch(() => {}); } },
   ]);
@@ -102,6 +103,7 @@ function Screens() {
         )}
       </Stack.Navigator>
       <DemoBanner />
+      <DialogHost />
     </NavigationContainer>
   );
 }
