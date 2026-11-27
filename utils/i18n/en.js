@@ -475,4 +475,7 @@ export default {
   "Colis test": "Test package",
   "Réessayez.": "Try again.",
   "Démo : le code est {code}": "Demo: the code is {code}",
+  "Votre fiabilité (30 jours)": "Your reliability (30 days)",
+  "{n} % des courses acceptées": "{n}% of rides accepted",
+  "{missed} sans réponse · {cancels} annulées. 2 courses sans réponse d'affilée vous mettent hors ligne.": "{missed} missed · {cancels} cancelled. 2 missed rides in a row put you offline.",
 };

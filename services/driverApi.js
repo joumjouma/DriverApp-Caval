@@ -70,6 +70,11 @@ export function toRide(r) {
 // Demo mode: the robot customer behind "Recevoir une course test" (migration 0016)
 const DEMO_ROBOT_CUSTOMER = "d0000000-0000-4000-a000-00000000c0b0";
 
+/** My 30-day reliability: { offers, accepted, declined, missed, acceptanceRate, completed, cancels } */
+export async function getReliability() {
+  return check(await supabase.rpc("my_reliability"));
+}
+
 /** Demo driver only: a test ride ("ride") or package ("delivery") from the robot customer, offered to me. */
 export async function demoRequestRide(service = "ride") {
   return check(await supabase.rpc("demo_request_ride", { p_service: service }));

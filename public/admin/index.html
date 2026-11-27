@@ -192,7 +192,7 @@ async function drivers() {
   $("app").innerHTML = `<h2>Chauffeurs</h2><div class="row"><select id="df"><option value="review">À vérifier</option><option value="approved">Validés</option>
     <option value="rejected">Refusés</option><option value="">Tous</option></select><input id="ds" placeholder="Nom, téléphone, plaque" style="min-width:220px"></div>
     <p class="muted small">« À vérifier » : nouveaux comptes, et chauffeurs validés qui ont changé de plaque ou de type de véhicule.</p>
-    <div class="card"><table><thead><tr><th>Chauffeur</th><th>Contact</th><th>Véhicule</th><th>Statut</th><th class="num">Courses</th><th class="num">Solde</th><th></th></tr></thead><tbody id="db"></tbody></table></div>`;
+    <div class="card"><table><thead><tr><th>Chauffeur</th><th>Contact</th><th>Véhicule</th><th>Statut</th><th class="num">Courses</th><th>Fiabilité 30 j</th><th class="num">Solde</th><th></th></tr></thead><tbody id="db"></tbody></table></div>`;
   let all = [];
   const render = () => {
     const s = $("ds").value.trim().toLowerCase();
@@ -207,13 +207,21 @@ async function drivers() {
         ${d.is_online ? ' <span class="chip g">en ligne</span>' : ""}
         ${d.commission_free_until && new Date(d.commission_free_until) > new Date() ? `<br><span class="muted small">sans commission jusqu'au ${day(d.commission_free_until)}</span>` : ""}</td>
       <td class="num">${d.rides}<br><span class="muted small">${d.rides_7d} cette sem.</span></td>
+      <td>${reliab(d.reliability)}</td>
       <td class="num">${money(d.balance)}</td>
-      <td style="white-space:nowrap"><button class="s" data-v="${d.id}">Dossier</button></td></tr>`).join("") || `<tr><td colspan="7" class="muted">Personne.</td></tr>`;
+      <td style="white-space:nowrap"><button class="s" data-v="${d.id}">Dossier</button></td></tr>`).join("") || `<tr><td colspan="8" class="muted">Personne.</td></tr>`;
     $("db").querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => driverFile(all.find((d) => d.id === b.dataset.v), load)));
   };
   const load = run(async () => { all = ok(await sb.rpc("admin_drivers", { p_status: $("df").value || null })); render(); });
   $("df").onchange = load; $("ds").oninput = render;
   await load(); listen(["drivers"], load);
+}
+// 30-day reliability: acceptance %, missed offers, driver cancellations. Red = to talk to / suspend.
+function reliab(r) {
+  if (!r || !r.offers) return '<span class="muted small">pas encore d\'offres</span>';
+  const bad = (r.acceptanceRate ?? 100) < 70 || r.cancels >= 3 || r.missed >= 5;
+  return `<span class="chip ${bad ? "r" : (r.acceptanceRate >= 90 ? "g" : "o")}">${r.acceptanceRate} % acceptées</span><br>
+    <span class="muted small">${r.offers} offres · ${r.missed} sans réponse · ${r.declined} refusées · ${r.cancels} annulées</span>`;
 }
 async function driverFile(d, reload) {
   const dlg = $("dlg");
@@ -226,6 +234,7 @@ async function driverFile(d, reload) {
     ${d.photo_url ? `<img src="${esc(d.photo_url)}" alt="" style="width:72px;height:72px;border-radius:50%;object-fit:cover;float:right">` : ""}
     <p>${wa(d.phone)} · ${esc(d.email || "")}<br>${esc(d.driver_type)} · ${esc([d.car_make, d.car_model, d.car_color].filter(Boolean).join(" "))} · <strong>${esc(d.plate || "pas de plaque")}</strong>
     <br><span class="muted">Paiement mobile : ${esc(payoutText(d.payout) || "non renseigné")}</span></p>
+    <h3>Fiabilité (30 jours)</h3><p>${reliab(d.reliability)}<br><span class="muted small">Hors ligne automatique après 2 offres sans réponse d'affilée.</span></p>
     <h3>Carte grise</h3>${card || '<p class="muted">Pas de photo.</p>'}
     <p class="muted small">Vérifiez que le nom et la plaque correspondent au compte avant de valider.</p>
     <div class="row" style="margin-top:14px">

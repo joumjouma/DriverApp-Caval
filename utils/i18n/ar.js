@@ -475,4 +475,7 @@ export default {
   "Colis test": "طرد تجريبي",
   "Réessayez.": "حاول مرة أخرى.",
   "Démo : le code est {code}": "تجريبي: الرمز هو {code}",
+  "Votre fiabilité (30 jours)": "موثوقيتك (30 يومًا)",
+  "{n} % des courses acceptées": "تم قبول {n}٪ من الرحلات",
+  "{missed} sans réponse · {cancels} annulées. 2 courses sans réponse d'affilée vous mettent hors ligne.": "{missed} بلا رد · {cancels} ملغاة. رحلتان متتاليتان بلا رد تجعلانك غير متصل.",
 };
