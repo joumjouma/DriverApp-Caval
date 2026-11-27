@@ -11,7 +11,7 @@ import { radius, spacing } from "../constants/theme";
 import { t } from "../utils/i18n/index";
 import { formatFdj, formatTime, shortAddress } from "../utils/format";
 import { Ionicons } from "@expo/vector-icons";
-import { getDailyBreakdown, watchToday, getRides, djiboutiDay, isDelivery, getBalance } from "../services/driverApi";
+import { getDailyBreakdown, watchToday, getRides, djiboutiDay, isDelivery, getBalance, getReliability } from "../services/driverApi";
 
 const PERIODS = [
   { id: "day", label: "Jour" },
@@ -41,6 +41,8 @@ export default function EarningsScreen() {
   const [rides, setRides] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [balance, setBalance] = useState(null);
+  const [reliab, setReliab] = useState(null);
+  useEffect(() => { getReliability().then(setReliab).catch(() => {}); }, []);
 
   const load = () => Promise.all([
     getDailyBreakdown().then(setBreakdown).catch(() => {}),
@@ -132,6 +134,21 @@ export default function EarningsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.chevron} />
           </Pressable>
+        ) : null}
+
+        {reliab?.offers ? (
+          <View style={styles.balance}>
+            <View style={{ flex: 1 }}>
+              <AppText variant="caption" color={colors.textMuted} style={{ fontWeight: "700" }}>{t("Votre fiabilité (30 jours)")}</AppText>
+              <AppText variant="bodyStrong" style={{ fontSize: 16, fontWeight: "800" }}
+                color={reliab.acceptanceRate >= 90 ? colors.successText : reliab.acceptanceRate < 70 ? colors.errorText : colors.text}>
+                {t("{n} % des courses acceptées", { n: reliab.acceptanceRate })}
+              </AppText>
+              <AppText variant="caption" color={colors.textSecondary}>
+                {t("{missed} sans réponse · {cancels} annulées. 2 courses sans réponse d'affilée vous mettent hors ligne.", { missed: reliab.missed, cancels: reliab.cancels })}
+              </AppText>
+            </View>
+          </View>
         ) : null}
 
         <View>

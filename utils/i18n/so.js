@@ -475,4 +475,7 @@ export default {
   "Colis test": "Xirmo tijaabo ah",
   "Réessayez.": "Isku day mar kale.",
   "Démo : le code est {code}": "Demo: koodhku waa {code}",
+  "Votre fiabilité (30 jours)": "Kalsoonidaada (30 maalmood)",
+  "{n} % des courses acceptées": "{n}% safarada waa la aqbalay",
+  "{missed} sans réponse · {cancels} annulées. 2 courses sans réponse d'affilée vous mettent hors ligne.": "{missed} jawaab la'aan · {cancels} la joojiyay. 2 safar oo isku xigta oo jawaab la'aan ah ayaa kaa saaraya khadka.",
 };
