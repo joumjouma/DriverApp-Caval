@@ -83,8 +83,10 @@ test('driver can update own status/location', async () => {
 });
 
 test('driver cannot approve themselves or edit earnings', async () => {
-  await assertFails(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER), { isApproved: true }));
-  await assertFails(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER), { approvalStatus: 'approved' }));
+  // The seeded driver is already approved, so test with values that differ.
+  await assertFails(updateDoc(doc(db(DRIVER2), 'Drivers', DRIVER2), { documentsVerified: true }));
+  await assertFails(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER), { approvedBy: DRIVER }));
+  await assertFails(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER), { approvalStatus: 'pending', isApproved: false }));
   await assertFails(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER), { totalEarnings: 99999 }));
 });
 
@@ -96,7 +98,7 @@ test('customers cannot edit drivers or write ratings directly (rateDriver functi
   await assertFails(updateDoc(doc(db(CUSTOMER), 'Drivers', DRIVER), { ratings: [5, 4], averageRating: 4.5, totalRatings: 2 }));
   await assertFails(updateDoc(doc(db(CUSTOMER), 'Drivers', DRIVER), { isApproved: false }));
   await assertFails(setDoc(doc(db(CUSTOMER), 'driverRatings', `ride1_${CUSTOMER}`), { rating: 5, driverId: DRIVER, customerId: CUSTOMER }));
-  await assertFails(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER), { averageRating: 5 }));
+  await assertFails(updateDoc(doc(db(DRIVER), 'Drivers', DRIVER), { averageRating: 4.9 }));  // seeded at 5
 });
 
 test('driver can query online drivers (assignment)', async () => {
@@ -263,7 +265,7 @@ test('customer can order a valid delivery', async () => {
 test('delivery needs a valid package', async () => {
   await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ package: { ...pkg, size: 'énorme' } })));
   await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ package: { ...pkg, recipientName: '' } })));
-  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ package: { ...pkg, payer: 'recipient' } })));
+  await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ package: { ...pkg, payer: 'someone' } })));  // 'recipient' is allowed
   await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ package: { ...pkg, extra: 1 } })));
   await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ package: null })));
   await assertFails(addDoc(collection(db(CUSTOMER), 'rideRequests'), delivery({ serviceType: 'food' })));
